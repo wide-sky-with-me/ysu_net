@@ -12,7 +12,9 @@ fi
 
 PY="${YSU_NET_PYTHON:-}"
 if [[ -z "$PY" ]]; then
-  if command -v python3 >/dev/null 2>&1; then
+  if [[ -x "$NET_DIR/.venv/bin/python" ]]; then
+    PY="$NET_DIR/.venv/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then
     PY="python3"
   else
     PY="python"
@@ -43,9 +45,17 @@ echo "[INFO] daemon started: login_script=$LOGIN_SCRIPT service=$SERVICE_NAME in
 while true; do
   ts="$(date '+%F %T')"
 
-  if "$PY" "$LOGIN_SCRIPT" status >/dev/null 2>&1; then
+  status_code=0
+  "$PY" "$LOGIN_SCRIPT" status >/dev/null 2>&1 || status_code=$?
+  if (( status_code == 0 )); then
     echo "[$ts] online"
     sleep "$CHECK_INTERVAL_SEC"
+    continue
+  fi
+
+  if (( status_code != 1 )); then
+    echo "[$ts] status unknown (exit=$status_code) -> retry without login"
+    sleep "$RETRY_SLEEP_SEC"
     continue
   fi
 

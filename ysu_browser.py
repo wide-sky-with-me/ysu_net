@@ -37,6 +37,16 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
+from ysu_common import (
+    InteractionRequired,
+    OperationFailed,
+    QueryError,
+    check_action,
+    managed_resources,
+    online_state,
+    track_resource,
+)
+
 from playwright.sync_api import sync_playwright
 
 
@@ -86,7 +96,7 @@ URLS = Urls(
 
 VERSION_TAG = os.getenv("YSU_VERSION", "this is a git-commit").strip()
 
-VERIFY_TLS = os.getenv("YSU_VERIFY_TLS", "0").strip().lower() in ("1", "true", "yes")
+VERIFY_TLS = os.getenv("YSU_VERIFY_TLS", "1").strip().lower() in ("1", "true", "yes")
 SAVE_DEBUG_FILES = os.getenv("YSU_SAVE_DEBUG_FILES", "0").strip().lower() in (
     "1",
     "true",
@@ -311,7 +321,8 @@ def get_online_info(ctx_request, session_id: str, debug: bool) -> Optional[dict]
     )
     st, data = api_get_json(ctx_request, url, debug=debug)
     if st != 200 or not isinstance(data, dict):
-        return None
+        raise QueryError(f"在线状态查询失败（HTTP {st}）")
+    online_state(data)
     return data
 
 
@@ -321,12 +332,8 @@ def get_account_info(ctx_request, session_id: str, debug: bool) -> tuple[int, An
     )
 
 
-def is_online(online_info: Optional[dict]) -> bool:
-    try:
-        pu = online_info["data"]["portalOnlineUserInfo"]
-        return pu.get("result") == "success"
-    except Exception:
-        return False
+def is_online(online_info) -> bool:
+    return online_state(online_info)
 
 
 def online_fields(online_info: dict) -> dict:
@@ -564,11 +571,14 @@ def open_portal_and_get_session(debug: bool, headed: bool):
     打开 portal，拿到 sessionId，并返回 (Session, (playwright, browser), context, page)
     """
     p = sync_playwright().start()
+    track_resource(p.stop)
     browser = p.chromium.launch(headless=(not headed))
+    track_resource(browser.close)
     ctx_kwargs: dict[str, Any] = {"ignore_https_errors": (not VERIFY_TLS)}
     if PORTAL_USER_AGENT:
         ctx_kwargs["user_agent"] = PORTAL_USER_AGENT
     ctx = browser.new_context(**ctx_kwargs)
+    track_resource(ctx.close)
     page = ctx.new_page()
 
     sniffer = SessionSniffer(debug=debug)
@@ -579,9 +589,6 @@ def open_portal_and_get_session(debug: bool, headed: bool):
 
     sid = obtain_session_id(page, sniffer)
     if not sid:
-        ctx.close()
-        browser.close()
-        p.stop()
         raise RuntimeError("无法获取 sessionId（建议加 --debug 查看请求链路）。")
 
     dprint(debug, f"[INFO] sessionId={sid}")
@@ -655,7 +662,7 @@ def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
 
     block_reason = _detect_cas_block_reason(page)
     if block_reason == "IP被冻结":
-        if debug:
+        if debug and SAVE_DEBUG_FILES:
             try:
                 html = page.content()
                 with open("cas_blocked.html", "w", encoding="utf-8") as f:
@@ -664,7 +671,7 @@ def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
                 print("[DEBUG] saved cas_blocked.html / cas_blocked.png")
             except Exception:
                 pass
-        raise RuntimeError(
+        raise InteractionRequired(
             "CAS 页面提示“IP被冻结”，导致找不到登录输入框。请稍后再试，或换网络/联系管理员解除。"
         )
 
@@ -681,7 +688,7 @@ def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
         )
         _first_locator_in_any_frame(page, submit_sel).click(timeout=ACTION_TIMEOUT)
     except Exception as e:
-        if debug:
+        if debug and SAVE_DEBUG_FILES:
             try:
                 html = page.content()
                 with open("cas_ui_fail.html", "w", encoding="utf-8") as f:
@@ -699,6 +706,7 @@ def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
         pass
 
 
+@managed_resources
 def cmd_login(
     service: str, user: str, pwd: str, debug: bool, max_wait: int, headed: bool
 ) -> None:
@@ -719,9 +727,6 @@ def cmd_login(
         # 在线的话也尽量带上 account
         _, acc = get_account_info(ctx.request, sid, debug=debug)
         print(format_info(online, acc))
-        ctx.close()
-        browser.close()
-        p.stop()
         return
 
     node = get_current_node(ctx.request, sid, debug=debug)
@@ -745,24 +750,26 @@ def cmd_login(
     # serviceSelection -> 上线
     node = get_current_node(ctx.request, sid, debug=debug)
     dprint(debug, f"[INFO] after CAS node={node}")
+    if node == "authenticate":
+        raise InteractionRequired("统一认证后仍要求登录，请检查账号密码、验证码或风控状态")
 
     if node == "serviceSelection":
-        st, _ = api_post_json(
+        st, response = api_post_json(
             ctx.request,
             URLS.api_service_login,
             {"sessionId": sid, "service": svc},
             debug=debug,
         )
-        dprint(debug, f"[INFO] serviceLogin status={st}")
-        st, _ = api_post_json(
+        check_action(st, response, "选择服务")
+        st, response = api_post_json(
             ctx.request, URLS.api_user_online, {"sessionId": sid}, debug=debug
         )
-        dprint(debug, f"[INFO] userOnline status={st}")
+        check_action(st, response, "上线")
 
     # 等待 online
-    deadline = time.time() + max_wait
+    deadline = time.monotonic() + max_wait
     last = None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         last = get_online_info(ctx.request, sid, debug=debug)
         if last and is_online(last):
             print("[OK] 已在线")
@@ -771,13 +778,7 @@ def cmd_login(
             break
         time.sleep(2)
     else:
-        print("[WARN] 超时仍未在线")
-        if last:
-            print(format_info(last, None))
-
-    ctx.close()
-    browser.close()
-    p.stop()
+        raise OperationFailed("登录超时，未确认在线")
 
 
 def format_info(online_info: Optional[dict], account_payload: Any) -> str:
@@ -848,6 +849,7 @@ def format_info(online_info: Optional[dict], account_payload: Any) -> str:
     return "\n".join(lines)
 
 
+@managed_resources
 def cmd_info(debug: bool, raw: bool, headed: bool) -> None:
     session, (p, browser), ctx, _page = open_portal_and_get_session(
         debug=debug, headed=headed
@@ -867,11 +869,8 @@ def cmd_info(debug: bool, raw: bool, headed: bool) -> None:
     else:
         print(format_info(online, acc))
 
-    ctx.close()
-    browser.close()
-    p.stop()
 
-
+@managed_resources
 def cmd_status(debug: bool, raw: bool, headed: bool) -> bool:
     session, (p, browser), ctx, _page = open_portal_and_get_session(
         debug=debug, headed=headed
@@ -884,12 +883,10 @@ def cmd_status(debug: bool, raw: bool, headed: bool) -> bool:
         print(json.dumps(out, ensure_ascii=False, indent=2))
     else:
         print("online" if ok else "offline")
-    ctx.close()
-    browser.close()
-    p.stop()
     return ok
 
 
+@managed_resources
 def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
     session, (p, browser), ctx, page = open_portal_and_get_session(
         debug=debug, headed=headed
@@ -900,9 +897,6 @@ def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
     if not (online and is_online(online)):
         print("[OK] 当前已离线")
         print(format_info(online, None))
-        ctx.close()
-        browser.close()
-        p.stop()
         return
 
     # ✅ 优先走真实 API 下线
@@ -914,16 +908,13 @@ def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
     dump_cookies(ctx, "after_offline", debug=debug)
 
     # 轮询直到离线
-    deadline = time.time() + max_wait
+    deadline = time.monotonic() + max_wait
     last = None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         last = get_online_info(ctx.request, sid, debug=debug)
         if last and (not is_online(last)):
             print("[OK] 已下线")
             print(format_info(last, None))
-            ctx.close()
-            browser.close()
-            p.stop()
             return
         time.sleep(2)
 
@@ -938,8 +929,8 @@ def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
         page.wait_for_timeout(300)
         page.get_by_text("确定", exact=False).first.click(timeout=ACTION_TIMEOUT)
 
-        deadline = time.time() + max_wait
-        while time.time() < deadline:
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
             last = get_online_info(ctx.request, sid, debug=debug)
             if last and (not is_online(last)):
                 print("[OK] 已下线（UI 兜底成功）")
@@ -947,15 +938,9 @@ def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
                 break
             time.sleep(2)
         else:
-            print("[WARN] 仍显示在线（可能网关侧有延迟或会话异常）")
-            if last:
-                print(format_info(last, None))
+            raise OperationFailed("下线超时，仍显示在线")
     except Exception as e:
-        print(f"[ERROR] UI 兜底失败：{e}")
-
-    ctx.close()
-    browser.close()
-    p.stop()
+        raise OperationFailed("UI 下线失败") from e
 
 
 class YsuNetBrowserClient:
@@ -1022,7 +1007,7 @@ def build_parser() -> argparse.ArgumentParser:
     ):
         pass
 
-    # 通用参数：parent parser 让子命令也能识别（支持：info --debug）
+    # 通用参数放在子命令后（例如：info --debug）
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "-u",
@@ -1033,7 +1018,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "-p",
         "--password",
-        default=os.getenv("YSU_PASS", "").strip(),
+        default=os.getenv("YSU_PASS", ""),
         help="密码（默认读 YSU_PASS）",
     )
     common.add_argument("--debug", action="store_true", help="输出更多日志")
@@ -1072,7 +1057,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="verify_tls",
         action="store_true",
         default=None,
-        help="启用 TLS 证书校验（默认关闭）",
+        help="启用 TLS 证书校验（默认开启）",
     )
     common.add_argument(
         "--no-verify-tls",
@@ -1119,8 +1104,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python ysu_browser.py logout --debug\n"
             "\n"
             "Tips:\n"
-            "  - 通用参数 --debug/--raw/--headed 既可以写在子命令前，也可以写在子命令后。\n"
-            "    例如：python ysu_browser.py --debug info  或  python ysu_browser.py info --debug\n"
+            "  - 通用参数 --debug/--raw/--headed 放在子命令后。\n"
+            "    例如：python ysu_browser.py info --debug\n"
         ),
     )
 
@@ -1330,7 +1315,8 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[EXIT] cancelled")
+        print("\n[EXIT] cancelled", file=sys.stderr)
+        sys.exit(130)
     except Exception as e:
-        print(f"[ERROR] {e}")
-        sys.exit(1)
+        print(f"[ERROR] {e}", file=sys.stderr)
+        sys.exit(getattr(e, "exit_code", 2))

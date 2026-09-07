@@ -28,6 +28,16 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
+from ysu_common import (
+    InteractionRequired,
+    OperationFailed,
+    QueryError,
+    check_action,
+    managed_resources,
+    online_state,
+    track_resource,
+)
+
 import requests
 import urllib3
 
@@ -106,7 +116,7 @@ PORTAL_USER_AGENT = os.getenv(
 
 VERSION_TAG = os.getenv("YSU_VERSION", "this is a git-commit").strip()
 
-VERIFY_TLS = os.getenv("YSU_VERIFY_TLS", "0").strip().lower() in ("1", "true", "yes")
+VERIFY_TLS = os.getenv("YSU_VERIFY_TLS", "1").strip().lower() in ("1", "true", "yes")
 SAVE_DEBUG_FILES = os.getenv("YSU_SAVE_DEBUG_FILES", "0").strip().lower() in (
     "1",
     "true",
@@ -507,6 +517,8 @@ def cas_login(
     )
 
     if need_cap:
+        if not sys.stdin.isatty():
+            raise InteractionRequired("需要验证码，请在终端手动登录后再启动自动重连")
         img, img_url = _probe_captcha_image(sess, debug=debug)
         cap_path = os.path.abspath("captcha.png")
         with open(cap_path, "wb") as f:
@@ -565,12 +577,14 @@ def cas_login(
         print(f"[CAS] POST status={r2.status_code} loc={loc}")
 
     if r2.status_code not in (301, 302, 303, 307, 308) or not loc:
+        if r2.status_code == 429 or r2.status_code >= 500:
+            raise QueryError(f"CAS 服务暂时不可用（HTTP {r2.status_code}），稍后重试")
         body = (r2.content or b"").decode("utf-8", errors="replace")
         _save_debug_text(debug, "cas_after_post.html", body)
         msg = _extract_cas_error_msg(body)
-        raise RuntimeError(
+        raise InteractionRequired(
             f"CAS 登录失败：POST 未重定向。HTTP={r2.status_code} "
-            + (f"提示：{msg}" if msg else f"body_head={body[:200]}")
+            + (f"提示：{msg}" if msg else "请检查账号、密码或风控状态")
         )
 
     # 手动跟随重定向回 auth1
@@ -644,6 +658,7 @@ def _extract_next_url_from_124(html: str, base_url: str) -> str | None:
 
 def _new_portal_session() -> requests.Session:
     sess = requests.Session()
+    track_resource(sess.close)
     sess.verify = VERIFY_TLS
     sess.headers.update(
         {
@@ -840,7 +855,8 @@ def get_online_info(
     )
     st, data = api_get_json(sess, url, debug=debug, referer=referer)
     if st != 200 or not isinstance(data, dict):
-        return None
+        raise QueryError(f"在线状态查询失败（HTTP {st}）")
+    online_state(data)
     return data
 
 
@@ -852,12 +868,8 @@ def get_account_info(
     )
 
 
-def is_online(online_info: dict | None) -> bool:
-    try:
-        pu = online_info["data"]["portalOnlineUserInfo"]
-        return pu.get("result") == "success"
-    except Exception:
-        return False
+def is_online(online_info) -> bool:
+    return online_state(online_info)
 
 
 def online_fields(online_info: dict) -> dict:
@@ -977,6 +989,7 @@ def format_info(online_info: dict | None, account_payload: Any) -> str:
     return "\n".join(lines)
 
 
+@managed_resources
 def cmd_login(service: str, user: str, pwd: str, debug: bool, max_wait: int) -> None:
     svc = normalize_service(service)
     if not svc:
@@ -1013,23 +1026,25 @@ def cmd_login(service: str, user: str, pwd: str, debug: bool, max_wait: int) -> 
 
         node = get_current_node(sess, sid, debug=debug)
         dprint(debug, f"[INFO] after CAS node={node}")
+        if node == "authenticate":
+            raise InteractionRequired("统一认证后仍要求登录，请检查账号密码、验证码或风控状态")
 
     if node == "serviceSelection":
-        st, _ = api_post_json(
+        st, response = api_post_json(
             sess,
             URLS.api_service_login,
             {"sessionId": sid, "service": svc},
             debug=debug,
         )
-        dprint(debug, f"[INFO] serviceLogin status={st}")
-        st, _ = api_post_json(
+        check_action(st, response, "选择服务")
+        st, response = api_post_json(
             sess, URLS.api_user_online, {"sessionId": sid}, debug=debug
         )
-        dprint(debug, f"[INFO] userOnline status={st}")
+        check_action(st, response, "上线")
 
-    deadline = time.time() + max_wait
+    deadline = time.monotonic() + max_wait
     last = None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         last = get_online_info(sess, sid, debug=debug)
         if last and is_online(last):
             print("[OK] 已在线")
@@ -1038,11 +1053,10 @@ def cmd_login(service: str, user: str, pwd: str, debug: bool, max_wait: int) -> 
             return
         time.sleep(2)
 
-    print("[WARN] 超时仍未在线")
-    if last:
-        print(format_info(last, None))
+    raise OperationFailed("登录超时，未确认在线")
 
 
+@managed_resources
 def cmd_info(debug: bool, raw: bool) -> None:
     ctx = open_portal_get_session(debug=debug)
     sess, sid = ctx.sess, ctx.session_id
@@ -1060,6 +1074,7 @@ def cmd_info(debug: bool, raw: bool) -> None:
         print(format_info(online, acc))
 
 
+@managed_resources
 def cmd_status(debug: bool, raw: bool) -> bool:
     ctx = open_portal_get_session(debug=debug)
     sess, sid = ctx.sess, ctx.session_id
@@ -1201,7 +1216,7 @@ def _wait_until_offline(
     referer: str,
 ) -> dict | None:
     last = None
-    while time.time() < deadline_ts:
+    while time.monotonic() < deadline_ts:
         last = get_online_info(sess, session_id, debug=debug, referer=referer)
         if last and (not is_online(last)):
             return last
@@ -1209,6 +1224,7 @@ def _wait_until_offline(
     return last
 
 
+@managed_resources
 def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
     ctx = open_portal_get_session(debug=debug)
     sess, sid = ctx.sess, ctx.session_id
@@ -1231,12 +1247,12 @@ def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
     dprint(debug, f"[INFO] offline api status={st} resp={data}")
     dump_requests_cookies(sess, "after_offline", debug=debug)
 
-    deadline = time.time() + max_wait
+    deadline = time.monotonic() + max_wait
     last = _wait_until_offline(
         sess,
         sid,
         debug=debug,
-        deadline_ts=min(deadline, time.time() + 6),
+        deadline_ts=min(deadline, time.monotonic() + 6),
         referer=finish_final,
     )
     if last and (not is_online(last)):
@@ -1271,7 +1287,7 @@ def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
                 sess,
                 sid,
                 debug=debug,
-                deadline_ts=time.time() + max_wait,
+                deadline_ts=time.monotonic() + max_wait,
                 referer=finish_final2,
             )
             if last and (not is_online(last)):
@@ -1279,9 +1295,7 @@ def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
                 print(format_info(last, None))
                 return
 
-    print("[WARN] 下线请求已发出，但在限定时间内仍显示在线")
-    if last:
-        print(format_info(last, None))
+    raise OperationFailed("下线超时，仍显示在线")
 
 
 class YsuNetApiClient:
@@ -1359,7 +1373,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "-p",
         "--password",
-        default=os.getenv("YSU_PASS", "").strip(),
+        default=os.getenv("YSU_PASS", ""),
         help="密码（默认读 YSU_PASS）",
     )
     common.add_argument("--debug", action="store_true", help="输出更多日志")
@@ -1398,7 +1412,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="verify_tls",
         action="store_true",
         default=None,
-        help="启用 TLS 证书校验（默认关闭）",
+        help="启用 TLS 证书校验（默认开启）",
     )
     common.add_argument(
         "--no-verify-tls",
@@ -1624,7 +1638,8 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[EXIT] cancelled")
+        print("\n[EXIT] cancelled", file=sys.stderr)
+        sys.exit(130)
     except Exception as e:
-        print(f"[ERROR] {e}")
-        sys.exit(1)
+        print(f"[ERROR] {e}", file=sys.stderr)
+        sys.exit(getattr(e, "exit_code", 2))
