@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# ysu_browser.py
 """
 燕山大学校园网登录（auth1.ysu.edu.cn）
 
@@ -16,10 +15,10 @@
   export YSU_USER="******"
   export YSU_PASS="******"
 
-  python ysu_browser.py login --service 校园网 --debug
-  python ysu_browser.py info --debug
-  python ysu_browser.py info --raw
-  python ysu_browser.py logout --debug
+  python -m ysu_net.auth.browser login --service 校园网 --debug
+  python -m ysu_net.auth.browser info --debug
+  python -m ysu_net.auth.browser info --raw
+  python -m ysu_net.auth.browser logout --debug
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
-from ysu_common import (
+from ysu_net.auth.common import (
     InteractionRequired,
     OperationFailed,
     QueryError,
@@ -788,7 +787,7 @@ def format_info(online_info: Optional[dict], account_payload: Any) -> str:
     f = online_fields(online_info)
     if f.get("result") != "success":
         msg = f.get("message")
-        return f"离线：{msg or 'dx.failed.user.offline'}\n提示：请先运行 `python ysu_browser.py login` 登录上网。"
+        return f"离线：{msg or 'dx.failed.user.offline'}\n提示：请先运行 `python -m ysu_net.auth.browser login` 登录上网。"
 
     acc = (
         summarize_account_payload(account_payload)
@@ -1083,7 +1082,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     ap = argparse.ArgumentParser(
-        prog="ysu_browser.py",
+        prog="python -m ysu_net.auth.browser",
         formatter_class=NiceFormatter,
         description="燕山大学校园网登录脚本（auth1.ysu.edu.cn）——Playwright 无头浏览器版",
         epilog=(
@@ -1091,21 +1090,21 @@ def build_parser() -> argparse.ArgumentParser:
             "  # 1) 登录上线\n"
             "  export YSU_USER='******'\n"
             "  export YSU_PASS='******'\n"
-            "  python ysu_browser.py login --service 校园网\n"
-            "  python ysu_browser.py login --service 校园网 --debug\n"
+            "  python -m ysu_net.auth.browser login --service 校园网\n"
+            "  python -m ysu_net.auth.browser login --service 校园网 --debug\n"
             "\n"
             "  # 2) 查询信息（离线提示/在线输出账户信息）\n"
-            "  python ysu_browser.py info\n"
-            "  python ysu_browser.py info --debug\n"
-            "  python ysu_browser.py info --raw\n"
+            "  python -m ysu_net.auth.browser info\n"
+            "  python -m ysu_net.auth.browser info --debug\n"
+            "  python -m ysu_net.auth.browser info --raw\n"
             "\n"
             "  # 3) 下线\n"
-            "  python ysu_browser.py logout\n"
-            "  python ysu_browser.py logout --debug\n"
+            "  python -m ysu_net.auth.browser logout\n"
+            "  python -m ysu_net.auth.browser logout --debug\n"
             "\n"
             "Tips:\n"
             "  - 通用参数 --debug/--raw/--headed 放在子命令后。\n"
-            "    例如：python ysu_browser.py info --debug\n"
+            "    例如：python -m ysu_net.auth.browser info --debug\n"
         ),
     )
 
@@ -1120,9 +1119,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=NiceFormatter,
         epilog=(
             "Examples:\n"
-            "  python ysu_browser.py login --service 校园网\n"
-            "  python ysu_browser.py login --service 校园网 --debug\n"
-            "  python ysu_browser.py login --service 校园网 --headed --debug\n"
+            "  python -m ysu_net.auth.browser login --service 校园网\n"
+            "  python -m ysu_net.auth.browser login --service 校园网 --debug\n"
+            "  python -m ysu_net.auth.browser login --service 校园网 --headed --debug\n"
         ),
     )
     p_login.add_argument(
@@ -1139,9 +1138,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=NiceFormatter,
         epilog=(
             "Examples:\n"
-            "  python ysu_browser.py info\n"
-            "  python ysu_browser.py info --debug\n"
-            "  python ysu_browser.py info --raw\n"
+            "  python -m ysu_net.auth.browser info\n"
+            "  python -m ysu_net.auth.browser info --debug\n"
+            "  python -m ysu_net.auth.browser info --raw\n"
         ),
     )
 
@@ -1158,7 +1157,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="下线",
         formatter_class=NiceFormatter,
         epilog=(
-            "Examples:\n  python ysu_browser.py logout\n  python ysu_browser.py logout --debug\n"
+            "Examples:\n  python -m ysu_net.auth.browser logout\n  python -m ysu_net.auth.browser logout --debug\n"
         ),
     )
     p_logout.add_argument("--max-wait", type=int, default=30)

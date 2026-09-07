@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from .backend import ROOT
+from ysu_net.paths import PROJECT_ROOT as ROOT
 from .config import Config, config_path, save_config
 from .locking import exclusive_config
 from .service import UNIT, render_unit, systemctl, unit_path
@@ -30,7 +30,7 @@ def write_owned(path, text, mode):
 
 
 def wrapper(scope, alias=None):
-    command = [str(ROOT / ".venv/bin/python"), str(ROOT / "ysu.py"), "--scope", scope]
+    command = [str(ROOT / ".venv/bin/python"), "-m", "ysu_net", "--scope", scope]
     if alias:
         command.append(alias)
     return "#!/usr/bin/env bash\n" + MARKER + "\nexec " + shlex.join(command) + ' "$@"\n'

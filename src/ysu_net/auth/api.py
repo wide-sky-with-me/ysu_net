@@ -7,9 +7,8 @@
   info   : 查看在线状态 + 账户信息
   logout : 调用 /eportal/network/offline 下线
 
-依赖：
-  pip install requests
-  pip install pycryptodome  # 仅 login 需要
+运行：
+  uv run python -m ysu_net.auth.api login --service 校园网
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
-from ysu_common import (
+from ysu_net.auth.common import (
     InteractionRequired,
     OperationFailed,
     QueryError,
@@ -932,7 +931,7 @@ def format_info(online_info: dict | None, account_payload: Any) -> str:
     f = online_fields(online_info)
     if f.get("result") != "success":
         msg = f.get("message")
-        return f"离线：{msg or 'dx.failed.user.offline'}\n提示：请先运行 `python ysu_api.py login` 登录上网。"
+        return f"离线：{msg or 'dx.failed.user.offline'}\n提示：请先运行 `python -m ysu_net.auth.api login` 登录上网。"
 
     acc = (
         summarize_account_payload(account_payload)
@@ -1441,7 +1440,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     ap = argparse.ArgumentParser(
-        prog="ysu_api.py",
+        prog="python -m ysu_net.auth.api",
         formatter_class=NiceFormatter,
         description="燕山大学校园网登录脚本（auth1.ysu.edu.cn）——纯 requests 版",
     )

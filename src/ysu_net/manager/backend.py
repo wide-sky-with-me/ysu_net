@@ -1,13 +1,12 @@
 from dataclasses import dataclass
 import os
-from pathlib import Path
 import subprocess
 import sys
 import signal
 import time
 
 
-ROOT = Path(__file__).resolve().parent.parent
+from ysu_net.paths import PROJECT_ROOT as ROOT
 MESSAGES = {
     0: "操作成功",
     1: "离线",
@@ -39,7 +38,7 @@ def _kill_process_group(process):
 def run_backend(config, action, *, interactive=False, raw=False, stop_event=None):
     if action == "login" and not (config.username and config.password):
         return Result(4)
-    command = [sys.executable, str(ROOT / f"ysu_{config.backend}.py"), action]
+    command = [sys.executable, "-m", f"ysu_net.auth.{config.backend}", action]
     if action == "login":
         command += ["--service", config.service, "--max-wait", "60"]
     elif action == "logout":

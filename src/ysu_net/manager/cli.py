@@ -10,7 +10,7 @@ import stat
 import subprocess
 import sys
 
-from .backend import ROOT, run_backend
+from .backend import run_backend
 from .config import Config, SERVICES, config_path, load_config, public_config, save_config
 from .daemon import run_daemon
 from .locking import exclusive_config

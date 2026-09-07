@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
-import ysu_api as api
-from ysu_common import InteractionRequired, OperationFailed, QueryError, online_state
+from ysu_net.auth import api
+from ysu_net.auth.common import InteractionRequired, OperationFailed, QueryError, online_state
 from tests.helpers import OFFLINE, ONLINE, OfflineTestCase
 
 
@@ -18,8 +18,8 @@ class ProtocolTests(OfflineTestCase):
         sess = Mock(spec=requests.Session)
         sess.headers = {}
         sess.cookies = requests.cookies.RequestsCookieJar()
-        self.mock("ysu_api.requests.Session", return_value=sess)
-        self.mock("ysu_api._portal_api_headers", return_value={})
+        self.mock("ysu_net.auth.api.requests.Session", return_value=sess)
+        self.mock("ysu_net.auth.api._portal_api_headers", return_value={})
         return sess
 
     def test_recognized_states(self):
@@ -55,13 +55,13 @@ class ProtocolTests(OfflineTestCase):
     def context(self):
         sess = self.session()
         context = SimpleNamespace(sess=sess, session_id="sid", last_url="https://auth1.ysu.edu.cn/?sessionId=sid")
-        self.mock("ysu_api.open_portal_get_session", return_value=context)
+        self.mock("ysu_net.auth.api.open_portal_get_session", return_value=context)
         return sess
 
     def test_status_raw_and_exit_code(self):
         sess = self.context()
         sess.get.return_value = self.response(OFFLINE)
-        self.mock("sys.argv", new=["ysu_api.py", "status", "--raw"])
+        self.mock("sys.argv", new=["ysu_net.auth.api.py", "status", "--raw"])
         with self.assertRaises(SystemExit) as exc:
             api.main()
         self.assertEqual(exc.exception.code, 1)
@@ -84,7 +84,7 @@ class ProtocolTests(OfflineTestCase):
         sess = self.context()
         sess.get.return_value = self.response(ONLINE)
         sess.post.return_value = self.response({})
-        cas = self.mock("ysu_api.cas_login")
+        cas = self.mock("ysu_net.auth.api.cas_login")
         api.cmd_login("校园网", "user", "password", False, 5)
         cas.assert_not_called()
         self.assertEqual(sess.post.call_count, 1)
@@ -114,29 +114,29 @@ class ProtocolTests(OfflineTestCase):
 
     def test_logout_verifies_offline(self):
         self.context()
-        self.mock("ysu_api.get_online_info", side_effect=[ONLINE, ONLINE, OFFLINE])
-        self.mock("ysu_api._prepare_logout_context", return_value="https://example.invalid/finish")
-        post = self.mock("ysu_api._post_offline", return_value=(200, {}))
+        self.mock("ysu_net.auth.api.get_online_info", side_effect=[ONLINE, ONLINE, OFFLINE])
+        self.mock("ysu_net.auth.api._prepare_logout_context", return_value="https://example.invalid/finish")
+        post = self.mock("ysu_net.auth.api._post_offline", return_value=(200, {}))
         api.cmd_logout(False, 5, "", "")
         post.assert_called_once()
         self.assertIn("已下线", self.output.getvalue())
 
     def test_logout_timeout_is_failure(self):
         self.context()
-        self.mock("ysu_api.get_online_info", return_value=ONLINE)
-        self.mock("ysu_api._prepare_logout_context", return_value="https://example.invalid/finish")
-        self.mock("ysu_api._post_offline", return_value=(200, {}))
+        self.mock("ysu_net.auth.api.get_online_info", return_value=ONLINE)
+        self.mock("ysu_net.auth.api._prepare_logout_context", return_value="https://example.invalid/finish")
+        self.mock("ysu_net.auth.api._post_offline", return_value=(200, {}))
         with self.assertRaises(OperationFailed):
             api.cmd_logout(False, 0, "", "")
 
     def test_captcha_in_daemon_requires_interaction(self):
         sess = self.session()
         sess.get.return_value = SimpleNamespace(content=b"login", url="https://cer.ysu.edu.cn/login")
-        self.mock("ysu_api._get_cas_login_url_via_clientredirect", return_value="https://cer.ysu.edu.cn/login")
-        self.mock("ysu_api._extract_pwd_salt", return_value="0123456789abcdef")
-        self.mock("ysu_api._check_need_captcha", return_value=True)
+        self.mock("ysu_net.auth.api._get_cas_login_url_via_clientredirect", return_value="https://cer.ysu.edu.cn/login")
+        self.mock("ysu_net.auth.api._extract_pwd_salt", return_value="0123456789abcdef")
+        self.mock("ysu_net.auth.api._check_need_captcha", return_value=True)
         self.mock("sys.stdin", new=io.StringIO())
-        image = self.mock("ysu_api._probe_captcha_image")
+        image = self.mock("ysu_net.auth.api._probe_captcha_image")
         with self.assertRaises(InteractionRequired):
             api.cas_login(sess, "user", "password", False)
         image.assert_not_called()
@@ -174,7 +174,7 @@ class ProtocolTests(OfflineTestCase):
             headers={} if rejected else {"Location": "https://auth1.ysu.edu.cn/finish?ticket=mock-ticket"},
             url=login_url, content=b'<span id="msg">bad credentials</span>',
         )
-        self.mock("ysu_api._check_need_captcha", return_value=False)
+        self.mock("ysu_net.auth.api._check_need_captcha", return_value=False)
         return sess
 
     def test_cas_redirect_form_encryption_and_ticket_return(self):
@@ -200,13 +200,13 @@ class ProtocolTests(OfflineTestCase):
             api.cas_login(sess, "mock-user", "password", False)
 
     def test_script_maps_operation_failure_to_exit_three(self):
-        self.mock("ysu_common.online_state", side_effect=OperationFailed("mock operation failure"))
+        self.mock("ysu_net.auth.common.online_state", side_effect=OperationFailed("mock operation failure"))
         sess = self.session()
         sess.get.return_value = SimpleNamespace(
             history=[], url="https://auth1.ysu.edu.cn/?sessionId=sid", text="", status_code=200,
             json=lambda: ONLINE,
         )
-        self.mock("sys.argv", new=["ysu_api.py", "status"])
+        self.mock("sys.argv", new=["ysu_net.auth.api.py", "status"])
         with self.assertRaises(SystemExit) as exc:
             runpy.run_path(str(api.__file__), run_name="__main__")
         self.assertEqual(exc.exception.code, 3)
@@ -216,17 +216,17 @@ class BrowserTests(OfflineTestCase):
     def setUp(self):
         super().setUp()
         try:
-            import ysu_browser
+            from ysu_net.auth import browser
         except ImportError:
             self.skipTest("需要 browser 可选依赖")
-        self.browser = ysu_browser
+        self.browser = browser
 
     def test_navigation_failure_closes_all_resources(self):
         playwright = Mock()
         browser = playwright.chromium.launch.return_value
         context = browser.new_context.return_value
-        self.mock("ysu_browser.sync_playwright").return_value.start.return_value = playwright
-        self.mock("ysu_browser.safe_goto", side_effect=RuntimeError("mock navigation error"))
+        self.mock("ysu_net.auth.browser.sync_playwright").return_value.start.return_value = playwright
+        self.mock("ysu_net.auth.browser.safe_goto", side_effect=RuntimeError("mock navigation error"))
         with self.assertRaises(RuntimeError):
             self.browser.cmd_info(False, False, False)
         context.close.assert_called_once()
@@ -236,7 +236,7 @@ class BrowserTests(OfflineTestCase):
     def test_launch_failure_stops_playwright(self):
         playwright = Mock()
         playwright.chromium.launch.side_effect = RuntimeError("missing browser")
-        self.mock("ysu_browser.sync_playwright").return_value.start.return_value = playwright
+        self.mock("ysu_net.auth.browser.sync_playwright").return_value.start.return_value = playwright
         with self.assertRaises(RuntimeError):
             self.browser.cmd_status(False, False, False)
         playwright.stop.assert_called_once()
@@ -251,16 +251,16 @@ class BrowserTests(OfflineTestCase):
     def browser_context(self):
         context = Mock()
         page = Mock(url="https://cer.ysu.edu.cn/authserver/login")
-        self.mock("ysu_browser.open_portal_and_get_session", return_value=(SimpleNamespace(session_id="sid"), (Mock(), Mock()), context, page))
+        self.mock("ysu_net.auth.browser.open_portal_and_get_session", return_value=(SimpleNamespace(session_id="sid"), (Mock(), Mock()), context, page))
         return context
 
     def test_browser_login_authenticates_selects_service_and_verifies_online(self):
         self.browser_context()
-        self.mock("ysu_browser.get_online_info", side_effect=[OFFLINE, ONLINE])
-        self.mock("ysu_browser.get_current_node", side_effect=["authenticate", "serviceSelection"])
-        ui_login = self.mock("ysu_browser.ui_cas_login")
-        post = self.mock("ysu_browser.api_post_json", return_value=(200, {"result": "success"}))
-        self.mock("ysu_browser.get_account_info", return_value=(200, {}))
+        self.mock("ysu_net.auth.browser.get_online_info", side_effect=[OFFLINE, ONLINE])
+        self.mock("ysu_net.auth.browser.get_current_node", side_effect=["authenticate", "serviceSelection"])
+        ui_login = self.mock("ysu_net.auth.browser.ui_cas_login")
+        post = self.mock("ysu_net.auth.browser.api_post_json", return_value=(200, {"result": "success"}))
+        self.mock("ysu_net.auth.browser.get_account_info", return_value=(200, {}))
         self.browser.cmd_login("校园网", "mock-user", "password", False, 5, False)
         ui_login.assert_called_once()
         self.assertEqual([c.args[1] for c in post.call_args_list], [self.browser.URLS.api_service_login, self.browser.URLS.api_user_online])
@@ -268,23 +268,23 @@ class BrowserTests(OfflineTestCase):
 
     def test_browser_authentication_remaining_on_login_requires_intervention(self):
         self.browser_context()
-        self.mock("ysu_browser.get_online_info", return_value=OFFLINE)
-        self.mock("ysu_browser.get_current_node", return_value="authenticate")
-        self.mock("ysu_browser.ui_cas_login")
+        self.mock("ysu_net.auth.browser.get_online_info", return_value=OFFLINE)
+        self.mock("ysu_net.auth.browser.get_current_node", return_value="authenticate")
+        self.mock("ysu_net.auth.browser.ui_cas_login")
         with self.assertRaises(InteractionRequired):
             self.browser.cmd_login("校园网", "mock-user", "password", False, 5, False)
 
     def test_browser_login_timeout_is_failure(self):
         self.browser_context()
-        self.mock("ysu_browser.get_online_info", return_value=OFFLINE)
-        self.mock("ysu_browser.get_current_node", return_value="unknown")
-        self.mock("ysu_browser.ui_cas_login")
+        self.mock("ysu_net.auth.browser.get_online_info", return_value=OFFLINE)
+        self.mock("ysu_net.auth.browser.get_current_node", return_value="unknown")
+        self.mock("ysu_net.auth.browser.ui_cas_login")
         with self.assertRaises(OperationFailed):
             self.browser.cmd_login("校园网", "mock-user", "password", False, 0, False)
 
     def test_browser_logout_verifies_offline(self):
         self.browser_context()
-        self.mock("ysu_browser.get_online_info", side_effect=[ONLINE, OFFLINE])
-        self.mock("ysu_browser.api_post_json", return_value=(200, {}))
+        self.mock("ysu_net.auth.browser.get_online_info", side_effect=[ONLINE, OFFLINE])
+        self.mock("ysu_net.auth.browser.api_post_json", return_value=(200, {}))
         self.browser.cmd_logout(False, 5, False)
         self.assertIn("已下线", self.output.getvalue())

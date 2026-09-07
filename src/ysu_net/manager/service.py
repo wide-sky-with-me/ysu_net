@@ -39,7 +39,7 @@ def quote_unit(value):
 
 def render_unit(root, config_file, scope):
     python = root / ".venv/bin/python"
-    args = [python, root / "ysu.py", "--scope", scope, "--config", config_file, "daemon"]
+    args = [python, "-m", "ysu_net", "--scope", scope, "--config", config_file, "daemon"]
     # systemd restricts executable-path characters more than argument characters.
     # A fixed env executable also handles checkouts containing spaces, quotes or $.
     command = "/usr/bin/env -- " + " ".join(quote_unit(arg).replace('$', '$$') for arg in args)

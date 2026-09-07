@@ -9,8 +9,8 @@ import subprocess
 import threading
 from unittest.mock import Mock, call, patch
 
-from ysu_manager import backend, cli, config, daemon, install, service
-from ysu_manager.backend import Result
+from ysu_net.manager import backend, cli, config, daemon, install, service
+from ysu_net.manager.backend import Result
 from tests.helpers import OfflineTestCase
 
 
@@ -103,7 +103,7 @@ class ReconnectTests(OfflineTestCase):
     def test_daemon_once_reads_config_without_network(self):
         path = self.tmp / "config.json"
         config.save_config(path, self.config)
-        runner = self.mock("ysu_manager.daemon.run_backend", return_value=Result(0))
+        runner = self.mock("ysu_net.manager.daemon.run_backend", return_value=Result(0))
         self.assertEqual(daemon.run_daemon(path, once=True), 0)
         self.assertEqual(runner.call_args.args[:2], (self.config, "status"))
 
@@ -123,8 +123,8 @@ class BackendTests(OfflineTestCase):
         self.config = config.Config(username="user", password="secret")
         self.process = Mock(pid=999999, returncode=0)
         self.process.communicate.return_value = ("online\n", "")
-        self.popen = self.mock("ysu_manager.backend.subprocess.Popen", return_value=self.process)
-        self.kill = self.mock("ysu_manager.backend.os.killpg")
+        self.popen = self.mock("ysu_net.manager.backend.subprocess.Popen", return_value=self.process)
+        self.kill = self.mock("ysu_net.manager.backend.os.killpg")
 
     def test_credentials_in_environment_only_and_stdin_closed(self):
         result = backend.run_backend(self.config, "login")
@@ -141,7 +141,7 @@ class BackendTests(OfflineTestCase):
         self.popen.assert_not_called()
 
     def test_timeout_kills_browser_process_group(self):
-        self.mock("ysu_manager.backend.time.monotonic", side_effect=[0, 181])
+        self.mock("ysu_net.manager.backend.time.monotonic", side_effect=[0, 181])
         self.assertEqual(backend.run_backend(self.config, "status").code, 3)
         self.kill.assert_called_once_with(999999, signal.SIGKILL)
         self.process.wait.assert_called_once()
@@ -168,12 +168,12 @@ class CliTests(OfflineTestCase):
         super().setUp()
         self.path = self.tmp / "config.json"
         config.save_config(self.path, config.Config(username="u", password="p"))
-        self.mock("ysu_manager.cli.config_path", return_value=self.path)
+        self.mock("ysu_net.manager.cli.config_path", return_value=self.path)
         self.unit = self.tmp / "ysu-net.service"
         self.unit.touch()
-        self.mock("ysu_manager.cli.unit_path", return_value=self.unit)
-        self.service = self.mock("ysu_manager.cli.service_action")
-        self.runner = self.mock("ysu_manager.cli.run_backend", return_value=Result(0, "online\n"))
+        self.mock("ysu_net.manager.cli.unit_path", return_value=self.unit)
+        self.service = self.mock("ysu_net.manager.cli.service_action")
+        self.runner = self.mock("ysu_net.manager.cli.run_backend", return_value=Result(0, "online\n"))
         self.mock("sys.stdin.isatty", return_value=False)
 
     def test_off_stops_reconnect_before_logout(self):
@@ -229,7 +229,7 @@ class CliTests(OfflineTestCase):
         self.assertEqual(json.loads(self.output.getvalue())["password"], "已配置")
 
     def test_doctor_is_offline_by_default(self):
-        self.mock("ysu_manager.cli.systemctl", return_value=Mock(stdout="inactive\n"))
+        self.mock("ysu_net.manager.cli.systemctl", return_value=Mock(stdout="inactive\n"))
         self.assertEqual(cli.main(["doctor"]), 0)
         self.runner.assert_not_called()
 
@@ -244,7 +244,7 @@ class CliTests(OfflineTestCase):
         self.runner.assert_not_called()
 
     def test_manual_login_cannot_race_daemon(self):
-        from ysu_manager.locking import exclusive_config
+        from ysu_net.manager.locking import exclusive_config
         with exclusive_config(self.path):
             self.assertEqual(cli.main(["login"]), 2)
         self.runner.assert_not_called()
@@ -259,12 +259,12 @@ class InstallTests(OfflineTestCase):
         self.bin = self.tmp / "bin"
         self.unit = self.tmp / "systemd/ysu-net.service"
         self.config = self.tmp / "config/config.json"
-        self.mock("ysu_manager.install.ROOT", new=self.root)
-        self.mock("ysu_manager.install.bin_dir", return_value=self.bin)
-        self.mock("ysu_manager.install.unit_path", return_value=self.unit)
-        self.mock("ysu_manager.install.config_path", return_value=self.config)
-        self.mock("ysu_manager.install.shutil.which", return_value="/usr/bin/systemctl")
-        self.systemctl = self.mock("ysu_manager.install.systemctl")
+        self.mock("ysu_net.manager.install.ROOT", new=self.root)
+        self.mock("ysu_net.manager.install.bin_dir", return_value=self.bin)
+        self.mock("ysu_net.manager.install.unit_path", return_value=self.unit)
+        self.mock("ysu_net.manager.install.config_path", return_value=self.config)
+        self.mock("ysu_net.manager.install.shutil.which", return_value="/usr/bin/systemctl")
+        self.systemctl = self.mock("ysu_net.manager.install.systemctl")
 
     def test_install_is_idempotent_and_keeps_credentials(self):
         self.assertEqual(install.main([]), 0)
@@ -326,10 +326,10 @@ class InstallTests(OfflineTestCase):
         interpreter.chmod(0o755)
         install.main(["--no-service"])
         result = subprocess.run([str(self.bin / "ysu"), "service", "中国移动"], text=True, capture_output=True, check=True)
-        self.assertEqual(result.stdout.splitlines(), [str(self.root / "ysu.py"), "--scope", "user", "service", "中国移动"])
+        self.assertEqual(result.stdout.splitlines(), ["-m", "ysu_net", "--scope", "user", "service", "中国移动"])
 
     def test_uninstall_refuses_while_foreground_daemon_holds_lock(self):
-        from ysu_manager.locking import exclusive_config
+        from ysu_net.manager.locking import exclusive_config
         install.main(["--no-service"])
         with exclusive_config(self.config), self.assertRaises(RuntimeError):
             install.main(["--uninstall"])

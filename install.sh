@@ -38,4 +38,4 @@ if (( BROWSER )); then
   fi
 fi
 printf '\n[2/2] 安装管理命令和运行配置…\n' >&2
-exec .venv/bin/python -m ysu_manager.install "${INSTALL_ARGS[@]}"
+exec .venv/bin/python -m ysu_net.manager.install "${INSTALL_ARGS[@]}"

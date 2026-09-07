@@ -12,3 +12,6 @@ cas_postdata.txt
 offline_postdata.txt
 offline_resp.txt
 124.html
+dist/
+build/
+*.egg-info/
