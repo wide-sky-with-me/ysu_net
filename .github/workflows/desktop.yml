@@ -39,6 +39,7 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then
             uv run python -m unittest discover -s tests -p "test_gui.py" -v
             uv run python -m unittest discover -s tests -p "test_system_browser.py" -v
+            uv run python -m unittest discover -s tests -p "test_node_runtime.py" -v
           else
             uv run python -m unittest discover -s tests -v
           fi
