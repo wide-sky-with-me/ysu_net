@@ -26,6 +26,8 @@ REASONS = {
     "unknown_service": "门户未返回可识别的在线服务，暂不切换连接",
     "dns": "校园网域名解析失败，请检查 DNS 配置与校内 DNS 连通性",
     "tls": "HTTPS 证书校验失败，请检查系统时间及可信证书",
+    "browser_component": "浏览器认证组件未安装：请在图形界面“设置”中下载，或改用 API 认证",
+    "browser_missing": "未找到可用浏览器：请安装 Microsoft Edge 或 Google Chrome",
 }
 
 
@@ -39,6 +41,8 @@ def failure_reason(code, error):
         (2, "NameResolutionError", "dns"),
         (2, "Temporary failure in name resolution", "dns"),
         (2, "CERTIFICATE_VERIFY_FAILED", "tls"),
+        (2, "浏览器认证组件未安装", "browser_component"),
+        (2, "未找到可用浏览器", "browser_missing"),
     )
     return next((reason for expected, signature, reason in signatures
                  if code == expected and signature in error), "")

@@ -7,8 +7,8 @@ Linux 服务器或无桌面环境继续使用 `ysu` 命令行和 systemd 服务�
 
 | 版本 | 适用环境 | 获取方式 |
 | --- | --- | --- |
-| Windows 图形界面 | Windows 10 / 11（x64） | `YSU-Net-<版本>-windows-setup.exe` 安装程序，或 `-windows-portable.zip` 免安装版 |
-| Ubuntu 图形界面 | Ubuntu 22.04 及更新（x86_64，GNOME） | `ysu-net_<版本>_amd64.deb`，或 `-linux-x86_64.tar.gz` |
+| Windows 图形界面 | Windows 10 / 11（x64） | `YSU-Net-<版本>-windows-setup.exe` 安装程序，或 `-windows-portable.zip` 免安装版（约 40 MB） |
+| Ubuntu 图形界面 | Ubuntu 22.04 及更新（x86_64，GNOME） | `ysu-net_<版本>_amd64.deb`（约 60 MB），或 `-linux-x86_64.tar.gz` |
 | Linux 无界面版 | 任意 systemd Linux / 前台运行 | `bash install.sh`，见[首页](../README.md) |
 
 安装包由 GitHub Actions 在对应系统上构建：推送 `v*` 标签后发布到 Releases，
@@ -65,9 +65,13 @@ Windows 通过当前用户注册表的 `Run` 项自启，Ubuntu 通过 `~/.confi
 
 ## 限制
 
-- 浏览器认证直接调用本机已安装的 Microsoft Edge 或 Google Chrome（无窗口运行），不需要额外下载 Chromium。
-  Windows 10 / 11 自带 Edge；Ubuntu 需要安装 Chrome 或 Edge 的 .deb 版本，Snap 版 Chromium 受沙箱限制无法使用，Firefox 不支持。
-  也可以用环境变量 `YSU_BROWSER_PATH` 指定浏览器路径。
+- 默认的 API 认证不需要任何额外组件。浏览器认证只在 API 认证异常时才需要，它会：
+  - 调用本机已安装的 Microsoft Edge 或 Google Chrome（在后台无窗口运行），不需要下载 Chromium。
+    Windows 10 / 11 自带 Edge；Ubuntu 需要安装 Chrome 或 Edge 的 .deb 版本，Snap 版 Chromium 受沙箱限制无法使用，Firefox 不支持。
+    也可以用环境变量 `YSU_BROWSER_PATH` 指定浏览器路径。
+  - 首次在“设置”中选择浏览器认证时，下载约 30 MB 的 Node.js 运行时（Playwright 用它控制浏览器）。
+    下载固定为 Playwright 配套版本，优先使用国内镜像，并按内置的官方 SHA-256 校验，保存在配置目录的 `runtime/` 下。
+    已安装 Node.js 20 或更高版本时直接使用系统的 Node.js，不再下载。
 - Ubuntu 默认的 GNOME 桌面通过 AppIndicator 扩展显示托盘图标（Ubuntu 默认启用）。托盘不可用时，关闭窗口会直接退出程序。
 - CI 会在 GitHub 的 Windows 和 Ubuntu 虚拟机上安装安装包、启动程序并截图，并用系统浏览器完成浏览器认证自检；
   虚拟机无法接入校园网，所以真实登录仍需在校内验收。Windows 版目前还没有在校园网环境里实际验收。

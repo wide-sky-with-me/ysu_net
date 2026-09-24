@@ -25,6 +25,7 @@
 | `manager/service.py` | systemd 单元生成和服务管理 |
 | `manager/install.py` | 安装 / 卸载命令包装器与服务 |
 | `auth/system_browser.py` | 查找本机 Edge / Chrome，供浏览器认证在缺少 Playwright Chromium 时使用 |
+| `auth/node_runtime.py` | 浏览器认证所需 Node.js 的查找与按需下载（固定版本、SHA-256 校验） |
 | `auth/worker.py` | 打包后的程序以 `--ysu-auth` 重新进入自身，运行认证模块 |
 | `gui/engine.py` | 与界面库无关的后台线程：串行执行登录、下线、切换与自动重连 |
 | `gui/window.py` | PySide6 主窗口、各页面与系统托盘 |
@@ -67,9 +68,10 @@ uv lock --check
 - `tests/test_layout.py`：包入口、项目外调用和模块启动路径。
 - `tests/test_gui.py`：图形界面引擎、锁冲突、偏好与自启、打包入口，以及可选的离屏窗口冒烟测试（未安装 PySide6 时跳过）。
 - `tests/test_system_browser.py`：系统浏览器查找、Snap 排除与启动回退。
+- `tests/test_node_runtime.py`：Node.js 运行时查找顺序、镜像回退、校验失败与取消下载。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
 
-当前离线回归为 169 项。认证展示统一在 `auth/account.py` 修改；两个后端保留原导出名称，直接引用共享函数，避免重新出现双份逻辑。
+当前离线回归为 174 项。认证展示统一在 `auth/account.py` 修改；两个后端保留原导出名称，直接引用共享函数，避免重新出现双份逻辑。
 
 连接相关测试 mock Portal、CAS、Playwright 和认证子进程；测试基类禁止 socket 连接与 DNS 查询。
 服务管理命令使用 mock，安装卸载在临时目录验证；可用时调用 `systemd-analyze verify`
@@ -102,6 +104,9 @@ uv run python packaging/build.py --installer
 
 `packaging/build.py` 用 PyInstaller 生成单目录程序，并先检查打包后的认证入口能输出 UTF-8 中文，
 然后在 Windows 上生成便携 zip 和 Inno Setup 安装程序（`packaging/ysu-net.iss`），在 Ubuntu 上生成 tar.gz 和 `.deb`。
+打包后会删除 Playwright 自带的 Node.js（改为按需下载），在 Linux 上还会删除 Ubuntu 已自带的系统库和 GTK 主题插件，
+`.deb` 的依赖由 `ldd` 与 `dpkg -S` 自动生成；随后以隔离的配置目录做冒烟测试：认证入口、`--smoke` 界面启动，
+以及（设置 `YSU_BROWSER_CHECK=1` 时）“未安装提示 → 下载组件 → 调用系统浏览器”的完整流程。
 PyInstaller 不支持跨平台构建，两个系统的安装包由 `.github/workflows/desktop.yml` 分别在对应 runner 上构建。
 Ubuntu 包在 22.04 上构建，以兼容较旧的 glibc。
 

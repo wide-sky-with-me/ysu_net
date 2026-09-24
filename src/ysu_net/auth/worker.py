@@ -33,6 +33,16 @@ def run(argv):
         except Exception as exc:  # noqa: BLE001 - report any launch failure
             print(f"[ERROR] {exc}", file=sys.stderr)
             return 2
+    if argv[:1] == ["install-browser-runtime"]:
+        _utf8_stdio()
+        from ysu_net.auth import node_runtime
+        try:
+            path = node_runtime.install()
+        except Exception as exc:  # noqa: BLE001 - report any download failure
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return 2
+        print(f"[OK] 浏览器认证组件已安装：{path}")
+        return 0
     if not argv or argv[0] not in BACKENDS:
         print("[ERROR] unknown backend", file=sys.stderr)
         return 2

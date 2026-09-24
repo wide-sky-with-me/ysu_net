@@ -1,12 +1,13 @@
 """Main window, pages and tray integration."""
 import importlib.util
 import sys
+import threading
 import time
 
 from PySide6.QtCore import QEasingCurve, QObject, QPropertyAnimation, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel,
+    QApplication, QButtonGroup, QComboBox, QDialog, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QMainWindow, QMenu, QPlainTextEdit, QProgressBar, QPushButton,
     QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
@@ -24,6 +25,65 @@ def _version():
         return version("ysu-net-login")
     except PackageNotFoundError:
         return "dev"
+
+
+class DownloadDialog(QDialog):
+    """Modal progress for a background download; cancellable."""
+    progressed = Signal(int, int)
+    finished_with = Signal(object)
+
+    def __init__(self, parent, job):
+        super().__init__(parent)
+        self.setObjectName("Dialog")
+        self.setWindowTitle("下载浏览器认证组件")
+        self.setMinimumWidth(420)
+        self.job = job
+        self.error = None
+        self.cancel = threading.Event()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(26, 24, 26, 20)
+        layout.setSpacing(10)
+        layout.addWidget(label("正在下载浏览器认证组件", "DialogTitle"))
+        self.status = label("正在连接下载服务器…", "Muted")
+        layout.addWidget(self.status)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(6)
+        layout.addWidget(self.bar)
+        cancel = QPushButton("取消")
+        cancel.clicked.connect(self._cancel)
+        layout.addLayout(_row(None, cancel))
+        self.progressed.connect(self._show_progress)
+        self.finished_with.connect(self._done)
+
+    def _show_progress(self, done, total):
+        self.bar.setRange(0, total)
+        self.bar.setValue(min(done, total))
+        self.status.setText(f"{done / 1048576:.1f} / {total / 1048576:.1f} MB")
+
+    def _work(self):
+        try:
+            self.job(progress=self.progressed.emit, cancel=self.cancel)
+            self.finished_with.emit(None)
+        except InterruptedError:
+            self.finished_with.emit("")
+        except Exception as exc:  # noqa: BLE001 - shown to the user
+            self.finished_with.emit(str(exc))
+
+    def _done(self, error):
+        self.error = error or None
+        self.done(QDialog.Accepted if error is None else QDialog.Rejected)
+
+    def _cancel(self):
+        self.status.setText("正在取消…")
+        self.cancel.set()
+
+    def reject(self):  # Esc / close button
+        self._cancel()
+
+    def run(self):
+        threading.Thread(target=self._work, daemon=True).start()
+        return self.exec() == QDialog.Accepted
 
 
 class Bridge(QObject):
@@ -86,7 +146,7 @@ def _page(title, subtitle):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, config_file, app_prefs, *, start_hidden=False):
+    def __init__(self, config_file, app_prefs, *, start_hidden=False, offline=False):
         super().__init__()
         self.config_file = config_file
         self.prefs = app_prefs
@@ -123,9 +183,10 @@ class MainWindow(QMainWindow):
             hints.colorSchemeChanged.connect(lambda *_: self.apply_theme())
         self.apply_theme()
         self._load_config_into_ui()
-        self.engine.start()
-        self.engine.submit("status")
-        if self.prefs.auto_reconnect:
+        if not offline:  # offline: build/packaging smoke checks never touch the network
+            self.engine.start()
+            self.engine.submit("status")
+        if self.prefs.auto_reconnect and not offline:
             self.engine.submit("set_auto", True)
         if not start_hidden or not self.tray:
             self.show()
@@ -323,14 +384,8 @@ class MainWindow(QMainWindow):
         self.backend_combo.addItem("API 认证（推荐）", "api")
         self.browser_note = label("", "Muted", wrap=True)
         if importlib.util.find_spec("playwright") is not None:
-            from ysu_net.auth.system_browser import find_system_browser
-            found = find_system_browser()
             self.backend_combo.addItem("浏览器认证（模拟网页登录）", "browser")
-            self.browser_note.setText(
-                f"浏览器认证将使用本机的 {found[0]}，在后台无窗口运行；仅在 API 认证异常时需要。" if found
-                else "浏览器认证需要本机安装 Microsoft Edge 或 Google Chrome（Ubuntu 请使用 .deb 版本，Snap 版不可用）。")
-        else:
-            self.browser_note.setText("当前安装未包含浏览器认证组件。")
+        self._refresh_browser_note()
         self.backend_combo.setFixedWidth(250)
         self.tls_toggle = Toggle()
         self.spins = {}
@@ -723,9 +778,49 @@ class MainWindow(QMainWindow):
         self.log("账号已保存", ok=True)
         self.notify("✓ 账号已保存")
 
+    def _refresh_browser_note(self):
+        if importlib.util.find_spec("playwright") is None:
+            self.browser_note.setText("API 认证适用于绝大多数情况；当前安装未包含浏览器认证。")
+            return
+        from ysu_net.auth import node_runtime
+        from ysu_net.auth.system_browser import find_system_browser
+        browser = find_system_browser()
+        parts = ["API 认证适用于绝大多数情况；浏览器认证仅在 API 认证异常时需要。"]
+        parts.append(f"浏览器认证将在后台使用本机的 {browser[0]}。" if browser else
+                     "浏览器认证需要本机安装 Microsoft Edge 或 Google Chrome（Ubuntu 请用 .deb 版，Snap 版不可用）。")
+        if node_runtime.find_node() is None:
+            parts.append(f"首次使用需下载约 {node_runtime.download_size() >> 20} MB 的组件。")
+        self.browser_note.setText("".join(parts))
+
+    def _ensure_browser_component(self):
+        from ysu_net.auth import node_runtime
+        if node_runtime.find_node() is not None:
+            return True
+        if not node_runtime.supported():
+            self.notify("✕ 当前平台不支持自动下载浏览器认证组件")
+            return False
+        size = node_runtime.download_size() >> 20
+        if not Confirm.ask(self, "下载浏览器认证组件",
+                           f"浏览器认证需要 Node.js 运行时（约 {size} MB，下载后校验 SHA-256）。"
+                           "组件保存在本机配置目录，只需下载一次。现在下载吗？", "下载"):
+            return False
+        dialog = DownloadDialog(self, node_runtime.install)
+        ok = dialog.run()
+        self._refresh_browser_note()
+        if ok:
+            self.log("浏览器认证组件已安装", ok=True)
+        elif dialog.error:
+            self.log(dialog.error, ok=False)
+            self.notify("✕ " + dialog.error)
+        return ok
+
     def _save_connection(self):
         changes = {key: spin.value() for key, spin in self.spins.items()}
         changes["backend"] = self.backend_combo.currentData()
+        if changes["backend"] == "browser" and self.config.backend != "browser" \
+                and not self._ensure_browser_component():
+            self.backend_combo.setCurrentIndex(max(0, self.backend_combo.findData(self.config.backend)))
+            return
         changes["verify_tls"] = self.tls_toggle.isChecked()
         if not changes["verify_tls"] and self.config.verify_tls:
             if not Confirm.ask(self, "关闭证书校验",

@@ -524,6 +524,17 @@ def obtain_session_id(page, sniffer: SessionSniffer) -> Optional[str]:
     )
 
 
+def _playwright():
+    """sync_playwright() with a Node.js runtime selected for desktop bundles."""
+    from .node_runtime import configure
+
+    if not configure():
+        raise RuntimeError(
+            "浏览器认证组件未安装：请在图形界面“设置 → 认证方式”中下载，或改用 API 认证"
+        )
+    return sync_playwright()
+
+
 def _launch_chromium(p, *, headless: bool, debug: bool):
     """Prefer an explicit YSU_BROWSER_PATH, then Playwright's Chromium, then Edge/Chrome."""
     from .system_browser import ENV, find_system_browser
@@ -554,7 +565,7 @@ def open_portal_and_get_session(debug: bool, headed: bool):
     """
     打开 portal，拿到 sessionId，并返回 (Session, (playwright, browser), context, page)
     """
-    p = sync_playwright().start()
+    p = _playwright().start()
     track_resource(p.stop)
     browser = _launch_chromium(p, headless=(not headed), debug=debug)
     track_resource(browser.close)
@@ -1242,7 +1253,7 @@ if __name__ == "__main__":
 
 def self_check() -> int:
     """Launch the browser that login would use and render a local page; no network."""
-    with sync_playwright() as p:
+    with _playwright() as p:
         browser = _launch_chromium(p, headless=True, debug=True)
         try:
             page = browser.new_page()
