@@ -31,7 +31,7 @@ def parser():
     ap = FriendlyParser(
         prog="ysu", description="燕山大学校园网 · 登录与自动重连",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="首次使用\n  ysu config account    配置账号密码\n  ysu doctor            检查本地环境\n  ysu on                启动自动重连\n\n常用操作\n  ysu                   打开交互菜单\n  ysu status            查看连接状态\n  ysu logs -f           跟随运行日志\n  ysu off               停止重连并下线\n\n脚本输出：ysu status --raw；禁用颜色：NO_COLOR=1 ysu status",
+        epilog="首次使用\n  ysu config account    配置账号密码\n  ysu doctor            检查本地环境\n  ysu on                启动自动重连\n\n常用操作\n  ysu                   打开交互菜单\n  ysu status            查看连接状态\n  ysu info              查看账户与剩余流量\n  ysu doctor --network  诊断连接与实际服务\n  ysu logs -f           跟随运行日志\n  ysu off               停止重连并下线\n\n脚本输出：ysu info --raw；禁用颜色：NO_COLOR=1 ysu info",
     )
     ap.add_argument("--scope", choices=("user", "system"), default="user", help="服务安装范围")
     ap.add_argument("--config", type=Path, help="指定配置文件")
@@ -44,7 +44,7 @@ def parser():
     ):
         sub.add_parser(command, help=help_text)
     for command in ("status", "info"):
-        p = sub.add_parser(command, help="查询校园网状态" if command == "status" else "查询账户信息")
+        p = sub.add_parser(command, help="查询校园网状态" if command == "status" else "查询账户、剩余流量与套餐余额（以门户提供为准）")
         p.add_argument("--raw", action="store_true", help="输出 JSON")
     p = sub.add_parser("config", help="配置账号及运行参数")
     p.add_argument("action", choices=("show", "account", "set", "path"), default="show", nargs="?")
@@ -155,14 +155,47 @@ def doctor(args, path):
     ui.row("当前服务", f"{config.service} · {ui.BACKENDS[config.backend]}")
     ui.row("证书校验", "开启" if config.verify_tls else "关闭")
     if unit_path(args.scope).exists() and shutil.which("systemctl"):
-        state = systemctl(args.scope, "is-active", UNIT, check=False, capture=True)
-        ui.row("后台服务", ui.SERVICE_STATES.get(state.stdout.strip(), "不可用"))
+        state = systemctl(args.scope, "is-active", UNIT, check=False, capture=True).stdout.strip()
+        ui.row("后台服务", ui.SERVICE_STATES.get(state, "不可用"))
+        if state == "failed" or state not in ui.SERVICE_STATES:
+            report(False, "后台服务异常或用户总线不可用")
+            ui.hint("查看原因：ysu logs -n 30；修复后：ysu restart")
+        elif state == "inactive":
+            ui.hint("后台当前未运行，需要自动重连时执行 ysu on")
+        enabled = systemctl(args.scope, "is-enabled", UNIT, check=False, capture=True).stdout.strip()
+        ui.row("开机自启", {"enabled": "已开启", "enabled-runtime": "临时开启", "disabled": "已关闭"}.get(enabled, enabled or "未知"))
+        if args.scope == "user" and enabled in ("enabled", "enabled-runtime"):
+            import os
+            try:
+                linger = subprocess.run(["loginctl", "show-user", str(os.getuid()), "-p", "Linger", "--value"],
+                                        capture_output=True, text=True, timeout=5)
+                persistent = linger.returncode == 0 and linger.stdout.strip() == "yes"
+                report(persistent, "退出登录后运行：" + ("已开启" if persistent else "未开启或状态未知"))
+                if not persistent:
+                    ui.hint("如需未登录时运行，请管理员执行 loginctl enable-linger <用户名>")
+            except (OSError, subprocess.TimeoutExpired):
+                report(False, "登录生命周期查询失败，请检查 loginctl")
     else:
         ui.row("后台服务", "未安装")
         ui.hint("安装服务：bash install.sh；前台运行：ysu daemon")
     if args.network:
-        result = run_backend(config, "status")
-        report(result.code in (0, 1), "校园网：" + ("在线" if result.code == 0 else result.message))
+        from ..auth.common import QueryError, online_service
+        result = run_backend(config, "status", raw=True)
+        report(result.code in (0, 1), "校园网：" + ("在线" if result.code == 0 else "离线（门户可达）" if result.code == 1 else result.message))
+        if result.code == 0:
+            try:
+                actual = online_service(json.loads(result.output).get("online"))
+                report(actual == config.service, f"实际服务：{actual or '未知'}；配置服务：{config.service}")
+                if actual != config.service:
+                    ui.hint(f"先 ysu stop，再执行 ysu switch {config.service}；成功后 ysu on")
+            except (QueryError, ValueError, TypeError, AttributeError):
+                report(False, "在线响应缺少有效服务信息，请使用 ysu info 核对")
+        elif result.code == 1:
+            ui.hint("登录一次：ysu login；自动重连：ysu on")
+        elif result.reason == "dns":
+            ui.hint("域名解析失败：检查当前网卡 DNS 与校园网连接，不要重复修改账号密码。")
+        elif result.reason == "tls":
+            ui.hint("证书校验失败：检查系统时间、证书链与代理配置，不要直接关闭 TLS 校验。")
     else:
         ui.hint("本次只检查本地环境；连接诊断：ysu doctor --network")
     print()
@@ -178,6 +211,7 @@ def menu(args, path):
         "1": ["status"], "2": ["login"], "3": ["on"], "4": ["off"],
         "5": ["config", "account"], "6": ["service"], "7": ["doctor"], "8": ["logs"],
         "9": ["stop"], "10": ["boot", "on"], "11": ["boot", "off"], "12": ["config", "show"],
+        "13": ["info"], "14": ["doctor", "--network"],
     }
     while True:
         ui.heading("YSU · 燕山大学校园网")
@@ -192,7 +226,7 @@ def menu(args, path):
         print("\n  连接管理")
         ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连"])
         print("\n  配置与维护")
-        ui.choices([" 5  配置账号", " 6  切换服务", " 7  环境诊断", " 8  查看日志", "10  开启自启", "11  关闭自启", "12  查看配置"])
+        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", " 8  查看日志", "10  开启自启", "11  关闭自启", "12  查看配置", "13  账户与剩余流量", "14  联网诊断 doctor"])
         print("\n   0  退出\n")
         choice = input("  请输入编号 [0 退出]: ").strip()
         if choice in ("0", "q", "exit"):

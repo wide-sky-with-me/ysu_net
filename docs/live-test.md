@@ -57,7 +57,7 @@
 
 | 检查 | 结果 |
 | --- | --- |
-| `python -m unittest discover -s tests -q` | 增强版 114 项通过，未跳过（原始版本为 78 项） |
+| `python -m unittest discover -s tests -q` | 账户与诊断增强后 138 项通过，未跳过（运营商增强阶段为 114 项，原始版本为 78 项） |
 | `uv build` | wheel 和源码包构建成功 |
 | `uv lock --check` | 通过 |
 | `bash -n install.sh uninstall.sh` | 通过 |

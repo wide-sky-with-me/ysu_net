@@ -83,7 +83,7 @@ def result_message(action, result, service):
             message("已确认校园网在线。" if action == "login" else "已确认校园网下线。", "success")
             if action == "login" and result.output:
                 for line in clean(result.output).splitlines():
-                    if line and not line.startswith(("[OK]", "在线：success")):
+                    if line and not line.startswith(("[OK]", "在线：success", "网络状态：在线")):
                         print("  " + line)
         elif result.output:
             heading("校园网账户信息")

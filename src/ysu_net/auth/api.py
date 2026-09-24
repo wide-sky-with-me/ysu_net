@@ -892,101 +892,13 @@ def online_fields(online_info: dict) -> dict:
 
 
 def summarize_account_payload(payload: Any) -> dict:
-    if not isinstance(payload, dict):
-        return {}
-    lvl1 = payload.get("data") or {}
-    if not isinstance(lvl1, dict):
-        return {}
-
-    if isinstance(lvl1.get("accountInfo"), list) or lvl1.get("accountInfo") is None:
-        inner = lvl1
-    else:
-        lvl2 = lvl1.get("data") or {}
-        inner = lvl2 if isinstance(lvl2, dict) else {}
-
-    items_raw = inner.get("accountInfo")
-    items_map: dict[str, dict] = {}
-    if isinstance(items_raw, list):
-        for it in items_raw:
-            if not isinstance(it, dict):
-                continue
-            title = it.get("title")
-            if not title:
-                continue
-            items_map[str(title)] = {
-                "content": it.get("content"),
-                "link": it.get("link"),
-            }
-
-    return {
-        "name": inner.get("name"),
-        "service": inner.get("service"),
-        "items_map": items_map,
-    }
+    from .account import summarize_account_payload as summarize
+    return summarize(payload)
 
 
 def format_info(online_info: dict | None, account_payload: Any) -> str:
-    if not online_info or not isinstance(online_info, dict):
-        return "No status (empty)"
-
-    f = online_fields(online_info)
-    if f.get("result") != "success":
-        msg = f.get("message")
-        return f"离线：{msg or 'dx.failed.user.offline'}\n提示：请先运行 `python -m ysu_net.auth.api login` 登录上网。"
-
-    acc = (
-        summarize_account_payload(account_payload)
-        if account_payload is not None
-        else {}
-    )
-    items_map = acc.get("items_map") if isinstance(acc, dict) else {}
-
-    display_name = (
-        (acc.get("name") if isinstance(acc, dict) else None) or f.get("userName") or ""
-    )
-    account_id = f.get("userId") or f.get("userName") or ""
-
-    lines: list[str] = []
-    lines.append("在线：success")
-    if display_name:
-        lines.append(f"用户: {display_name}")
-    if account_id:
-        lines.append(f"账号: {account_id}")
-    if f.get("userIp"):
-        lines.append(f"IP: {f['userIp']}")
-    if f.get("ssid"):
-        lines.append(f"SSID: {f['ssid']}")
-
-    svc = (
-        (acc.get("service") if isinstance(acc, dict) else None)
-        or f.get("realServiceName")
-        or f.get("service")
-    )
-    if svc:
-        lines.append(f"服务: {svc}")
-    if f.get("userIndex"):
-        lines.append(f"userIndex: {f['userIndex']}")
-
-    wanted_keys = ["在线设备", "剩余流量", "套餐&余额"]
-    shown = []
-    if isinstance(items_map, dict):
-        for k in wanted_keys:
-            v = (
-                items_map.get(k, {}).get("content")
-                if isinstance(items_map.get(k), dict)
-                else None
-            )
-            if v:
-                shown.append((k, v))
-
-    if shown:
-        lines.append("账户信息:")
-        for k, v in shown:
-            lines.append(f"  - {k}: {v}")
-    else:
-        lines.append("账户信息: (无可展示项)")
-
-    return "\n".join(lines)
+    from .account import format_account_info
+    return format_account_info(online_info, account_payload)
 
 
 @managed_resources
