@@ -36,6 +36,9 @@ def fake_backend(config, action, raw=False, stop_event=None, **_):
 
 
 def main():
+    import faulthandler
+    # A hang must fail loudly (with every thread's stack) rather than stall CI.
+    faulthandler.dump_traceback_later(120, exit=True)
     from PySide6.QtCore import QTimer
     from PySide6.QtGui import QFont
     from PySide6.QtWidgets import QApplication, QScrollArea

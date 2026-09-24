@@ -170,6 +170,8 @@ class MainWindow(QMainWindow):
         self.bridge = Bridge()
         self.bridge.event.connect(self._on_event)
         self.engine = Engine(config_file, self.bridge.event.emit)
+        # Stop the worker (and any auth child) however the application ends.
+        QApplication.instance().aboutToQuit.connect(lambda: self.engine.shutdown(timeout=3))
 
         self._build()
         self._build_tray()
@@ -877,7 +879,10 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def closeEvent(self, event):  # noqa: N802
-        if not self.quitting and self.tray and self.prefs.close_to_tray:
+        # Only a user's click on the close button hides to the tray. Qt 6 sends a
+        # non-spontaneous close to every window on QApplication.quit() and on session
+        # end (logoff / shutdown); ignoring those would cancel the quit.
+        if not self.quitting and self.tray and self.prefs.close_to_tray and event.spontaneous():
             event.ignore()
             self.hide()
             if not self.tray_hint_shown:

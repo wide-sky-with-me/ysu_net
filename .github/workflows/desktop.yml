@@ -19,6 +19,8 @@ jobs:
         # The oldest supported Ubuntu keeps the bundled glibc requirement low.
         os: [windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
+    # A normal run takes ~15 minutes; fail fast instead of GitHub's 6-hour default.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -31,6 +33,7 @@ jobs:
             xvfb imagemagick fonts-noto-cjk
       - run: uv sync --locked --extra gui --extra browser --group build
       - name: Unit tests
+        timeout-minutes: 5
         env:
           QT_QPA_PLATFORM: offscreen
         # The CLI tests target Linux/systemd; Windows runs the cross-platform suites.
@@ -44,6 +47,7 @@ jobs:
             uv run python -m unittest discover -s tests -v
           fi
       - name: Page screenshots (fake backend)
+        timeout-minutes: 5
         env:
           # Qt's offscreen platform ignores Windows system fonts (CJK renders as boxes);
           # the Windows runner has a desktop session, so use the native platform there.
@@ -59,6 +63,7 @@ jobs:
           if (Test-Path $target) { Write-Host "bundled with Inno Setup"; exit 0 }
           Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl" -OutFile $target
       - name: Build packages (+ bundled browser self-check with system Edge/Chrome)
+        timeout-minutes: 25
         env:
           QT_QPA_PLATFORM: offscreen
           YSU_BROWSER_CHECK: "1"
@@ -66,6 +71,7 @@ jobs:
 
       # ---- install and launch the real packages on a real desktop session ----
       - name: Install and launch (Windows)
+        timeout-minutes: 10
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -100,6 +106,7 @@ jobs:
           Stop-Process -Id $proc.Id -Force
           Start-Process "$env:LOCALAPPDATA\Programs\YSU Net\unins000.exe" -ArgumentList '/VERYSILENT' -Wait
       - name: Install and launch (Ubuntu)
+        timeout-minutes: 10
         if: runner.os == 'Linux'
         run: |
           sudo apt-get install -y ./dist/ysu-net_*_amd64.deb

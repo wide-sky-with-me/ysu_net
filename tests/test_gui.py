@@ -206,3 +206,26 @@ class WindowSmokeTests(OfflineTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(importlib.util.find_spec("PySide6"), "PySide6 未安装")
+class QuitWithTrayTests(OfflineTestCase):
+    def test_application_quit_is_not_swallowed_by_close_to_tray(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from unittest.mock import Mock
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication
+        from ysu_net.gui import window
+        app = QApplication.instance() or QApplication([])
+        path = self.tmp / "config.json"
+        save_config(path, Config())
+        win = window.MainWindow(path, prefs.Prefs(close_to_tray=True), offline=True)
+        win.tray = Mock()  # Simulate a desktop with a system tray.
+        win.show()
+        guard = QTimer(singleShot=True)
+        guard.timeout.connect(lambda: app.exit(99))
+        guard.start(5000)
+        QTimer.singleShot(50, app.quit)
+        self.assertEqual(app.exec(), 0, "QApplication.quit() 被托盘逻辑拦截")
+        self.assertTrue(win.quitting)
+        guard.stop()
