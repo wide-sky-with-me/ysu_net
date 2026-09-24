@@ -140,6 +140,9 @@ def linux_packages(bundle, png, installer):
 
 
 def main():
+    # Windows consoles (cp1252 on CI) cannot print the Chinese self-check output.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="构建图形界面安装包")
     ap.add_argument("--installer", action="store_true", help="额外生成 Windows 安装程序或 Ubuntu .deb")
     args = ap.parse_args()
