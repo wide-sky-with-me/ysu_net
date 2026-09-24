@@ -1,6 +1,7 @@
 name: Desktop builds
 on:
   push:
+    branches: ["**"]
     tags: ["v*"]
     paths: ["src/**", "packaging/**", "tests/**", "pyproject.toml", "uv.lock", ".github/workflows/desktop.yml"]
   pull_request:
