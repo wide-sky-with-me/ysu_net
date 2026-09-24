@@ -63,7 +63,7 @@ def load_config(path, *, environ=None):
     data = {}
     if path.exists():
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
         except (ValueError, OSError) as exc:
             raise ValueError("无法读取配置文件，请检查 JSON 格式和权限") from exc
         if not isinstance(data, dict) or set(data) - set(Config.__dataclass_fields__):
@@ -82,7 +82,7 @@ def save_config(path, config):
     # mkstemp creates 0600 files; replacement is atomic even when a daemon is reading.
     fd, temporary = tempfile.mkstemp(prefix=".config-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(asdict(config), stream, ensure_ascii=False, indent=2)
             stream.write("\n")
         os.replace(temporary, path)
