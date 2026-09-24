@@ -12,9 +12,14 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = ["playwright>=1.40"]
+gui = ["PySide6-Essentials>=6.7"]
 
 [project.scripts]
 ysu = "ysu_net.manager.cli:main"
+ysu-gui = "ysu_net.gui.app:main"
+
+[dependency-groups]
+build = ["pyinstaller>=6.10"]
 
 [build-system]
 requires = ["hatchling>=1.27"]

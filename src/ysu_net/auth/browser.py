@@ -524,13 +524,39 @@ def obtain_session_id(page, sniffer: SessionSniffer) -> Optional[str]:
     )
 
 
+def _launch_chromium(p, *, headless: bool, debug: bool):
+    """Prefer an explicit YSU_BROWSER_PATH, then Playwright's Chromium, then Edge/Chrome."""
+    from .system_browser import ENV, find_system_browser
+
+    if os.getenv(ENV, "").strip():
+        found = find_system_browser()
+        if not found:
+            raise RuntimeError(f"{ENV} 指向的浏览器不存在")
+        dprint(debug, f"[BROWSER] {found[0]}: {found[1]}")
+        return p.chromium.launch(headless=headless, executable_path=str(found[1]))
+    try:
+        return p.chromium.launch(headless=headless)
+    except Exception as exc:
+        # Only a missing download falls back; other launch failures stay visible.
+        found = find_system_browser() if "Executable doesn't exist" in str(exc) else None
+        if not found:
+            if "Executable doesn't exist" in str(exc):
+                raise RuntimeError(
+                    "未找到可用浏览器：请安装 Microsoft Edge 或 Google Chrome，"
+                    "或运行 playwright install chromium"
+                ) from None
+            raise
+        dprint(debug, f"[BROWSER] 使用系统浏览器 {found[0]}: {found[1]}")
+        return p.chromium.launch(headless=headless, executable_path=str(found[1]))
+
+
 def open_portal_and_get_session(debug: bool, headed: bool):
     """
     打开 portal，拿到 sessionId，并返回 (Session, (playwright, browser), context, page)
     """
     p = sync_playwright().start()
     track_resource(p.stop)
-    browser = p.chromium.launch(headless=(not headed))
+    browser = _launch_chromium(p, headless=(not headed), debug=debug)
     track_resource(browser.close)
     ctx_kwargs: dict[str, Any] = {"ignore_https_errors": (not VERIFY_TLS)}
     if PORTAL_USER_AGENT:
@@ -1212,3 +1238,16 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(getattr(e, "exit_code", 2))
+
+
+def self_check() -> int:
+    """Launch the browser that login would use and render a local page; no network."""
+    with sync_playwright() as p:
+        browser = _launch_chromium(p, headless=True, debug=True)
+        try:
+            page = browser.new_page()
+            page.set_content("<title>ysu-net 浏览器自检</title>")
+            print(f"[OK] {page.title()} · Chromium {browser.version}")
+        finally:
+            browser.close()
+    return 0

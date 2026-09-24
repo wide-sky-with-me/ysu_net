@@ -46,10 +46,17 @@ class Config:
         return self
 
 
-def config_path(scope="user"):
+def config_dir(scope="user"):
     if scope == "system":
-        return Path("/etc/ysu-net/config.json")
-    return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "ysu-net/config.json"
+        return Path("/etc/ysu-net")
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        return (Path(appdata) if appdata else Path.home() / "AppData/Roaming") / "ysu-net"
+    return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "ysu-net"
+
+
+def config_path(scope="user"):
+    return config_dir(scope) / "config.json"
 
 
 def load_config(path, *, environ=None):

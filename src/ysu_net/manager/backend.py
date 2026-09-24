@@ -6,7 +6,10 @@ import signal
 import time
 
 
-from ysu_net.paths import PROJECT_ROOT as ROOT
+from ysu_net.paths import FROZEN, PROJECT_ROOT as ROOT
+
+
+AUTH_WORKER_FLAG = "--ysu-auth"
 MESSAGES = {
     0: "操作成功",
     1: "离线",
@@ -53,17 +56,35 @@ class Result:
 
 
 def _kill_process_group(process):
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    if os.name == "nt":
+        # The browser backend spawns Chromium children; /T terminates the whole tree.
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     process.wait()
+
+
+def auth_command(backend):
+    # A frozen bundle re-enters its own executable instead of an interpreter.
+    if FROZEN:
+        return [sys.executable, AUTH_WORKER_FLAG, backend]
+    return [sys.executable, "-m", f"ysu_net.auth.{backend}"]
+
+
+def _isolation():
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+    return {"start_new_session": True}
 
 
 def run_backend(config, action, *, interactive=False, raw=False, stop_event=None):
     if action == "login" and not (config.username and config.password):
         return Result(4)
-    command = [sys.executable, "-m", f"ysu_net.auth.{config.backend}", action]
+    command = auth_command(config.backend) + [action]
     if action == "login":
         command += ["--service", config.service, "--max-wait", "60"]
     elif action == "logout":
@@ -75,15 +96,15 @@ def run_backend(config, action, *, interactive=False, raw=False, stop_event=None
         "YSU_USER": config.username, "YSU_PASS": config.password,
         "YSU_BASE": config.base, "YSU_CAS_HOST": config.cas_host,
         "YSU_VERIFY_TLS": "1" if config.verify_tls else "0",
-        "YSU_SAVE_DEBUG_FILES": "0", "PYTHONUNBUFFERED": "1",
+        "YSU_SAVE_DEBUG_FILES": "0", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
     })
     try:
         process = subprocess.Popen(
-            command, env=env, cwd=ROOT, text=True,
+            command, env=env, cwd=ROOT, text=True, encoding="utf-8", errors="replace",
             stdin=None if interactive else subprocess.DEVNULL,
             stdout=None if interactive else subprocess.PIPE,
             stderr=None if interactive else subprocess.PIPE,
-            start_new_session=True,
+            **_isolation(),
         )
     except OSError:
         return Result(2)

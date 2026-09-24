@@ -1,0 +1,139 @@
+name: Desktop builds
+on:
+  push:
+    tags: ["v*"]
+    paths: ["src/**", "packaging/**", "tests/**", "pyproject.toml", "uv.lock", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["src/**", "packaging/**", "pyproject.toml", "uv.lock", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported Ubuntu keeps the bundled glibc requirement low.
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 libxcb-util1 libdbus-1-3 \
+            xvfb imagemagick fonts-noto-cjk
+      - run: uv sync --locked --extra gui --extra browser --group build
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        # The CLI tests target Linux/systemd; Windows runs the cross-platform suites.
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            uv run python -m unittest discover -s tests -p "test_gui.py" -v
+            uv run python -m unittest discover -s tests -p "test_system_browser.py" -v
+          else
+            uv run python -m unittest discover -s tests -v
+          fi
+      - name: Page screenshots (fake backend)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run python packaging/screenshots.py dist/screenshots
+      - name: Chinese installer language
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+          Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile "$dir\ChineseSimplified.isl"
+      - name: Build packages (+ bundled browser self-check with system Edge/Chrome)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          YSU_BROWSER_CHECK: "1"
+        run: uv run python packaging/build.py --installer
+
+      # ---- install and launch the real packages on a real desktop session ----
+      - name: Install and launch (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          $app = "$env:LOCALAPPDATA\Programs\YSU Net\ysu-net.exe"
+          if (-not (Test-Path $app)) { throw "installer did not create $app" }
+          # A windowed exe is not awaited by '&'; run it explicitly and read its UTF-8 output.
+          function Invoke-App([string[]]$arguments) {
+            $p = Start-Process $app -ArgumentList $arguments -Wait -PassThru -NoNewWindow `
+                 -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+            $out = Get-Content out.txt -Raw -Encoding utf8
+            Write-Host $out (Get-Content err.txt -Raw -Encoding utf8)
+            return @{ Code = $p.ExitCode; Out = $out }
+          }
+          $help = Invoke-App @('--ysu-auth', 'api', '--help')
+          if ($help.Code -ne 0 -or $help.Out -notmatch '校园网') { throw "auth entry failed or output is not UTF-8" }
+          $check = Invoke-App @('--ysu-auth', 'browser-check')
+          if ($check.Code -ne 0) { throw "browser check failed" }
+          # Unreachable portal: the client must never contact the real campus server from CI.
+          New-Item -ItemType Directory -Force "$env:APPDATA\ysu-net" | Out-Null
+          '{"base":"https://127.0.0.1:9","cas_host":"https://127.0.0.1:9","operation_timeout":15}' |
+            Set-Content -Encoding utf8NoBOM "$env:APPDATA\ysu-net\config.json"
+          $proc = Start-Process $app -PassThru
+          Start-Sleep 12
+          if ($proc.HasExited) { throw "GUI exited early with code $($proc.ExitCode)" }
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("$PWD\dist\screenshots\installed-windows-desktop.png")
+          Stop-Process -Id $proc.Id -Force
+          Start-Process "$env:LOCALAPPDATA\Programs\YSU Net\unins000.exe" -ArgumentList '/VERYSILENT' -Wait
+      - name: Install and launch (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y ./dist/ysu-net_*_amd64.deb
+          test -x /usr/bin/ysu-gui
+          /usr/bin/ysu-gui --ysu-auth api --help | grep -q 校园网
+          /usr/bin/ysu-gui --ysu-auth browser-check
+          mkdir -p ~/.config/ysu-net
+          echo '{"base":"https://127.0.0.1:9","cas_host":"https://127.0.0.1:9","operation_timeout":15}' > ~/.config/ysu-net/config.json
+          xvfb-run -a -s "-screen 0 1280x800x24" bash -c '
+            /usr/bin/ysu-gui & pid=$!
+            sleep 12
+            kill -0 $pid || { echo "GUI exited early"; exit 1; }
+            import -window root dist/screenshots/installed-ubuntu-desktop.png
+            kill $pid'
+          sudo apt-get remove -y ysu-net
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ runner.os }}
+          path: dist/screenshots/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ysu-net-${{ runner.os }}
+          path: |
+            dist/*.zip
+            dist/*.exe
+            dist/YSU-Net-*.tar.gz
+            dist/*.deb
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ysu-net-*
+          path: artifacts
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" --generate-notes
