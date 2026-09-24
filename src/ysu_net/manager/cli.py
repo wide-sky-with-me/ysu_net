@@ -223,17 +223,23 @@ def menu(args, path):
             ui.message("配置暂不可用，请选择 7 检查。", "warning")
         ui.row("管理范围", "当前用户" if args.scope == "user" else "系统级")
         ui.row("网络状态", "按 1 查询")
+        ui.hint("首次使用或不确定操作影响？输入 15（或 h / ?）查看选项说明。")
         print("\n  连接管理")
         ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连"])
         print("\n  配置与维护")
         ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", " 8  查看日志", "10  开启自启", "11  关闭自启", "12  查看配置", "13  账户与剩余流量", "14  联网诊断 doctor"])
-        print("\n   0  退出\n")
+        print()
+        ui.choices(["15  选项说明（用途与影响）", " 0  退出"])
+        print()
         choice = input("  请输入编号 [0 退出]: ").strip()
         if choice in ("0", "q", "exit"):
             ui.message("已退出菜单。")
             return 0
-        if choice in commands:
-            main(["--scope", args.scope, "--config", str(path), *commands[choice]])
+        if choice in commands or choice in ("15", "h", "?"):
+            if choice in ("15", "h", "?"):
+                ui.menu_help()
+            else:
+                main(["--scope", args.scope, "--config", str(path), *commands[choice]])
             if input("\n  按 Enter 返回菜单，输入 0 退出: ").strip() in ("0", "q", "exit"):
                 ui.message("已退出菜单。")
                 return 0
