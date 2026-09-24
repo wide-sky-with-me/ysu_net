@@ -44,7 +44,9 @@ jobs:
           fi
       - name: Page screenshots (fake backend)
         env:
-          QT_QPA_PLATFORM: offscreen
+          # Qt's offscreen platform ignores Windows system fonts (CJK renders as boxes);
+          # the Windows runner has a desktop session, so use the native platform there.
+          QT_QPA_PLATFORM: ${{ runner.os == 'Linux' && 'offscreen' || 'windows' }}
         run: uv run python packaging/screenshots.py dist/screenshots
       - name: Chinese installer language
         if: runner.os == 'Windows'
