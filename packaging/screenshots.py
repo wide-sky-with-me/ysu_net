@@ -84,7 +84,12 @@ def main():
             QTimer.singleShot(delay, step)
 
     shoot("light")
-    QTimer.singleShot(5600, lambda: shoot("dark"))
+
+    def next_theme():
+        # Both windows share one profile; release the first one's reconnect lock.
+        windows[0].engine.shutdown()
+        shoot("dark")
+    QTimer.singleShot(5600, next_theme)
     QTimer.singleShot(11500, app.quit)
     app.exec()
     for window in windows:

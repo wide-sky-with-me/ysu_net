@@ -91,7 +91,7 @@ def main(argv=None):
             app.processEvents()
         QTimer.singleShot(500, window.quit)
         app.exec()
-        print(f"[OK] GUI smoke test · Qt platform {app.platformName()}")
+        print(f"[OK] GUI smoke test - Qt platform {app.platformName()}")
         return 0
     window = MainWindow(config_file, prefs_mod.load_prefs(prefs_mod.prefs_path(config_file)),
                         start_hidden=args.minimized)

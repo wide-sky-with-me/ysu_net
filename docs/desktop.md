@@ -7,8 +7,8 @@ Linux 服务器或无桌面环境继续使用 `ysu` 命令行和 systemd 服务�
 
 | 版本 | 适用环境 | 获取方式 |
 | --- | --- | --- |
-| Windows 图形界面 | Windows 10 / 11（x64） | `YSU-Net-<版本>-windows-setup.exe` 安装程序，或 `-windows-portable.zip` 免安装版（约 40 MB） |
-| Ubuntu 图形界面 | Ubuntu 22.04 及更新（x86_64，GNOME） | `ysu-net_<版本>_amd64.deb`（约 60 MB），或 `-linux-x86_64.tar.gz` |
+| Windows 图形界面 | Windows 10 / 11（x64） | `YSU-Net-<版本>-windows-setup.exe` 安装程序，或 `-windows-portable.zip` 免安装版（安装程序约 34 MB） |
+| Ubuntu 图形界面 | Ubuntu 22.04 及更新（x86_64，GNOME） | `ysu-net_<版本>_amd64.deb`（约 55 MB），或 `-linux-x86_64.tar.gz` |
 | Linux 无界面版 | 任意 systemd Linux / 前台运行 | `bash install.sh`，见[首页](../README.md) |
 
 安装包由 GitHub Actions 在对应系统上构建：推送 `v*` 标签后发布到 Releases，
