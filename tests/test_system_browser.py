@@ -46,7 +46,7 @@ class LaunchFallbackTests(OfflineTestCase):
         p.chromium.launch.side_effect = [RuntimeError("Executable doesn't exist at /x"), "launched"]
         with patch.object(system_browser, "find_system_browser", return_value=("Google Chrome", Path("/usr/bin/chrome"))):
             self.assertEqual(self.browser._launch_chromium(p, headless=True, debug=False), "launched")
-        self.assertEqual(p.chromium.launch.call_args.kwargs["executable_path"], "/usr/bin/chrome")
+        self.assertEqual(p.chromium.launch.call_args.kwargs["executable_path"], str(Path("/usr/bin/chrome")))
 
     def test_no_browser_gives_actionable_error(self):
         p = Mock()
