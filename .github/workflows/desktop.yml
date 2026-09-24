@@ -49,9 +49,12 @@ jobs:
       - name: Chinese installer language
         if: runner.os == 'Windows'
         shell: pwsh
+        # Optional: packaging/ysu-net.iss falls back to English when the file is absent.
+        continue-on-error: true
         run: |
-          $dir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
-          Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile "$dir\ChineseSimplified.isl"
+          $target = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages\ChineseSimplified.isl"
+          if (Test-Path $target) { Write-Host "bundled with Inno Setup"; exit 0 }
+          Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl" -OutFile $target
       - name: Build packages (+ bundled browser self-check with system Edge/Chrome)
         env:
           QT_QPA_PLATFORM: offscreen
