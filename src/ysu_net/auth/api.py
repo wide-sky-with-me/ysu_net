@@ -27,6 +27,10 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
+from ysu_net.auth.account import (
+    format_account_info as format_info,
+    summarize_account_payload,
+)
 from ysu_net.auth.common import (
     InteractionRequired,
     OperationFailed,
@@ -889,16 +893,6 @@ def online_fields(online_info: dict) -> dict:
         if k in pu and pu.get(k) not in (None, "", []):
             out[k] = pu.get(k)
     return out
-
-
-def summarize_account_payload(payload: Any) -> dict:
-    from .account import summarize_account_payload as summarize
-    return summarize(payload)
-
-
-def format_info(online_info: dict | None, account_payload: Any) -> str:
-    from .account import format_account_info
-    return format_account_info(online_info, account_payload)
 
 
 @managed_resources

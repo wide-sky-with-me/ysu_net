@@ -6,8 +6,9 @@
 支持 Linux + Python 3.12；后台服务使用 systemd。没有 systemd 的环境可使用前台守护。
 默认采用轻量 API 认证，Playwright 浏览器认证按需安装。
 
-默认 API 后端的校园网认证闭环、中国移动切换，以及用户级后台服务的真实重连和异常恢复均已验收，141 项本地测试通过。支持 `ysu info` 查看账户与门户提供的流量余额，`ysu doctor` / `ysu doctor --network` 诊断环境和连接。菜单内输入 `15`、`h` 或 `?` 可查看各选项的用途与影响。详见[使用说明](docs/usage.md)、[真实网络验收](docs/live-test.md)与[远端部署验收](docs/deployment-test.md)。
+默认 API 后端的校园网认证闭环、中国移动切换，以及用户级后台服务的真实重连和异常恢复均已验收，144 项本地测试通过。支持 `ysu info` 查看账户与门户提供的流量余额，`ysu doctor` / `ysu doctor --network` 诊断环境和连接。菜单内输入 `15`、`h` 或 `?` 可查看各选项的用途与影响。详见[使用说明](docs/usage.md)、[真实网络验收](docs/live-test.md)与[远端部署验收](docs/deployment-test.md)。
 可以先在非校园网环境安装、配置和运行 `ysu doctor`；登录和真实状态查询需要接入校园网。
+敏感资料处理、审计范围与发布前检查见[敏感信息与发布检查](docs/security.md)。
 
 ## 快速开始
 

@@ -12,6 +12,11 @@ from ysu_net.manager.config import Config, save_config
 
 
 class AccountInfoTests(OfflineTestCase):
+    def test_backends_share_account_implementation(self):
+        for backend in (api, browser):
+            self.assertIs(backend.format_info, format_account_info)
+            self.assertIs(backend.summarize_account_payload, summarize_account_payload)
+
     def payload(self, content=0):
         return {'data': {'name': 'sample', 'accountInfo': [
             {'title': '剩余流量', 'content': content, 'link': 'https://example.invalid/?token=private'},

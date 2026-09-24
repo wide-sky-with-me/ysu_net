@@ -96,6 +96,7 @@ def menu_help():
     hint("首次使用：5 配置账号 → 6 选择服务 → 14 诊断 → 2 登录一次或 3 自动重连。")
     hint("只想暂停自动重连选 9；确定要断网才选 4。")
 
+
 def result_message(action, result, service):
     if action == "status" and result.code in (0, 1):
         online = result.code == 0

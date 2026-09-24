@@ -14,8 +14,10 @@
 | `auth/api.py` | requests 实现的 Portal / CAS 认证、上线、下线和状态查询 |
 | `auth/browser.py` | Playwright 认证及 UI 兜底 |
 | `auth/common.py` | 协议状态判断、异常退出码、资源清理 |
+| `auth/account.py` | 两个后端共用的账户解析、纯文本展示、缺失额度与零值处理 |
 | `manager/cli.py` | 命令分发和交互菜单 |
-| `manager/ui.py` | 终端颜色、状态提示、纯文本兼容 |
+| `manager/ui.py` | 终端颜色、状态提示、纯文本兼容和只读菜单说明 |
+| `manager/switching.py` | 显式运营商切换、独立核验及有限失败恢复 |
 | `manager/config.py` | 配置验证、环境变量覆盖、权限和原子保存 |
 | `manager/backend.py` | 调用认证模块、进程组清理和总超时 |
 | `manager/daemon.py` | 在线检查、退避重试和人工认证暂停 |
@@ -51,8 +53,14 @@ uv lock --check
 
 - `tests/test_protocol.py`：API 和浏览器认证、CAS 跳转、在线状态、退出码及资源清理。
 - `tests/test_manager.py`：配置、重连、进程、CLI、安装卸载、systemd 单元及命令包装器。
+- `tests/test_switching.py`：服务一致性、切换失败恢复、配置并发更新和脱敏错误分类。
+- `tests/test_account_info.py`：共享账户实现、嵌套响应、缺失值与零值、原始 JSON 兼容及诊断。
+- `tests/test_menu_help.py`：说明页入口、选项覆盖、返回菜单以及无操作副作用。
+- `tests/test_repository.py`：在临时 Git 仓库验证敏感文件忽略规则，不修改项目索引。
 - `tests/test_layout.py`：包入口、项目外调用和模块启动路径。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
+
+当前离线回归为 144 项。认证展示统一在 `auth/account.py` 修改；两个后端保留原导出名称，直接引用共享函数，避免重新出现双份逻辑。
 
 连接相关测试 mock Portal、CAS、Playwright 和认证子进程；测试基类禁止 socket 连接与 DNS 查询。
 服务管理命令使用 mock，安装卸载在临时目录验证；可用时调用 `systemd-analyze verify`
@@ -75,6 +83,8 @@ uv sync --locked --extra browser
 `uv.lock` 锁定应用依赖；构建依赖由 `[build-system]` 声明。
 不再维护重复的 `requirements.txt`。`.venv/`、`dist/`、`build/` 和真实账号配置均不提交。
 包可构建用于分发，Linux 服务安装当前仍以源码目录的可编辑安装为支持方式。
+
+敏感资料与发布前检查流程见[敏感信息与发布检查](security.md)。忽略规则只防止误提交，不能替代内容检查；构建后还要检查 wheel 和源码包的文件清单与内容。
 
 新增认证实现时，将协议实现放入 `auth/`，扩展配置允许的后端和 `manager/backend.py` 调用，
 同时补充网络 mock 测试；不要让菜单、安装或默认诊断隐式访问校园网。

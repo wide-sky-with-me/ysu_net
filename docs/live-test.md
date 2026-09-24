@@ -16,7 +16,7 @@
 
 用户在远端终端自行完成 `sudo -v` 后，执行以下修复：
 
-- 将原 Netplan 配置和运行时 DNS 备份到远端 `/var/backups/ysu-net-dns.iaYtUO/`，备份仅管理员可读。
+- 将原 Netplan 配置和运行时 DNS 备份到远端管理员私有目录，备份仅管理员可读；具体备份路径由管理员保管，不放入公共文档。
 - 持久化配置来源为 `/etc/netplan/99-static-eno1.yaml`；DNS 改为 `202.206.240.12`、`202.206.240.13`。
 - 通过 `netplan generate` 验证并生成配置，再用 `resolvectl dns eno1 ...` 更新运行时解析器并刷新缓存；没有重启网卡或执行全网卡 `netplan apply`。
 - 发现 `netplan set` 首次设置数组时合并了旧地址，随后先将 DNS 地址字段设为 `null`，再设置新列表，最终确认旧地址全部移除。
@@ -57,7 +57,7 @@
 
 | 检查 | 结果 |
 | --- | --- |
-| `python -m unittest discover -s tests -q` | 账户与诊断增强后 138 项通过，未跳过（运营商增强阶段为 114 项，原始版本为 78 项） |
+| `python -m unittest discover -s tests -q` | 当前 144 项通过，未跳过；历史阶段的测试数量保留在对应验收记录中 |
 | `uv build` | wheel 和源码包构建成功 |
 | `uv lock --check` | 通过 |
 | `bash -n install.sh uninstall.sh` | 通过 |

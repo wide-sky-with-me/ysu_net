@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from helpers import OfflineTestCase
 from ysu_net.manager import cli, ui
 from ysu_net.manager.config import Config
@@ -16,17 +18,13 @@ class MenuHelpTests(OfflineTestCase):
     def test_all_help_shortcuts_are_read_only(self):
         for key in ('15', 'h', '?'):
             with self.subTest(key=key):
-                with self.mock_input([key, '0']):
+                with patch('builtins.input', side_effect=[key, '0']):
                     self.assertEqual(cli.menu(cli.parser().parse_args(['menu']), self.tmp/'config.json'), 0)
         self.dispatch.assert_not_called()
         self.backend.assert_not_called()
         self.service.assert_not_called()
         self.save.assert_not_called()
         self.assertFalse((self.tmp/'config.json').exists())
-
-    def mock_input(self, values):
-        from unittest.mock import patch
-        return patch('builtins.input', side_effect=values)
 
     def test_help_covers_every_option_and_important_effects(self):
         ui.menu_help()
@@ -38,7 +36,7 @@ class MenuHelpTests(OfflineTestCase):
             self.assertIn(phrase, text)
 
     def test_help_returns_to_menu(self):
-        with self.mock_input(['15', '', '0']):
+        with patch('builtins.input', side_effect=['15', '', '0']):
             self.assertEqual(cli.menu(cli.parser().parse_args(['menu']), self.tmp/'config.json'), 0)
         self.assertEqual(self.output.getvalue().count('YSU · 燕山大学校园网'), 2)
         self.dispatch.assert_not_called()

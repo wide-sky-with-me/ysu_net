@@ -37,8 +37,12 @@ def _text(value):
     parser.close()
     text = re.sub(r'\x1b\].*?(?:\x07|\x1b\\)', '', ''.join(parser.parts), flags=re.S)
     text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
-    return ' '.join(''.join(' ' if c.isspace() else c for c in text
-                           if c.isspace() or not unicodedata.category(c).startswith('C')).split())
+    cleaned = ''.join(
+        ' ' if char.isspace() else char
+        for char in text
+        if char.isspace() or not unicodedata.category(char).startswith('C')
+    )
+    return ' '.join(cleaned.split())
 
 
 def summarize_account_payload(payload):
@@ -55,7 +59,8 @@ def summarize_account_payload(payload):
             inner = current
         current = current.get('data')
     items = {}
-    for item in inner.get('accountInfo', []) if isinstance(inner.get('accountInfo'), list) else []:
+    raw_items = inner.get('accountInfo')
+    for item in raw_items if isinstance(raw_items, list) else []:
         if not isinstance(item, dict):
             continue
         title = _text(item.get('title'))

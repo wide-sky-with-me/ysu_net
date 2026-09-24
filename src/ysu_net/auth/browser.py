@@ -36,6 +36,10 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
+from ysu_net.auth.account import (
+    format_account_info as format_info,
+    summarize_account_payload,
+)
 from ysu_net.auth.common import (
     InteractionRequired,
     OperationFailed,
@@ -353,11 +357,6 @@ def online_fields(online_info: dict) -> dict:
         if k in pu and pu.get(k) not in (None, "", []):
             out[k] = pu.get(k)
     return out
-
-
-def summarize_account_payload(payload: Any) -> dict:
-    from .account import summarize_account_payload as summarize
-    return summarize(payload)
 
 
 @dataclass
@@ -740,11 +739,6 @@ def cmd_login(
         time.sleep(2)
     else:
         raise OperationFailed("登录超时，未确认在线")
-
-
-def format_info(online_info: Optional[dict], account_payload: Any) -> str:
-    from .account import format_account_info
-    return format_account_info(online_info, account_payload)
 
 
 @managed_resources
