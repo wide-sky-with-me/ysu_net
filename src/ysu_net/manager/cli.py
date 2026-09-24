@@ -11,9 +11,10 @@ import subprocess
 import sys
 
 from .backend import run_backend
-from .config import Config, SERVICES, config_path, load_config, public_config, save_config
+from .config import Config, SERVICES, config_path, load_config, public_config, update_config
 from .daemon import run_daemon
 from .locking import exclusive_config
+from .switching import switch_service
 from .service import UNIT, service_action, systemctl, unit_path
 from . import ui
 
@@ -50,7 +51,9 @@ def parser():
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
     p.add_argument("--raw", action="store_true", help="以 JSON 输出脱敏配置（show）")
-    p = sub.add_parser("service", help="查看或切换校园网/运营商")
+    p = sub.add_parser("switch", help="立即切换运营商，验证结果，失败时尝试恢复原连接")
+    p.add_argument("name", choices=SERVICES)
+    p = sub.add_parser("service", help="查看或配置下次登录使用的服务")
     p.add_argument("name", nargs="?", choices=SERVICES)
     p = sub.add_parser("backend", help="查看或切换认证实现")
     p.add_argument("name", nargs="?", choices=("api", "browser"))
@@ -99,7 +102,8 @@ def configure(args, path):
         config.password = password or config.password
         if not config.username or not config.password:
             raise ValueError("账号和密码不能为空")
-        save_config(path, config)
+        update_config(path, **{key: value for key, value in
+                               (("username", username), ("password", password)) if value})
         ui.message("账号已保存。", "success")
         ui.hint("检查环境：ysu doctor；在校园网内登录：ysu login")
     else:
@@ -117,8 +121,7 @@ def configure(args, path):
                 value = int(value)
             except ValueError:
                 raise ValueError(f"{args.key} 需要整数秒数，例如：ysu config set {args.key} 30") from None
-        setattr(config, args.key, value)
-        save_config(path, config)
+        update_config(path, **{args.key: value})
         ui.message(f"已更新 {args.key}。", "success")
         ui.hint("守护进程将在下一轮读取配置；立即生效：ysu restart")
     return 0
@@ -216,6 +219,18 @@ def dispatch(args):
         return configure(args, path)
     if command == "doctor":
         return doctor(args, path)
+    if command == "switch":
+        with exclusive_config(path):
+            config = load_config(path)
+            ui.progress(f"正在切换到{args.name}，期间连接可能短暂中断…")
+            result = switch_service(config, args.name)
+            if result.code == 0:
+                try:
+                    update_config(path, service=args.name)
+                except (OSError, ValueError):
+                    raise RuntimeError(f"已切换到{args.name}，但配置保存失败，请检查目录权限") from None
+        ui.message(result.message, "success" if result.code == 0 else "error")
+        return result.code
     if command in ("service", "backend"):
         config = load_config(path, environ={})
         value = args.name
@@ -230,11 +245,11 @@ def dispatch(args):
                 value = SERVICES[int(selection) - 1]
         if value:
             setattr(config, command, value)
-            save_config(path, config)
-        ui.row("当前服务" if command == "service" else "认证方式", config.service if command == "service" else ui.BACKENDS[config.backend])
+            config = update_config(path, **{command: value})
+        ui.row("配置服务" if command == "service" else "认证方式", config.service if command == "service" else ui.BACKENDS[config.backend])
         if value:
             ui.message("配置已保存。", "success")
-            ui.hint("切换已在线连接：ysu off → ysu on")
+            ui.hint("立即切换连接：先停止守护，再运行 ysu switch <服务名>；当前操作仅保存配置。")
         return 0
     if command == "daemon":
         ui.progress("开始检查校园网状态。" if args.once else "自动重连运行中，按 Ctrl+C 停止。")

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-ONLINE = {"data": {"portalOnlineUserInfo": {"result": "success", "userName": "mock-user"}}}
+ONLINE = {"data": {"portalOnlineUserInfo": {"result": "success", "userName": "mock-user", "service": "校园网"}}}
 OFFLINE = {"data": {"portalOnlineUserInfo": {"result": "fail", "message": "dx.failed.user.offline"}}}
 
 

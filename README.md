@@ -6,7 +6,7 @@
 支持 Linux + Python 3.12；后台服务使用 systemd。没有 systemd 的环境可使用前台守护。
 默认采用轻量 API 认证，Playwright 浏览器认证按需安装。
 
-当前验证范围为本地 mock 测试及 systemd 单元静态检查，尚未在校园网实测。
+默认 API 后端的校园网认证闭环、增强版中国移动切换均已通过真实校内网络验收，114 项本地测试通过。已补充实际服务校验、显式切换、失败恢复及脱敏故障提示；完整覆盖边界见[真实网络验收记录](docs/live-test.md)。
 可以先在非校园网环境安装、配置和运行 `ysu doctor`；登录和真实状态查询需要接入校园网。
 
 ## 快速开始
@@ -99,4 +99,4 @@ uv sync --locked --extra browser
 uv run --extra browser python -m unittest discover -s tests -v
 ```
 
-连接相关测试使用 mock，不需要校园网、真实账号或浏览器运行时。实际 CAS 页面、风控及运营商返回格式仍需校园网实测。
+连接相关单元测试使用 mock，不需要校园网、真实账号或浏览器运行时。真实 API / 校园网认证验收独立执行，结果与未覆盖场景见[验收记录](docs/live-test.md)。

@@ -16,15 +16,40 @@ MESSAGES = {
     130: "操作已取消",
 }
 
+REASONS = {
+    "session_limit": "运营商同时在线数量已达上限，请先在其他终端正常下线后重试",
+    "carrier_auth": "运营商认证需要人工处理，请检查账号绑定、密码或验证码",
+    "service_mismatch": "实际在线服务与请求不一致；先停止守护，再用 ysu switch <服务名> 切换",
+    "unknown_service": "门户未返回可识别的在线服务，暂不切换连接",
+    "dns": "校园网域名解析失败，请检查 DNS 配置与校内 DNS 连通性",
+    "tls": "HTTPS 证书校验失败，请检查系统时间及可信证书",
+}
+
+
+def failure_reason(code, error):
+    # Classify fixed signatures; never forward a server message or credential.
+    signatures = (
+        (4, "运营商同时在线数量已达上限", "session_limit"),
+        (4, "运营商认证需要人工处理", "carrier_auth"),
+        (3, "在线服务与请求不一致", "service_mismatch"),
+        (2, "在线响应未返回唯一可识别的服务", "unknown_service"),
+        (2, "NameResolutionError", "dns"),
+        (2, "Temporary failure in name resolution", "dns"),
+        (2, "CERTIFICATE_VERIFY_FAILED", "tls"),
+    )
+    return next((reason for expected, signature, reason in signatures
+                 if code == expected and signature in error), "")
+
 
 @dataclass
 class Result:
     code: int
     output: str = ""
+    reason: str = ""
 
     @property
     def message(self):
-        return MESSAGES.get(self.code, "认证进程异常退出")
+        return REASONS.get(self.reason, MESSAGES.get(self.code, "认证进程异常退出"))
 
 
 def _kill_process_group(process):
@@ -73,7 +98,7 @@ def run_backend(config, action, *, interactive=False, raw=False, stop_event=None
                 _kill_process_group(process)
                 return Result(3)
             try:
-                output, _ = process.communicate(timeout=min(remaining, 0.5))
+                output, error = process.communicate(timeout=min(remaining, 0.5))
                 break
             except subprocess.TimeoutExpired:
                 continue
@@ -81,4 +106,5 @@ def run_backend(config, action, *, interactive=False, raw=False, stop_event=None
         _kill_process_group(process)
         raise
     # Background logs use only fixed messages, never raw authentication responses.
-    return Result(process.returncode, output or "")
+    reason = failure_reason(process.returncode, error or "")
+    return Result(process.returncode, output or "", reason)

@@ -83,6 +83,19 @@ def save_config(path, config):
         Path(temporary).unlink(missing_ok=True)
 
 
+def update_config(path, **changes):
+    from .locking import configuration_write
+
+    with configuration_write(path):
+        config = load_config(path, environ={})
+        for key, value in changes.items():
+            if key not in Config.__dataclass_fields__:
+                raise ValueError("配置文件包含未知字段")
+            setattr(config, key, value)
+        save_config(path, config)
+        return config
+
+
 def public_config(config):
     data = asdict(config)
     data["username"] = "已配置" if config.username else "未配置"

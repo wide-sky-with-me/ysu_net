@@ -282,6 +282,23 @@ class BrowserTests(OfflineTestCase):
         with self.assertRaises(OperationFailed):
             self.browser.cmd_login("校园网", "mock-user", "password", False, 0, False)
 
+    def test_browser_already_online_checks_requested_service(self):
+        self.browser_context()
+        self.mock("ysu_net.auth.browser.get_online_info", return_value=ONLINE)
+        post = self.mock("ysu_net.auth.browser.api_post_json")
+        with self.assertRaises(OperationFailed):
+            self.browser.cmd_login("中国移动", "mock-user", "password", False, 5, False)
+        post.assert_not_called()
+
+    def test_browser_checks_service_after_login(self):
+        self.browser_context()
+        self.mock("ysu_net.auth.browser.get_online_info", side_effect=[OFFLINE, ONLINE])
+        self.mock("ysu_net.auth.browser.get_current_node", return_value="serviceSelection")
+        self.mock("ysu_net.auth.browser.ui_cas_login")
+        self.mock("ysu_net.auth.browser.api_post_json", return_value=(200, {"result": "success"}))
+        with self.assertRaises(OperationFailed):
+            self.browser.cmd_login("中国移动", "mock-user", "password", False, 5, False)
+
     def test_browser_logout_verifies_offline(self):
         self.browser_context()
         self.mock("ysu_net.auth.browser.get_online_info", side_effect=[ONLINE, OFFLINE])

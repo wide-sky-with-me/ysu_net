@@ -34,6 +34,7 @@ from ysu_net.auth.common import (
     check_action,
     managed_resources,
     online_state,
+    require_online_service,
     track_resource,
 )
 
@@ -1001,6 +1002,7 @@ def cmd_login(service: str, user: str, pwd: str, debug: bool, max_wait: int) -> 
 
     online = get_online_info(sess, sid, debug=debug)
     if online and is_online(online):
+        require_online_service(online, svc)
         print("[OK] already online")
         _, acc = get_account_info(sess, sid, debug=debug)
         print(format_info(online, acc))
@@ -1046,6 +1048,7 @@ def cmd_login(service: str, user: str, pwd: str, debug: bool, max_wait: int) -> 
     while time.monotonic() < deadline:
         last = get_online_info(sess, sid, debug=debug)
         if last and is_online(last):
+            require_online_service(last, svc)
             print("[OK] 已在线")
             _, acc = get_account_info(sess, sid, debug=debug)
             print(format_info(last, acc))
