@@ -1,0 +1,8 @@
+{
+  "blank_issues_enabled": false,
+  "contact_links": [
+    {"name": "使用问答", "url": "https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a", "about": "安装与用法问题到 Q&A；公开前先脱敏。"},
+    {"name": "入门与排障文档", "url": "https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/wiki/Home.md", "about": "选择版本、安装方式与排障入口。"},
+    {"name": "私密漏洞报告", "url": "https://github.com/wide-sky-with-me/ysu_net/security/advisories/new", "about": "凭据泄漏与安全缺陷使用私密入口，不在公开 Issue 上传秘密。"}
+  ]
+}

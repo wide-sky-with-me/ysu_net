@@ -15,6 +15,15 @@
 除命令行版外，还提供 Windows 和 Ubuntu 的图形界面客户端，支持浅色和深色外观、系统托盘、一键连接、运营商切换、自动重连和开机自启。
 安装包见 Releases；从源码运行：`uv sync --locked --extra gui && uv run ysu-gui`。详见[图形界面客户端](docs/desktop.md)。
 
+## 选择版本与交流入口
+
+- **Linux 命令行版**：以下安装步骤使用默认分支 `main`，适合桌面、服务器和 systemd 后台运行。
+- **Windows / Ubuntu 桌面测试版**：下载 [v0.1.0-beta.1](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0-beta.1)，阅读[对应版本的桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0-beta.1/docs/desktop.md)。桌面源码尚未合并到 `main`，默认分支没有 `ysu-gui`。
+- **入门与排障**：[Wiki 源文档](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) · [支持与反馈](SUPPORT.md)。
+- **社区协作**：[Discussions 问答与建议](https://github.com/wide-sky-with-me/ysu_net/discussions) · [Issue 故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [贡献指南](CONTRIBUTING.md) · [安全问题私密报告](SECURITY.md)。
+
+公开反馈前按[脱敏清单](docs/security.md#公开反馈的脱敏清单)检查正文、日志与截图。普通输出不等于匿名报告；无需提供真实账号、密码、会话、IP/MAC 或完整配置。
+
 ## 快速开始
 
 先准备 Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)，然后执行：
