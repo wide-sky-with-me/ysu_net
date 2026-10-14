@@ -108,3 +108,30 @@ def format_account_info(online_info, account_payload):
         lines.append('提示：可在校园网门户的业务明细或运营商自助服务中进一步查询。')
     lines.append('说明：流量和余额按门户原文展示，不推算额度或换算未知单位。')
     return '\n'.join(lines)
+
+
+def account_summary(online_info, account_payload):
+    """Structured variant of format_account_info for graphical front ends."""
+    try:
+        online = online_state(online_info)
+    except (QueryError, TypeError, AttributeError):
+        return None
+    if not online:
+        return {'online': False, 'fields': [], 'items': []}
+    info = online_info['data']['portalOnlineUserInfo']
+    account = summarize_account_payload(account_payload)
+    fields = []
+    for title, value in (
+        ('用户', account.get('name') or info.get('userName')),
+        ('账号', info.get('userId') or info.get('userName')),
+        ('IP', info.get('userIp')),
+        ('SSID', info.get('ssid')),
+        ('当前服务', info.get('realServiceName') or info.get('service') or account.get('service')),
+    ):
+        text = _text(value)
+        if text:
+            fields.append((title, text))
+    items = [(title.replace('套餐&余额', '套餐与余额'), content)
+             for title, item in account['items_map'].items()
+             if (content := _text(item.get('content')))]
+    return {'online': True, 'fields': fields, 'items': items}

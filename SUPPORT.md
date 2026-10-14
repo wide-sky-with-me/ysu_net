@@ -5,8 +5,8 @@
 ## 先确认版本
 
 - Linux 命令行版：从 `main` 安装，见 [README](README.md) 和 [使用说明](docs/usage.md)。反馈时提供安装来源及提交短哈希。
-- Windows / Ubuntu 桌面版：从 [Releases](https://github.com/wide-sky-with-me/ysu_net/releases) 选择明确版本；当前发布为 `v0.1.0-beta.1` 测试版，见 [对应版本的桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0-beta.1/docs/desktop.md)。
-- Wiki 提供 [入门导航](docs/wiki/Home.md)；命令与参数以使用版本对应的文档为准。桌面测试版尚未合并到 `main`，默认分支没有 `ysu-gui` 入口。
+- Windows / Ubuntu 桌面版：从 [Releases](https://github.com/wide-sky-with-me/ysu_net/releases) 选择明确版本；`v0.1.0` 包含自动重连状态刷新修复，见 [对应版本的桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0/docs/desktop.md)。
+- Wiki 提供 [入门导航](docs/wiki/Home.md)；命令与参数以使用版本对应的文档为准。`main` 已包含 `ysu-gui` 入口，源码运行需安装 `gui` 可选依赖。
 
 ## 选择反馈渠道
 
@@ -25,6 +25,6 @@
 
 命令行排障先运行 `ysu doctor`，它只检查本地；在校园网内确需查询时再运行 `ysu doctor --network`。两个命令均不登录、不下线、不切换运营商。即使普通展示隐藏了部分字段，完整输出仍须人工复核，见 [脱敏清单](docs/security.md#公开反馈的脱敏清单)。
 
-桌面版的自动重连状态刷新问题已有 [Issue #1](https://github.com/wide-sky-with-me/ysu_net/issues/1)：用户报告实际已联网但界面仍显示未连接，点击刷新后更新。此项尚未确认修复；遇到相同现象可手动刷新并在原 Issue 补充脱敏的版本与复现信息。
+桌面自动重连后仍显示未连接的 [Issue #1](https://github.com/wide-sky-with-me/ysu_net/issues/1) 已在 `v0.1.0` 修复：登录成功后立即独立查询并同步界面状态。旧测试版用户可先手动刷新，再升级；修复有离线引擎与 Qt 窗口回归证据，校内网络实测需按当前设备另行确认。若新版仍出现此现象，请在原 Issue 补充脱敏版本和复现信息。
 
 不要仅以“有网/没网”判断认证成功：操作返回、独立状态查询、界面显示和外网连通性应分别描述。维护者可能先请求补充信息，再确认复现；Issue 关闭原因会按实际验证说明，固定响应期限不作承诺。

@@ -7,17 +7,17 @@
 | 现象 | 最小检查与处理 |
 | --- | --- |
 | `ysu: command not found` | 检查 PATH 是否含 `~/.local/bin`；可直接执行 `~/.local/bin/ysu --help` |
-| 默认分支找不到 `ysu-gui` | `main` 没有桌面入口，使用桌面测试版附件或对应标签，见 [桌面版](Desktop-Client.md) |
+| 找不到 `ysu-gui` | 更新至 `v0.1.0` 或最新 `main`，执行 `uv sync --locked --extra gui`；也可直接使用对应发布附件，见 [桌面版](Desktop-Client.md) |
 | `systemctl --user` 连接用户总线失败 | 登录用户会话，或使用无服务安装与前台守护；不要把此故障当成账号错误 |
 | 开启自动重连但尚未联网 | 服务启动不等于认证成功；单独查询状态并查看最少必要日志 |
 | 状态未知、查询超时或 DNS/TLS 错误 | 先确认接入校园网；命令行先本地 `ysu doctor`，再按需 `ysu doctor --network` |
 | 提示已有守护进程或后台服务管理 | 同一配置只运行一个重连器；先按说明停止 systemd 服务或前台守护 |
 | 账号错误、验证码或认证暂停 | 暂停重连，本机核对配置或通过门户处理；不要连续重复提交密码 |
 | 剩余流量/余额显示“门户未提供” | 门户没有返回字段，去门户或运营商查询；不是流量为零或无限量 |
-| 桌面自动重连后仍显示未连接 | 先手动刷新；已有 [Issue #1](https://github.com/wide-sky-with-me/ysu_net/issues/1)，尚未确认修复 |
+| 桌面自动重连后仍显示未连接 | [Issue #1](https://github.com/wide-sky-with-me/ysu_net/issues/1) 已在 `v0.1.0` 修复；旧版先手动刷新并升级，新版异常补充脱敏复现信息 |
 | 运营商切换失败或在线设备超限 | 先核对独立状态与原服务是否恢复，按门户提示处理已有在线设备；工具不自动踢其他设备 |
 
-命令行的具体故障表与退出码见 [使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#常见问题)。桌面浏览器认证依赖与限制见 [对应标签文档](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0-beta.1/docs/desktop.md#限制)。不要把关闭 TLS 校验当作默认修复方式；先核对证书与可信 CA 配置。
+命令行的具体故障表与退出码见 [使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#常见问题)。桌面浏览器认证依赖与限制见 [对应标签文档](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0/docs/desktop.md#限制)。不要把关闭 TLS 校验当作默认修复方式；先核对证书与可信 CA 配置。
 
 ## 形成可处理的反馈
 

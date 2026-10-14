@@ -6,7 +6,10 @@ import signal
 import time
 
 
-from ysu_net.paths import PROJECT_ROOT as ROOT
+from ysu_net.paths import FROZEN, PROJECT_ROOT as ROOT
+
+
+AUTH_WORKER_FLAG = "--ysu-auth"
 MESSAGES = {
     0: "操作成功",
     1: "离线",
@@ -23,6 +26,8 @@ REASONS = {
     "unknown_service": "门户未返回可识别的在线服务，暂不切换连接",
     "dns": "校园网域名解析失败，请检查 DNS 配置与校内 DNS 连通性",
     "tls": "HTTPS 证书校验失败，请检查系统时间及可信证书",
+    "browser_component": "浏览器认证组件未安装：请在图形界面“设置”中下载，或改用 API 认证",
+    "browser_missing": "未找到可用浏览器：请安装 Microsoft Edge 或 Google Chrome",
 }
 
 
@@ -36,6 +41,8 @@ def failure_reason(code, error):
         (2, "NameResolutionError", "dns"),
         (2, "Temporary failure in name resolution", "dns"),
         (2, "CERTIFICATE_VERIFY_FAILED", "tls"),
+        (2, "浏览器认证组件未安装", "browser_component"),
+        (2, "未找到可用浏览器", "browser_missing"),
     )
     return next((reason for expected, signature, reason in signatures
                  if code == expected and signature in error), "")
@@ -53,17 +60,35 @@ class Result:
 
 
 def _kill_process_group(process):
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    if os.name == "nt":
+        # The browser backend spawns Chromium children; /T terminates the whole tree.
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                       capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     process.wait()
+
+
+def auth_command(backend):
+    # A frozen bundle re-enters its own executable instead of an interpreter.
+    if FROZEN:
+        return [sys.executable, AUTH_WORKER_FLAG, backend]
+    return [sys.executable, "-m", f"ysu_net.auth.{backend}"]
+
+
+def _isolation():
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+    return {"start_new_session": True}
 
 
 def run_backend(config, action, *, interactive=False, raw=False, stop_event=None):
     if action == "login" and not (config.username and config.password):
         return Result(4)
-    command = [sys.executable, "-m", f"ysu_net.auth.{config.backend}", action]
+    command = auth_command(config.backend) + [action]
     if action == "login":
         command += ["--service", config.service, "--max-wait", "60"]
     elif action == "logout":
@@ -75,15 +100,15 @@ def run_backend(config, action, *, interactive=False, raw=False, stop_event=None
         "YSU_USER": config.username, "YSU_PASS": config.password,
         "YSU_BASE": config.base, "YSU_CAS_HOST": config.cas_host,
         "YSU_VERIFY_TLS": "1" if config.verify_tls else "0",
-        "YSU_SAVE_DEBUG_FILES": "0", "PYTHONUNBUFFERED": "1",
+        "YSU_SAVE_DEBUG_FILES": "0", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
     })
     try:
         process = subprocess.Popen(
-            command, env=env, cwd=ROOT, text=True,
+            command, env=env, cwd=ROOT, text=True, encoding="utf-8", errors="replace",
             stdin=None if interactive else subprocess.DEVNULL,
             stdout=None if interactive else subprocess.PIPE,
             stderr=None if interactive else subprocess.PIPE,
-            start_new_session=True,
+            **_isolation(),
         )
     except OSError:
         return Result(2)

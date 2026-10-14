@@ -150,8 +150,13 @@ def doctor(args, path):
         report(importlib.util.find_spec(module) is not None, f"依赖 {module}")
     if config.backend == "browser" and importlib.util.find_spec("playwright"):
         from playwright.sync_api import sync_playwright
+        from ..auth.system_browser import find_system_browser
         with sync_playwright() as p:
-            report(Path(p.chromium.executable_path).exists(), "Chromium 文件（缺失时运行 uv run playwright install chromium）")
+            bundled = Path(p.chromium.executable_path).exists()
+        system = None if bundled else find_system_browser()
+        report(bundled or system is not None,
+               "Chromium 文件" if bundled else f"使用系统浏览器：{system[0]}" if system
+               else "浏览器（安装 Edge / Chrome，或运行 uv run playwright install chromium）")
     ui.row("当前服务", f"{config.service} · {ui.BACKENDS[config.backend]}")
     ui.row("证书校验", "开启" if config.verify_tls else "关闭")
     if unit_path(args.scope).exists() and shutil.which("systemctl"):
