@@ -58,7 +58,7 @@ class Engine:
         self.auto = False
         self._lock = None
         self.next_check = None
-        self.reconnector = Reconnector(runner=self._run)
+        self.reconnector = Reconnector(runner=self._run_reconnect)
         self.thread = threading.Thread(target=self._loop, name="ysu-engine", daemon=True)
 
     # ---- public API: safe to call from any thread ----
@@ -83,6 +83,15 @@ class Engine:
             self.emit("status", parse_status(result))
             return result
         return self.runner(config, action, stop_event=self.cancel, **kwargs)
+
+    def _run_reconnect(self, config, action):
+        result = self._run(config, action)
+        if action == "login" and result.code == 0:
+            # Publish the post-login state before reporting a successful reconnect.
+            result = self._run(config, "status")
+        if result.code == 0 and parse_status(result).online is not True:
+            return Result(2)
+        return result
 
     def _loop(self):
         while True:

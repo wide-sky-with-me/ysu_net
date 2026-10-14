@@ -81,18 +81,70 @@ class EngineTests(OfflineTestCase):
         self.assertEqual(self.kinds("auto")[-1], {"state": "external", "message": EXTERNAL_DAEMON})
 
     def test_auto_tick_reconnects_and_logout_disables_it(self):
-        self.responses["status"] = [status(OFFLINE), status(OFFLINE), status(OFFLINE)]
+        self.responses["status"] = [status(OFFLINE), status(ONLINE), status(OFFLINE)]
         self.engine._do_set_auto(True)
         self.assertTrue(self.engine.auto)
         self.engine._do_tick()
-        self.assertEqual([c[0] for c in self.calls], ["status", "login"])
+        self.assertEqual([c[0] for c in self.calls], ["status", "login", "status"])
         self.assertEqual(self.kinds("auto")[-1]["message"], "重连成功")
+        self.assertEqual([s.online for s in self.kinds("status")], [False, True])
+        self.assertTrue(all(raw for action, raw, _ in self.calls if action == "status"))
         self.engine._do_logout()
         self.assertFalse(self.engine.auto)
         self.assertEqual(self.kinds("auto")[-1]["state"], "off")
+        self.assertFalse(self.kinds("status")[-1].online)
         # The lock is released, so a fresh holder can take it.
         with exclusive_config(self.path):
             pass
+
+    def test_auto_tick_online_does_not_login_or_repeat_status(self):
+        self.responses["status"] = status(ONLINE)
+        self.engine._do_set_auto(True)
+        self.addCleanup(self.engine._release)
+        self.engine._do_tick()
+        self.assertEqual([c[0] for c in self.calls], ["status"])
+        self.assertTrue(self.kinds("status")[-1].online)
+
+    def test_auto_tick_unknown_status_never_logs_in(self):
+        for response in (Result(2, reason="dns"), Result(0, "not json")):
+            with self.subTest(code=response.code):
+                self.calls.clear()
+                self.responses["status"] = response
+                self.engine._do_set_auto(True)
+                try:
+                    self.engine._do_tick()
+                    self.assertEqual([c[0] for c in self.calls], ["status"])
+                    self.assertIsNone(self.kinds("status")[-1].online)
+                    self.assertGreater(self.engine.reconnector.failures, 0)
+                finally:
+                    self.engine._release()
+
+    def test_auto_tick_failed_login_does_not_query_again(self):
+        self.responses["status"] = status(OFFLINE)
+        self.responses["login"] = Result(3)
+        self.engine._do_set_auto(True)
+        self.addCleanup(self.engine._release)
+        self.engine._do_tick()
+        self.assertEqual([c[0] for c in self.calls], ["status", "login"])
+        self.assertNotEqual(self.kinds("auto")[-1]["message"], "重连成功")
+        self.assertFalse(self.kinds("status")[-1].online)
+
+    def test_auto_tick_unconfirmed_login_backs_off(self):
+        for response, online in ((status(OFFLINE), False), (Result(2, reason="dns"), None),
+                                 (Result(0, "not json"), None)):
+            with self.subTest(code=response.code):
+                self.calls.clear()
+                self.events.clear()
+                self.responses["status"] = [status(OFFLINE), response]
+                self.engine._do_set_auto(True)
+                try:
+                    self.engine._do_tick()
+                    self.assertEqual([c[0] for c in self.calls], ["status", "login", "status"])
+                    self.assertIs(self.kinds("status")[-1].online, online)
+                    self.assertNotEqual(self.kinds("auto")[-1]["message"], "重连成功")
+                    self.assertGreater(self.engine.reconnector.failures, 0)
+                finally:
+                    self.engine._release()
 
     def test_status_checks_always_request_raw_json(self):
         self.responses["status"] = status(ONLINE)
@@ -203,6 +255,44 @@ class WindowSmokeTests(OfflineTestCase):
         from PySide6.QtCore import QCoreApplication, QEvent
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_auto_reconnect_updates_window_without_manual_refresh(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+        from ysu_net.gui import window
+        app = QApplication.instance() or QApplication([])
+        path = self.tmp / "config.json"
+        save_config(path, Config(username="user", password="secret"))
+        responses = [status(OFFLINE), status(OFFLINE), status(ONLINE)]
+        calls = []
+
+        def runner(config, action, **kwargs):
+            calls.append(action)
+            return responses.pop(0) if action == "status" else Result(0)
+
+        win = window.MainWindow(path, prefs.Prefs(), offline=True)
+        win.engine.runner = runner
+        try:
+            win.engine._do_logout()
+            self.assertEqual(win.hero_title.text(), "未连接")
+            win.engine._do_set_auto(True)
+            win.engine._do_tick()
+            app.processEvents()
+            self.assertEqual(calls, ["logout", "status", "status", "login", "status"])
+            self.assertEqual(win.hero_title.text(), "已连接")
+            self.assertEqual(win.connect_button.text(), "断开连接")
+            self.assertIn("校园网", win.hero_sub.text())
+            self.assertIn("在线", win.side_pill.text())
+            if win.tray:
+                self.assertIn("已连接", win.tray.toolTip())
+        finally:
+            win.engine._release()
+            win.engine.shutdown(timeout=0)
+            win.quitting = True
+            win.close()
+            win.tray and win.tray.hide()
+            win.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 if __name__ == "__main__":
     unittest.main()
