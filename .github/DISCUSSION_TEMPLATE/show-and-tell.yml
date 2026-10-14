@@ -1,0 +1,10 @@
+{
+  "title": "[体验] ",
+  "body": [
+    {"type": "markdown", "attributes": {"value": "分享安装经验与测试结果，不分享账号、设备地址、位置或联系方式。请明确区分真实校园网验证、mock 测试和仍未测试的场景；截图先裁剪并用不透明遮盖移除识别信息。"}},
+    {"type": "input", "id": "environment", "attributes": {"label": "系统、版本、认证方式与运营商", "placeholder": "只写软件环境，不写姓名、账号、IP/MAC 或设备位置"}, "validations": {"required": true}},
+    {"type": "textarea", "id": "coverage", "attributes": {"label": "实际测试步骤与结果", "description": "例如连接、断开、自动重连；每项说明实际现象，不把安装成功当作认证通过。"}, "validations": {"required": true}},
+    {"type": "textarea", "id": "limits", "attributes": {"label": "尚未测试或仍有问题的场景", "description": "已有问题请链接对应 Issue。"}, "validations": {"required": true}},
+    {"type": "checkboxes", "id": "privacy", "attributes": {"label": "公开前确认", "options": [{"label": "我已人工检查正文和全部附件，已移除凭据、会话、个人资料与设备/位置识别信息。", "required": true}]}}
+  ]
+}

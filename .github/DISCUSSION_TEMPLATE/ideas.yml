@@ -1,0 +1,11 @@
+{
+  "title": "[想法] ",
+  "labels": ["enhancement"],
+  "body": [
+    {"type": "markdown", "attributes": {"value": "讨论尚未成形的改进，不代表维护者已承诺排期。请说明目标用户、版本边界和验证办法；所有示例均需脱敏，不公开凭据、会话或个人/设备识别信息。"}},
+    {"type": "textarea", "id": "problem", "attributes": {"label": "希望解决的使用问题", "description": "附上已有相关 Issue 或 Discussion 链接。"}, "validations": {"required": true}},
+    {"type": "textarea", "id": "idea", "attributes": {"label": "方案、替代办法与代价", "description": "说明适用于命令行还是桌面版，哪些行为会改变。"}, "validations": {"required": true}},
+    {"type": "textarea", "id": "verification", "attributes": {"label": "怎样验证有效（可选）"}},
+    {"type": "checkboxes", "id": "privacy", "attributes": {"label": "公开前确认", "options": [{"label": "正文和附件只有脱敏或虚构示例，不含凭据、会话和个人/设备识别信息。", "required": true}]}}
+  ]
+}
