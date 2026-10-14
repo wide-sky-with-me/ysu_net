@@ -89,7 +89,7 @@ class Engine:
         if action == "login" and result.code == 0:
             # Publish the post-login state before reporting a successful reconnect.
             result = self._run(config, "status")
-        if result.code == 0 and parse_status(result).online is not True:
+        if result.code in (0, 1) and parse_status(result).online is not (result.code == 0):
             return Result(2)
         return result
 

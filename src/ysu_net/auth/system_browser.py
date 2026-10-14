@@ -35,7 +35,8 @@ def _posix_candidates():
         ("Brave", "brave-browser"),
     ):
         found = shutil.which(command)
-        if found and not Path(found).resolve().as_posix().startswith("/snap/"):
+        if found and not Path(found).absolute().as_posix().startswith("/snap/") \
+                and not Path(found).resolve().as_posix().startswith("/snap/"):
             yield label, Path(found)
 
 

@@ -71,7 +71,7 @@ uv lock --check
 - `tests/test_node_runtime.py`：Node.js 运行时查找顺序、镜像回退、校验失败与取消下载。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
 
-当前离线回归为 189 项，包含自动重连状态同步的引擎与 Qt 窗口回归以及社区文档检查。认证展示统一在 `auth/account.py` 修改；两个后端保留原导出名称，直接引用共享函数，避免重新出现双份逻辑。
+当前离线回归为 196 项，包含自动重连状态同步、偏好持久化、账户缓存、可访问控件、Snap 浏览器查找以及社区文档检查。认证展示统一在 `auth/account.py` 修改；两个后端保留原导出名称，直接引用共享函数，避免重新出现双份逻辑。
 
 连接相关测试 mock Portal、CAS、Playwright 和认证子进程；测试基类禁止 socket 连接与 DNS 查询。
 服务管理命令使用 mock，安装卸载在临时目录验证；可用时调用 `systemd-analyze verify`

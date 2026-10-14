@@ -117,6 +117,7 @@ def _setting(card, title, desc, control, *, first=False):
         text.addWidget(desc)
     elif desc:
         text.addWidget(label(desc, "Muted", wrap=True))
+    control.setAccessibleName(title)
     card.body.addLayout(_row(text, control, spacing=24, stretch_at=0))
 
 
@@ -311,6 +312,7 @@ class MainWindow(QMainWindow):
         self.auto_desc = label("", "Muted", wrap=True)
         text.addWidget(self.auto_desc)
         self.auto_toggle = Toggle()
+        self.auto_toggle.setAccessibleName("自动重连")
         self.auto_toggle.clicked.connect(self._set_auto)
         auto.body.addLayout(_row(text, self.auto_toggle, stretch_at=0))
         page.body.addWidget(auto)
@@ -532,6 +534,8 @@ class MainWindow(QMainWindow):
             previous = self.status
             self.status = payload
             self._render_status()
+            if payload.online is False:
+                self._render_account({"online": False})
             if previous and previous.online is not None and payload.online is not None \
                     and previous.online != payload.online:
                 self.log("网络" + ("已连接" if payload.online else "已断开"))
@@ -539,6 +543,10 @@ class MainWindow(QMainWindow):
                     self.engine.submit("info")
         elif kind == "auto":
             self.auto_state = payload["state"]
+            enabled = self.auto_state == "on"
+            if self.prefs.auto_reconnect != enabled:
+                self.prefs.auto_reconnect = enabled
+                self._save_prefs()
             delay = payload.get("delay")
             self.auto_deadline = time.monotonic() + delay if delay else None
             if payload["message"] != self.auto_message:
@@ -639,6 +647,7 @@ class MainWindow(QMainWindow):
                 item = grid.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
+        self.account_loaded = False
         if not summary or not summary["online"]:
             self.tiles_card.hide()
             self.fields_card.hide()
@@ -755,8 +764,6 @@ class MainWindow(QMainWindow):
             self.engine.submit("set_service", target)
 
     def _set_auto(self, enabled):
-        self.prefs.auto_reconnect = bool(enabled)
-        self._save_prefs()
         self.engine.submit("set_auto", bool(enabled))
 
     def _save_account(self):

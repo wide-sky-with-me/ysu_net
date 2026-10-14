@@ -106,7 +106,7 @@ class EngineTests(OfflineTestCase):
         self.assertTrue(self.kinds("status")[-1].online)
 
     def test_auto_tick_unknown_status_never_logs_in(self):
-        for response in (Result(2, reason="dns"), Result(0, "not json")):
+        for response in (Result(2, reason="dns"), Result(0, "not json"), Result(1, "not json")):
             with self.subTest(code=response.code):
                 self.calls.clear()
                 self.responses["status"] = response
@@ -293,6 +293,76 @@ class WindowSmokeTests(OfflineTestCase):
             win.tray and win.tray.hide()
             win.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+@unittest.skipUnless(importlib.util.find_spec("PySide6"), "PySide6 未安装")
+class WindowStateTests(OfflineTestCase):
+    def window(self, config=None, auto=False):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+        from ysu_net.gui import window
+        self.app = QApplication.instance() or QApplication([])
+        path = self.tmp / "config.json"
+        save_config(path, config or Config(username="user", password="secret"))
+        app_prefs = prefs.Prefs(auto_reconnect=auto)
+        prefs.save_prefs(prefs.prefs_path(path), app_prefs)
+        win = window.MainWindow(path, app_prefs, offline=True)
+
+        def close():
+            win.engine._release()
+            win.engine.shutdown(timeout=0)
+            win.quitting = True
+            win.close()
+            win.tray and win.tray.hide()
+            win.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+        self.addCleanup(close)
+        return win
+
+    def test_auto_preference_follows_confirmed_state_and_logout(self):
+        win = self.window()
+        with patch.object(win.engine, "submit") as submit:
+            win._set_auto(True)
+            submit.assert_called_once_with("set_auto", True)
+        self.assertFalse(prefs.load_prefs(win.prefs_file).auto_reconnect)
+        win.engine._do_set_auto(True)
+        self.assertTrue(prefs.load_prefs(win.prefs_file).auto_reconnect)
+        win.engine.runner = lambda config, action, **kwargs: status(OFFLINE) if action == "status" else Result(0)
+        win.engine._do_logout()
+        self.assertFalse(prefs.load_prefs(win.prefs_file).auto_reconnect)
+
+    def test_missing_credentials_resets_saved_auto_preference(self):
+        win = self.window(Config(), auto=True)
+        with self.assertRaises(ValueError):
+            win.engine._do_set_auto(True)
+        self.assertFalse(prefs.load_prefs(win.prefs_file).auto_reconnect)
+
+    def test_external_daemon_resets_saved_auto_preference(self):
+        win = self.window(auto=True)
+        with exclusive_config(win.config_file):
+            win.engine._do_set_auto(True)
+        self.assertEqual(win.auto_state, "external")
+        self.assertFalse(prefs.load_prefs(win.prefs_file).auto_reconnect)
+
+    def test_offline_and_failed_refresh_clear_account_state(self):
+        win = self.window()
+        summary = account_summary(ONLINE, {"data": {"accountInfo": []}})
+        for clear in ("status", "info"):
+            with self.subTest(event=clear):
+                win._on_event("info", summary)
+                self.assertTrue(win.account_loaded)
+                self.assertGreater(win.tiles.count(), 0)
+                win._on_event(clear, parse_status(status(OFFLINE)) if clear == "status" else None)
+                self.assertFalse(win.account_loaded)
+                self.assertEqual(win.tiles.count(), 0)
+
+    def test_switches_have_accessible_names(self):
+        win = self.window()
+        self.assertEqual(win.auto_toggle.accessibleName(), "自动重连")
+        for control in (win.tls_toggle, win.autostart_toggle, win.tray_toggle):
+            self.assertTrue(control.accessibleName())
+
 
 if __name__ == "__main__":
     unittest.main()

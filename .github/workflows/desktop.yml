@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -141,6 +141,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -152,7 +154,9 @@ jobs:
           path: artifacts
           merge-multiple: true
       - name: Generate checksums
-        run: sha256sum artifacts/* dist/*.whl dist/*.tar.gz > SHA256SUMS
+        run: |
+          cp dist/*.whl dist/*.tar.gz artifacts/
+          (cd artifacts && sha256sum * > ../SHA256SUMS)
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -160,6 +164,6 @@ jobs:
         run: |
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" artifacts/* dist/*.whl dist/*.tar.gz SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" artifacts/* SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "YSU Net $GITHUB_REF_NAME" --notes-file packaging/release-notes.md "${flags[@]}"

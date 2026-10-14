@@ -31,6 +31,26 @@ class FindSystemBrowserTests(OfflineTestCase):
                 self.assertIsNone(system_browser.find_system_browser())
 
 
+    @unittest.skipIf(os.name == "nt", "POSIX lookup")
+    def test_snap_symlink_to_launcher_is_skipped(self):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(system_browser.shutil, "which", return_value="/snap/bin/chromium"), \
+                patch.object(Path, "resolve", return_value=Path("/usr/bin/snap")), \
+                patch.object(Path, "is_file", return_value=True):
+            self.assertIsNone(system_browser.find_system_browser())
+
+    @unittest.skipIf(os.name == "nt", "POSIX lookup")
+    def test_snap_launcher_falls_through_to_regular_browser(self):
+        def which(command):
+            return {"chromium": "/snap/bin/chromium", "brave-browser": "/usr/bin/brave-browser"}.get(command)
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(system_browser.shutil, "which", side_effect=which), \
+                patch.object(Path, "resolve", return_value=Path("/usr/bin/snap")), \
+                patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(system_browser.find_system_browser(), ("Brave", Path("/usr/bin/brave-browser")))
+
+
 class LaunchFallbackTests(OfflineTestCase):
     def setUp(self):
         super().setUp()
