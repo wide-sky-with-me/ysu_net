@@ -22,8 +22,10 @@ SmartScreen 可能提示“未知发布者”（安装包没有代码签名）�
 **Ubuntu**：
 
 ```bash
-sudo apt install ./ysu-net_0.1.0_amd64.deb
+sudo apt install --reinstall ./ysu-net_0.1.0_amd64.deb
 ```
+
+`v0.1.0-beta.1` 与 `v0.1.0` 的 Debian 包版本号均为 `0.1.0`；升级时保留 `--reinstall`，确保替换旧程序而不是跳过同版本安装。升级前退出旧客户端，用户配置不变。
 
 安装后可在应用列表中找到 “YSU Net”，也可以在终端执行 `ysu-gui` 启动。
 卸载：`sudo apt remove ysu-net`。
