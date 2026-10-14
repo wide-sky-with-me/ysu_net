@@ -1,0 +1,11 @@
+{
+  "title": "[问答] ",
+  "labels": ["question"],
+  "body": [
+    {"type": "markdown", "attributes": {"value": "先查阅 [入门文档](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/wiki/Home.md) 和已有问答。可复现故障请提交 Issue。正文、日志和截图均须按 [脱敏清单](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/security.md#公开反馈的脱敏清单) 检查；不要提供真实账号、密码、Cookie、Token、会话、IP/MAC、姓名或本机路径。解决后可将有效回复标为答案。"}},
+    {"type": "input", "id": "environment", "attributes": {"label": "系统、版本与使用方式", "placeholder": "例如 Ubuntu 24.04，main 命令行版，API，校园网"}, "validations": {"required": true}},
+    {"type": "textarea", "id": "question", "attributes": {"label": "希望完成什么、遇到什么疑问", "description": "说明操作顺序与提示类型；不要贴原始响应或配置。"}, "validations": {"required": true}},
+    {"type": "textarea", "id": "tried", "attributes": {"label": "已查阅的文档和已尝试的步骤", "description": "诊断输出只节选人工脱敏后的最少内容。"}, "validations": {"required": true}},
+    {"type": "checkboxes", "id": "privacy", "attributes": {"label": "公开前确认", "options": [{"label": "我已人工检查正文及附件，已移除凭据、会话和个人/设备识别信息。", "required": true}]}}
+  ]
+}
