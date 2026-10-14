@@ -746,6 +746,8 @@ class MainWindow(QMainWindow):
                 if not Confirm.ask(self, "断开连接", "断开连接会同时关闭自动重连。确定下线吗？",
                                    "断开连接", danger=True):
                     return
+            self.prefs.auto_reconnect = False
+            self._save_prefs()
             self.engine.submit("logout")
         else:
             self.engine.submit("login")
@@ -764,6 +766,9 @@ class MainWindow(QMainWindow):
             self.engine.submit("set_service", target)
 
     def _set_auto(self, enabled):
+        if not enabled:
+            self.prefs.auto_reconnect = False
+            self._save_prefs()
         self.engine.submit("set_auto", bool(enabled))
 
     def _save_account(self):
