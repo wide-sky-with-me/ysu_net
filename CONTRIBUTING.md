@@ -11,7 +11,7 @@
 
 ## 版本与分支
 
-`main` 提供 Linux 命令行工具。桌面客户端当前为 [v0.1.0-beta.1 测试版](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0-beta.1)，源码位于 `feat/desktop-gui`，尚未合并至 `main`。改动命令行或社区文档时以 `main` 为基线；涉及桌面客户端时先说明对应版本和目标分支，避免把桌面改动提交到缺少 GUI 的基线。
+`main` 同时提供 Linux 命令行工具与 Windows / Ubuntu 桌面客户端。发布基线为 [v0.1.0](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0)，旧测试版 `v0.1.0-beta.1` 保留供历史问题复现。新改动以 `main` 为基线创建分支，说明目标版本和验证范围；桌面开发需安装 `gui` 可选依赖。
 
 ## 本地开发
 

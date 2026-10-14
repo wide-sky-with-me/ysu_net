@@ -1,14 +1,14 @@
 # 快速开始
 
-[返回导航](Home.md) · [桌面测试版](Desktop-Client.md) · [命令行入口](CLI-Reference.md)
+[返回导航](Home.md) · [桌面客户端](Desktop-Client.md) · [命令行入口](CLI-Reference.md)
 
 ## 选择安装方式
 
-- Windows 10 / 11 x64：下载桌面测试版的安装程序或便携 ZIP，见 [桌面测试版](Desktop-Client.md)。
-- Ubuntu 22.04 及更新的 x86_64 桌面：可使用测试版 `.deb` 或压缩包；服务器/无桌面环境使用命令行版。
+- Windows 10 / 11 x64：下载桌面安装程序或便携 ZIP，见 [桌面客户端](Desktop-Client.md)。
+- Ubuntu 22.04 及更新的 x86_64 桌面：可使用 `.deb` 或压缩包；服务器/无桌面环境使用命令行版。
 - Linux 命令行：需要 Git、uv 和 Python 3.12 及以上；systemd 可选，没有用户总线时可使用前台守护。
 
-当前桌面发布为 [v0.1.0-beta.1](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0-beta.1)，不是稳定正式版。安装包来自对应版本的 Assets，不要把仓库的 Source code ZIP 当成安装程序。
+发布基线为 [v0.1.0](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0)，旧测试版保留供历史问题复现。安装包来自对应版本的 Assets，不要把仓库的 Source code ZIP 当成安装程序。
 
 ## Linux 命令行初次安装
 
@@ -36,4 +36,4 @@ ysu on
 
 ## 最小自检
 
-先做本地诊断，再在校园网中分别检查连接、状态和下线；每次只改变一个条件。桌面版按 [对应版本的测试步骤](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0-beta.1) 执行。遇到问题按 [排障页](Troubleshooting.md) 分流，反馈前先 [脱敏](Privacy-and-Reporting.md)。
+先做本地诊断，再在校园网中分别检查连接、状态和下线；每次只改变一个条件。桌面版按 [对应版本的功能说明](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0/docs/desktop.md#功能) 验证。遇到问题按 [排障页](Troubleshooting.md) 分流，反馈前先 [脱敏](Privacy-and-Reporting.md)。
