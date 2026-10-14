@@ -108,6 +108,7 @@ uv run python packaging/build.py --installer
 `.deb` 的依赖由 `ldd` 与 `dpkg -S` 自动生成；随后以隔离的配置目录做冒烟测试：认证入口、`--smoke` 界面启动，
 以及（设置 `YSU_BROWSER_CHECK=1` 时）“未安装提示 → 下载组件 → 调用系统浏览器”的完整流程。
 PyInstaller 不支持跨平台构建，两个系统的安装包由 `.github/workflows/desktop.yml` 分别在对应 runner 上构建。
+标签构建的发布任务还会执行 `uv build`，生成 Python wheel 与源码包，并为所有桌面和 Python 附件生成 `SHA256SUMS`；仅在两个平台构建与安装验证成功后创建 Release。
 Ubuntu 包在 22.04 上构建，以兼容较旧的 glibc。
 
 敏感资料与发布前检查流程见[敏感信息与发布检查](security.md)。忽略规则只防止误提交，不能替代内容检查；构建后还要检查 wheel 和源码包的文件清单与内容。

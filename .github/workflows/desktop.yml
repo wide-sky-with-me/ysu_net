@@ -143,11 +143,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build Python distributions
+        run: uv build
       - uses: actions/download-artifact@v4
         with:
           pattern: ysu-net-*
           path: artifacts
           merge-multiple: true
+      - name: Generate checksums
+        run: sha256sum artifacts/* dist/*.whl dist/*.tar.gz > SHA256SUMS
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -155,5 +160,6 @@ jobs:
         run: |
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" \
+          gh release create "$GITHUB_REF_NAME" artifacts/* dist/*.whl dist/*.tar.gz SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "YSU Net $GITHUB_REF_NAME" --notes-file packaging/release-notes.md "${flags[@]}"
