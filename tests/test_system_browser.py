@@ -61,8 +61,10 @@ class FindSystemBrowserTests(OfflineTestCase):
 
     def test_macos_finds_system_edge_before_chrome(self):
         expected = Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")
+        # The cleared environment has no home on Windows runners; the lookup still visits ~/Applications.
         with patch.dict(os.environ, {}, clear=True), \
                 patch.object(system_browser.sys, "platform", "darwin"), \
+                patch.object(Path, "home", return_value=self.tmp), \
                 patch.object(Path, "is_file", return_value=True):
             self.assertEqual(system_browser.find_system_browser(), ("Microsoft Edge", expected))
 
