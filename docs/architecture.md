@@ -11,9 +11,9 @@
 | Shell 命令行版 | `ysu`、`python -m ysu_net` | Python；Shell 负责安装和命令包装，不复制 Bash 认证 |
 | Tauri 图形版 | `ysu-net` / 系统应用图标 | Svelte 界面 + Rust 原生后台 + Rust 认证库；无 Python/Node 认证旁车 |
 
-`ysuon`、`ysuoff` 是 CLI 快捷方式。旧 `ysu-gui` / `python -m ysu_net.gui` 仍启动已发布 Qt 兼容客户端；`python -m ysu_net.desktop` 是保留的旧 JSONL 原型，不再由新图形版启动或打包。Vite、浏览器演示和原生演示都是开发验收入口，不另行分发为 Web 产品。
+`ysuon`、`ysuoff` 是 CLI 快捷方式。原 Qt 客户端（`ysu-gui`）与 Python JSONL 桌面原型已移除。Vite、浏览器演示和原生演示都是开发验收入口，不另行分发为 Web 产品。
 
-新的桌面认证实现替代此前 Python 旁车方案，原因和保留范围见 [Rust 桌面决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)。Qt 和旁车源码保留作回退与语义对照，不表示当前架构继续依赖它们。
+新的桌面认证实现替代此前 Python 旁车方案，原因见 [Rust 桌面决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)。
 
 ## 代码边界
 
@@ -22,16 +22,14 @@ ysu_net/
 ├── install.sh / uninstall.sh        CLI 安装、卸载
 ├── src/ysu_net/
 │   ├── auth/                       Python CLI 认证、账户解析
-│   ├── manager/                    CLI、配置、锁、守护与 systemd
-│   ├── gui/                        旧 Qt 兼容界面、旧引擎与偏好
-│   └── desktop/                    保留的 Python JSONL 原型
+│   └── manager/                    CLI、配置、锁、守护与 systemd
 ├── desktop/
 │   ├── src/                        三平台共用 Svelte 界面与 IPC 类型
 │   ├── crates/ysu-auth/             Rust Portal/CAS、状态、切换、账户、CDP
 │   ├── src-tauri/src/               Rust 后台、配置、窗口、托盘、自启
 │   └── scripts/desktop.mjs          Node/Rust 原生构建入口
 ├── packaging/                      构建及浏览器、原生验收工具
-├── tests/                          Python CLI 与兼容源码回归
+├── tests/                          Python CLI 回归
 └── docs/                           当前说明与独立的历史验收
 ```
 
@@ -51,12 +49,11 @@ CLI 的 Linux systemd 服务面向无桌面运行；图形版的托盘和用户�
 | --- | --- | --- |
 | Python CLI 分发 | wheel / 源码包；保留现有安装器和依赖 | [pyproject.toml](../pyproject.toml)、`uv build` |
 | Rust 桌面构建 | 本平台原生程序及安装包，不冻结 Python | [desktop.mjs](../desktop/scripts/desktop.mjs)、[Tauri CI](../.github/workflows/tauri.yml) |
-| Qt 兼容构建 | 已发布版本与回退；不是新架构 | [build.py](../packaging/build.py)、[旧发布工作流](../.github/workflows/desktop.yml) |
 
-Tauri CI 定义跨平台构建和离线验收，只上传 Artifacts；定义存在不代表对应系统已经跑通。`v*` 标签仍连接旧 Qt 发布流程，本轮不切换发行、不提交、不推送。
+Tauri CI 定义跨平台构建和离线验收；推送 `v*` 标签时，同一工作流在各平台构建通过后发布 Tauri 安装包与 Python 分发包，并附 `SHA256SUMS`。定义存在不代表对应系统已经跑通。
 
-新旧 Linux 包暂用相同 `ysu-net` 包名和 `0.1.0` 版本，旧 Windows Qt 主程序也叫 `ysu-net.exe`；名称不证明架构，也不表示两包适合并排安装。发行前仍需处理版本、升级/回退、既有自启项与签名。当前构建产物仅用于开发验收，不执行本机安装或替换。
+Tauri Linux 包沿用旧 Qt 包的 `ysu-net` 包名与 `0.1.0` 版本，同版本替换需 `apt install --reinstall`；Windows 旧 Qt 版由 Inno Setup 安装、新版由 NSIS 安装，二者不会互相替换，需先卸载旧版。发行前仍需提升版本号并处理既有自启项与签名。
 
 ## 文档归属
 
-首页负责两个产品的导航，架构页负责边界，桌面说明负责构建和运行语义，[设计说明](rust-desktop-design.md)负责视觉依据。带日期的验收只对应当时源码与样本；此前 Python/Qt 的校内成绩和旧旁车包不作为 Rust 桌面验收证据。
+首页负责两个产品的导航，架构页负责边界，桌面说明负责构建和运行语义，[设计说明](rust-desktop-design.md)负责视觉依据。带日期的验收只对应当时源码与样本；此前 Python 图形版的校内成绩和旧旁车包不作为 Rust 桌面验收证据。

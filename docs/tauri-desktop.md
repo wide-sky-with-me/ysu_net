@@ -1,8 +1,8 @@
 # Tauri 原生 Rust 桌面版
 
-[返回首页](../README.md) · [两个产品与架构](architecture.md) · [Rust 迁移决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md) · [Qt 兼容版](desktop.md)
+[返回首页](../README.md) · [两个产品与架构](architecture.md) · [Rust 迁移决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)
 
-当前在 `feat/rust-desktop` 开发，尚未发布。图形版采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI、systemd、Qt 兼容入口及旧旁车源码保留，但新桌面不启动或打包 Python、Node、Playwright 认证运行时。
+当前在 `feat/rust-desktop` 开发，尚未发布。图形版采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI 与 systemd 保留；原 Qt 客户端与 Python 旁车源码已移除，新桌面不启动或打包 Python、Node、Playwright 认证运行时。
 
 ## 运行语义
 
@@ -26,7 +26,7 @@ Windows/macOS 使用系统原生悬停提示；Windows 摘要按 UTF-16 长度�
 
 默认 API 模式直接使用 Rust HTTP、Cookie 和加密实现。可选浏览器模式由 Rust 通过 CDP 驱动本机 Edge / Chrome：CDP 只走私有匿名管道（`--remote-debugging-pipe`；POSIX 为 fd 3/4，Windows 为仅继承给该进程的两个句柄），不开放本机调试端口，其他本机进程无法连接或读取登录页与凭据。浏览器使用专用临时目录，不复用个人浏览器资料，不下载 Node 或认证组件。需要系统已有可用 Chromium 系浏览器；验证码、风控或无法确定的页面状态返回需人工处理的结果，不伪造在线。
 
-设置中的“刷新浏览器状态”和“运行本地诊断”仅检测环境，不发起登录。旧内部 `browser_install` 命令保留为刷新诊断的兼容入口，已无下载行为。CLI/Qt 的 Python 浏览器实现保持原流程，不将两种产品的运行依赖混为一谈。
+设置中的“刷新浏览器状态”和“运行本地诊断”仅检测环境，不发起登录。旧内部 `browser_install` 命令保留为刷新诊断的兼容入口，已无下载行为。CLI 的 Python 浏览器实现保持原流程，不将两种产品的运行依赖混为一谈。
 
 ## 构建前提
 
@@ -51,7 +51,7 @@ npm --prefix desktop run native:build -- --no-bundle
 
 [构建入口](../desktop/scripts/desktop.mjs)核对桌面内部版本、生成图标，然后调用锁定依赖的 Tauri 构建。默认 Linux `deb`、Windows `nsis`、macOS `app,dmg`；产物位于 `desktop/src-tauri/target/release/bundle/`。图标、前端产物和目标目录是生成物。
 
-[tauri_build.py](../packaging/tauri_build.py)仅为旧调用路径的转发兼容层，不再冻结旁车；优先使用以上原生入口。旧 `--api-only` 选项已停用，不应沿用 Python 驱动裁剪流程。直接运行 `tauri build` 前需先生成图标。
+直接运行 `tauri build` 前需先生成图标。
 
 ## 配置与演示
 
@@ -61,7 +61,7 @@ npm --prefix desktop run native:build -- --no-bundle
 
 普通浏览器打开 Vite 地址只显示“等待桌面核心”，不模拟客户端。显式 `?demo=1` 才启用前端样例，可加 `theme=light|dark`、`accent=teal|blue|indigo|violet|rose|amber`、`scenario=offline|unknown|external|empty|busy`；`scenario=prefs-failure` 用于偏好保存失败回归。演示色仅在本页内存中生效，刷新重新按参数初始化，不写网页存储或真实设置。浏览器预览不代替原生运行器或 WebView 验收。
 
-原生外观偏好沿用主配置相邻的 `gui.json` 与 `save_prefs`：可保存 `theme`、`accent`、`close_to_tray`，`auto_reconnect` 仍走专用操作。主题色参数严格白名单校验，非法请求不落盘；写入成功后快照更新选择。旧配置缺 `accent`、未知未来色或字段类型异常时，仅主题色回到默认 `teal`，保留其他有效偏好，读取不改原文件；下一次合法偏好保存会将回退值归一化落盘。命令行认证配置与账号簿不增加主题色字段。旧 Qt 回退界面忽略新增字段，其保存偏好会丢弃该字段，之后新桌面采用默认色；本轮不扩展历史回退界面的色板。三平台共用相同实现，视觉规则见[设计说明](rust-desktop-design.md)。
+原生外观偏好沿用主配置相邻的 `gui.json` 与 `save_prefs`：可保存 `theme`、`accent`、`close_to_tray`，`auto_reconnect` 仍走专用操作。主题色参数严格白名单校验，非法请求不落盘；写入成功后快照更新选择。旧配置缺 `accent`、未知未来色或字段类型异常时，仅主题色回到默认 `teal`，保留其他有效偏好，读取不改原文件；下一次合法偏好保存会将回退值归一化落盘。命令行认证配置与账号簿不增加主题色字段。三平台共用相同实现，视觉规则见[设计说明](rust-desktop-design.md)。
 
 ## 验证命令
 
@@ -90,6 +90,6 @@ dbus-run-session -- xvfb-run -a uv run --no-sync python packaging/tauri_linux_li
   --binary desktop/src-tauri/target/release/ysu-net --output dist/rust-desktop-smoke
 ```
 
-截图只用于专用测试显示。Windows 传 `.exe`，macOS 传 `.app/Contents/MacOS/ysu-net`。脚本测量程序拥有的完整进程树，检查旧旁车及 Python/Node 认证进程缺席、退出清理。RSS 求和会重复共享页；PSS 可用时另记；短样本不作为稳态、认证峰值或跨机器性能比较。最小化 API 自检不代替带真实窗口管理器的桌面点击验证。当前界面、图标与原生证据见[界面细节修订验收](ui-polish-validation.md)，其中 Windows 侧用 CDP 驱动真实 Chrome 验证渲染与字体，Windows 原生二进制因本机无 Rust/MSVC 未构建。此前[品牌字标验收](brand-wordmark-validation.md)、[侧栏底部验收](sidebar-footer-validation.md)、[主题配色修订验收](theme-refinement-validation.md)、[文案精简验收](copy-cleanup-validation.md)、[主题色验收](accent-themes-validation.md)、[配色验收](color-palette-validation.md)、[流量状态标签验收](quota-status-validation.md)、[细节修正验收](desktop-detail-validation.md)、[FlClash 排版验收](flclash-layout-validation.md)与[托盘专项验收](tray-layout-validation.md)保留原貌。
+截图只用于专用测试显示。Windows 传 `.exe`，macOS 传 `.app/Contents/MacOS/ysu-net`。脚本测量程序拥有的完整进程树，检查旧旁车及 Python/Node 认证进程缺席、退出清理。RSS 求和会重复共享页；PSS 可用时另记；短样本不作为稳态、认证峰值或跨机器性能比较。最小化 API 自检不代替带真实窗口管理器的桌面点击验证。Windows 渲染与字体可用 [Windows 渲染脚本](../desktop/tests/windows_render_preview.py)经 CDP 驱动真实 Chrome 验证。
 
-[Tauri CI](../.github/workflows/tauri.yml)只上传构建和测试附件，不触发 Release。本次多账号、忙碌控制和原生包结果见[多账号验收](account-rotation-validation.md)，UI 来源与截图见[设计说明](rust-desktop-design.md)。此前 [Rust 迁移基线](rust-desktop-validation.md)、[Python 旁车验收](tauri-validation.md)及 [Clash 风格预览复核](tauri-verge-validation.md)均为历史证据，不作为当前包的本次成绩。
+[Tauri CI](../.github/workflows/tauri.yml)上传构建和测试附件；推送 `v*` 标签时在全部平台通过后发布 Release。本次多账号、忙碌控制和原生包结果见[多账号验收](account-rotation-validation.md)，UI 来源与截图见[设计说明](rust-desktop-design.md)。此前 [Rust 迁移基线](rust-desktop-validation.md)与 [Python 旁车验收](tauri-validation.md)均为历史证据，不作为当前包的本次成绩。

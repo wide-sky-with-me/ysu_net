@@ -25,16 +25,7 @@ Python 运行时代码位于 `src/ysu_net/`，通过安装包导入，不修改 
 | `manager/service.py` | systemd 单元生成和服务管理 |
 | `manager/install.py` | 安装 / 卸载命令包装器与服务 |
 | `auth/system_browser.py` | 查找本机 Edge / Chrome，供浏览器认证在缺少 Playwright Chromium 时使用 |
-| `auth/node_runtime.py` | 浏览器认证所需 Node.js 的查找与按需下载（固定版本、SHA-256 校验） |
-| `auth/worker.py` | 打包后的程序以 `--ysu-auth` 重新进入自身，运行认证模块 |
-| `gui/engine.py` | 旧 Qt 与保留 JSONL 原型使用的无 Qt 后台线程；新 Rust 桌面不调用 |
-| `gui/window.py` | 旧 Qt 主窗口、各页面与系统托盘 |
-| `gui/widgets.py`、`gui/theme.py`、`gui/icons.py` | 旧 Qt 控件、样式与图标 |
-| `gui/prefs.py` | Qt / JSONL 原型的偏好读写及 Qt 自启适配；Rust 配置层保持格式兼容 |
-| `gui/app.py` | Qt 兼容命令 `ysu-gui`、单实例和字体设置 |
-| `desktop/app.py`、`desktop/__main__.py` | JSONL 旁车启动与关闭，不是图形窗口入口 |
-| `desktop/core.py`、`desktop/protocol.py` | 无 Qt 桌面状态、快照、命令校验与协议 |
-| `desktop/demo.py` | 隔离的离线演示后端 |
+| `auth/node_runtime.py` | 浏览器认证所需 Node.js 的查找 |
 
 `install.sh` 和 `uninstall.sh` 是保留在根目录的用户入口，业务逻辑不放入 shell 文件。
 认证进程通过 `python -m ysu_net.auth.api` 或 `python -m ysu_net.auth.browser` 启动，
@@ -69,13 +60,11 @@ uv lock --check
 - `tests/test_menu_help.py`：说明页入口、选项覆盖、返回菜单以及无操作副作用。
 - `tests/test_repository.py`：在临时 Git 仓库验证敏感文件忽略规则，不修改项目索引。
 - `tests/test_layout.py`：包入口、项目外调用和模块启动路径。
-- `tests/test_gui.py`：图形界面引擎、锁冲突、偏好与自启、打包入口，以及可选的离屏窗口冒烟测试（未安装 PySide6 时跳过）。
 - `tests/test_system_browser.py`：系统浏览器查找、Snap 排除与启动回退。
-- `tests/test_node_runtime.py`：Node.js 运行时查找顺序、镜像回退、校验失败与取消下载。
-- `tests/test_desktop_core.py`：无 Qt 旁车协议、演示隔离、并发状态、凭据脱敏与退出清理。
+- `tests/test_node_runtime.py`：Node.js 运行时查找顺序与缺失时的报错。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
 
-执行旧 Qt 窗口测试需安装 gui extra 并设置 `QT_QPA_PLATFORM=offscreen`；未安装时相关测试跳过。Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#验证命令)，按不同栈分别报告覆盖范围。Python 两个后端的账户展示统一在 `auth/account.py` 修改；Rust 对应实现位于 `desktop/crates/ysu-auth/`，协议或展示语义变更需同时补相应回归。
+Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#验证命令)，按不同栈分别报告覆盖范围。Python 两个后端的账户展示统一在 `auth/account.py` 修改；Rust 对应实现位于 `desktop/crates/ysu-auth/`，协议或展示语义变更需同时补相应回归。
 
 连接相关测试 mock Portal、CAS、Playwright 和认证子进程；测试基类禁止 socket 连接与 DNS 查询。
 服务管理命令使用 mock，安装卸载在临时目录验证；可用时调用 `systemd-analyze verify`
@@ -94,29 +83,13 @@ uv sync --locked               # 仅安装 API 依赖
 uv sync --locked --extra browser
 ```
 
-Python 分发使用 Hatchling，`pyproject.toml` 声明 Python 依赖和 `ysu` / Qt 兼容命令；`uv.lock` 锁定应用依赖，`[build-system]` 声明 Python 构建依赖。前端依赖与原生配置分别属于 `desktop/package.json` 和 `desktop/src-tauri/`，不是 Python 命令声明的一部分。
+Python 分发使用 Hatchling，`pyproject.toml` 声明 Python 依赖和 `ysu` 命令；`uv.lock` 锁定应用依赖，`[build-system]` 声明 Python 构建依赖。前端依赖与原生配置分别属于 `desktop/package.json` 和 `desktop/src-tauri/`，不是 Python 命令声明的一部分。
 不再维护重复的 `requirements.txt`。`.venv/`、`dist/`、`build/` 和真实账号配置均不提交。
 包可构建用于分发，Linux 服务安装当前仍以源码目录的可编辑安装为支持方式。
 
 ### 桌面构建
 
-Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令见[Tauri 开发说明](tauri-desktop.md#构建前提)。`desktop-test` 依赖组仅供外部浏览器/进程验收，不是 GUI 构建或运行依赖。本节以下仅说明保留的 Qt 兼容构建；发行边界见[项目架构](architecture.md#构建与发行边界)。
-
-### Qt 兼容版安装包
-
-```bash
-uv sync --locked --extra gui --group build
-uv run python packaging/build.py --installer
-```
-
-`packaging/build.py` 用 PyInstaller 生成单目录程序，并先检查打包后的认证入口能输出 UTF-8 中文，
-然后在 Windows 上生成便携 zip 和 Inno Setup 安装程序（`packaging/ysu-net.iss`），在 Ubuntu 上生成 tar.gz 和 `.deb`。
-打包后会删除 Playwright 自带的 Node.js（改为按需下载），在 Linux 上还会删除 Ubuntu 已自带的系统库和 GTK 主题插件，
-`.deb` 的依赖由 `ldd` 与 `dpkg -S` 自动生成；随后以隔离的配置目录做冒烟测试：认证入口、`--smoke` 界面启动，
-以及（设置 `YSU_BROWSER_CHECK=1` 时）“未安装提示 → 下载组件 → 调用系统浏览器”的完整流程。
-PyInstaller 不支持跨平台构建，两个系统的安装包由 `.github/workflows/desktop.yml` 分别在对应 runner 上构建。
-标签构建的发布任务还会执行 `uv build`，生成 Python wheel 与源码包，并为所有桌面和 Python 附件生成 `SHA256SUMS`；仅在两个平台构建与安装验证成功后创建 Release。
-Ubuntu 包在 22.04 上构建，以兼容较旧的 glibc。
+Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令见[Tauri 开发说明](tauri-desktop.md#构建前提)。`desktop-test` 依赖组仅供外部浏览器/进程验收，不是 GUI 构建或运行依赖。推送 `v*` 标签时，Tauri 工作流在各平台构建与验收通过后，连同 `uv build` 生成的 wheel 与源码包一起发布，并生成 `SHA256SUMS`；发行边界见[项目架构](architecture.md#构建与发行边界)。
 
 敏感资料与发布前检查流程见[敏感信息与发布检查](security.md)。忽略规则只防止误提交，不能替代内容检查；构建后还要检查 wheel 和源码包的文件清单与内容。
 

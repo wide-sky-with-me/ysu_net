@@ -7,7 +7,7 @@
 | 你的环境或目标 | 文档 |
 | --- | --- |
 | 第一次安装，选择版本 | [快速开始](Quick-Start.md) |
-| Windows / Ubuntu 桌面客户端 | [桌面客户端](Desktop-Client.md) |
+| Windows / Linux / macOS 桌面客户端 | [桌面客户端](Desktop-Client.md) |
 | Linux、服务器、systemd 或前台守护 | [命令行入口](CLI-Reference.md) |
 | 安装、连接、重连或状态异常 | [排障与已知问题](Troubleshooting.md) |
 | 分享反馈、日志或截图 | [隐私与反馈](Privacy-and-Reporting.md) |

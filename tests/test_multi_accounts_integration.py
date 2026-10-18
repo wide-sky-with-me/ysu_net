@@ -2,12 +2,12 @@ import json
 import os
 import threading
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from tests.helpers import OfflineTestCase
 from tests.test_multi_accounts_switching import status
-from ysu_net.gui.engine import Engine
 from ysu_net.manager import accounts, cli, daemon
 from ysu_net.manager.backend import Result
 from ysu_net.manager.config import Config, load_config, save_config
@@ -47,10 +47,28 @@ class MultiAccountIntegrationTests(OfflineTestCase):
                                          "account_http_status": 200, "account": {}}))
         return online
 
-    def engine(self):
-        engine = Engine(self.path, lambda *_: None, runner=self.runner)
-        self.addCleanup(engine.shutdown)
-        return engine
+    @contextmanager
+    def daemon_owner(self):
+        stop = threading.Event()
+        errors = []
+        def run():
+            try:
+                daemon.run_daemon(self.path)
+            except BaseException as exc:
+                errors.append(exc)
+        with patch.object(daemon, "run_backend", side_effect=self.runner), \
+                patch.object(daemon.signal, "signal", return_value=None), \
+                patch.object(daemon, "threading", SimpleNamespace(Event=lambda: stop)):
+            worker = threading.Thread(target=run, name="fixture-daemon")
+            worker.start()
+            try:
+                self.assertTrue(self.ready.wait(2))
+                yield worker
+            finally:
+                stop.set()
+                worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
 
     def test_cli_accounts_list_is_public_without_environment_passwords(self):
         with patch.dict(os.environ, {"YSU_PASS": "env-secret"}):
@@ -97,99 +115,36 @@ class MultiAccountIntegrationTests(OfflineTestCase):
         self.assertIn("未确认", self.output.getvalue())
 
     def test_cli_override_stops_before_delegation_even_when_owner_has_no_override(self):
-        engine = self.engine()
-        engine._do_set_auto(True)
-        delegated = self.mock("ysu_net.manager.cli.request_control")
-        with patch.dict(os.environ, {"YSU_PASS": ""}):
-            self.assertEqual(self.command("switch", self.target["id"]), 2)
-        delegated.assert_not_called()
-        engine._release()
+        with self.daemon_owner():
+            delegated = self.mock("ysu_net.manager.cli.request_control")
+            with patch.dict(os.environ, {"YSU_PASS": ""}):
+                self.assertEqual(self.command("switch", self.target["id"]), 2)
+            delegated.assert_not_called()
 
-    def test_cli_qt_owner_executes_only_on_worker_thread_and_retains_run_lock(self):
-        engine = self.engine()
-        engine._do_set_auto(True)
-        engine.start()
-        self.assertTrue(self.ready.wait(2))
-        direct = self.mock("ysu_net.manager.cli.run_backend", side_effect=AssertionError("CLI authenticated"))
-        self.assertEqual(self.command("switch", self.target["id"]), 0)
-        direct.assert_not_called()
+    def test_cli_daemon_owner_executes_on_daemon_thread_without_unlocking(self):
+        with self.daemon_owner() as worker:
+            direct = self.mock("ysu_net.manager.cli.run_backend", side_effect=AssertionError("CLI authenticated"))
+            self.assertEqual(self.command("switch", self.target["id"]), 0)
+            direct.assert_not_called()
+            self.assertTrue(all(call[0] == worker.ident for call in self.calls))
+            with self.assertRaises(RuntimeError):
+                with exclusive_config(self.path):
+                    pass
         self.assertEqual(load_config(self.path, environ={}).username, "fixture-b")
-        self.assertTrue(all(call[0] == engine.thread.ident for call in self.calls))
-        with self.assertRaises(RuntimeError):
-            with exclusive_config(self.path):
-                pass
-        engine.shutdown()
         with exclusive_config(self.path):
             pass
         self.assertFalse(self.path.with_suffix(".control").joinpath("owner.json").exists())
         self.service.assert_not_called()
 
-    def test_cli_daemon_owner_executes_on_daemon_thread_without_unlocking(self):
-        stop = threading.Event()
-        errors = []
-        def run():
-            try:
-                daemon.run_daemon(self.path)
-            except BaseException as exc:
-                errors.append(exc)
-        with patch.object(daemon, "run_backend", side_effect=self.runner), \
-                patch.object(daemon.signal, "signal", return_value=None), \
-                patch.object(daemon, "threading", SimpleNamespace(Event=lambda: stop)):
-            worker = threading.Thread(target=run, name="fixture-daemon")
-            worker.start()
-            try:
-                self.assertTrue(self.ready.wait(2))
-                direct = self.mock("ysu_net.manager.cli.run_backend", side_effect=AssertionError("CLI authenticated"))
-                self.assertEqual(self.command("switch", self.target["id"]), 0)
-                direct.assert_not_called()
-                self.assertTrue(all(call[0] == worker.ident for call in self.calls))
-                with self.assertRaises(RuntimeError):
-                    with exclusive_config(self.path):
-                        pass
-            finally:
-                stop.set()
-                worker.join(2)
-        self.assertFalse(worker.is_alive())
-        self.assertEqual(errors, [])
-        self.assertEqual(load_config(self.path, environ={}).username, "fixture-b")
-        self.service.assert_not_called()
-
     def test_rotation_enable_only_through_running_auto_owner(self):
         self.assertEqual(self.command("rotation", "on"), 2)
         self.assertFalse(accounts.load_accounts(self.path, overlay=False)["auto_switch"])
-        engine = self.engine()
-        engine._do_set_auto(True)
-        engine.start()
-        self.assertTrue(self.ready.wait(2))
-        self.assertEqual(self.command("rotation", "on"), 0)
-        self.assertTrue(accounts.load_accounts(self.path, overlay=False)["auto_switch"])
-        self.assertEqual(self.command("rotation", "off"), 0)
-        self.assertFalse(accounts.load_accounts(self.path, overlay=False)["auto_switch"])
-        self.assertTrue(engine.accounts.rotation.disabled)
+        with self.daemon_owner():
+            self.assertEqual(self.command("rotation", "on"), 0)
+            self.assertTrue(accounts.load_accounts(self.path, overlay=False)["auto_switch"])
+            self.assertEqual(self.command("rotation", "off"), 0)
+            self.assertFalse(accounts.load_accounts(self.path, overlay=False)["auto_switch"])
         self.service.assert_not_called()
-
-    def test_qt_manual_account_action_uses_guard_and_verified_common_logic(self):
-        events = []
-        engine = Engine(self.path, lambda kind, value: events.append((kind, value)), runner=self.runner)
-        engine._do_switch_account(self.target["id"])
-        self.assertEqual(load_config(self.path, environ={}).username, "fixture-b")
-        self.assertTrue(next(value for kind, value in events if kind == "result")["ok"])
-        view = next(value for kind, value in events if kind == "accounts")
-        self.assertNotIn("fixture-only", json.dumps(view))
-        self.assertEqual(view["quota"]["state"], "unknown")
-
-    def test_qt_logout_turns_off_both_reconnect_and_rotation(self):
-        engine = self.engine()
-        engine._do_set_auto(True)
-        engine._do_rotation(True)
-        self.assertTrue(accounts.load_accounts(self.path, overlay=False)["auto_switch"])
-        engine._do_logout()
-        self.assertFalse(engine.auto)
-        self.assertTrue(engine.accounts.rotation.disabled)
-        self.assertFalse(accounts.load_accounts(self.path, overlay=False)["auto_switch"])
-        self.assertIsNone(self.online)
-        with exclusive_config(self.path):
-            pass
 
     def test_short_write_lock_budget_does_not_remove_lock_or_authenticate(self):
         with configuration_write(self.path):

@@ -12,14 +12,11 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = ["playwright>=1.40"]
-gui = ["PySide6-Essentials>=6.7"]
 
 [project.scripts]
 ysu = "ysu_net.manager.cli:main"
-ysu-gui = "ysu_net.gui.app:main"
 
 [dependency-groups]
-build = ["pyinstaller>=6.10", "psutil>=7,<8"]
 desktop-test = ["playwright>=1.40", "psutil>=7,<8"]
 
 [build-system]

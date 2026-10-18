@@ -349,7 +349,7 @@ class AccountRotation:
 
 
 class AccountController:
-    """Same serial control handler for daemon and the legacy Qt worker."""
+    """Serial control handler run by the daemon that owns the configuration."""
 
     def __init__(self, path, *, runner=run_backend, stop_event=None):
         self.path = Path(path)

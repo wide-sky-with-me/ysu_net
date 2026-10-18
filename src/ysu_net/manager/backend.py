@@ -6,10 +6,9 @@ import signal
 import time
 
 
-from ysu_net.paths import FROZEN, PROJECT_ROOT as ROOT
+from ysu_net.paths import PROJECT_ROOT as ROOT
 
 
-AUTH_WORKER_FLAG = "--ysu-auth"
 MESSAGES = {
     0: "操作成功",
     1: "离线",
@@ -73,9 +72,6 @@ def _kill_process_group(process):
 
 
 def auth_command(backend):
-    # A frozen bundle re-enters its own executable instead of an interpreter.
-    if FROZEN:
-        return [sys.executable, AUTH_WORKER_FLAG, backend]
     return [sys.executable, "-m", f"ysu_net.auth.{backend}"]
 
 

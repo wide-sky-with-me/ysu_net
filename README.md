@@ -14,13 +14,12 @@
 
 开发版支持[多账号热切换与可选流量换号](docs/accounts.md)：界面管理账号，CLI/守护复用账号簿；仅确认门户连续报告零剩余流量时自动尝试备用账号，缺失流量不猜测。
 
-已发布的 `v0.1.0` 附件仍是 Windows / Ubuntu 的 Qt 版本；`ysu-gui` 保留为 Qt 兼容入口，不会启动新 Tauri 窗口。安装与回退见[已发布 Qt 兼容版](docs/desktop.md)。
+原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 发布附件仍是 Qt 旧版，不再维护；替换方式见[桌面客户端](docs/wiki/Desktop-Client.md)。
 
 ## 选择版本与交流入口
 
 - **Linux 命令行版**：以下安装步骤使用默认分支 `main`，适合终端、服务器和 systemd 后台运行。
 - **三平台桌面开发版**：按[Tauri 构建说明](docs/tauri-desktop.md)从源码构建；尚未替换正式发布附件。
-- **已发布 Qt 兼容版**：下载 [v0.1.0](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0)，使用[该版本说明](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0/docs/desktop.md)；旧测试版仅供历史问题复现。
 - **入门与排障**：[Wiki 源文档](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) · [支持与反馈](SUPPORT.md)。
 - **社区协作**：[Discussions 问答与建议](https://github.com/wide-sky-with-me/ysu_net/discussions) · [Issue 故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [贡献指南](CONTRIBUTING.md) · [安全问题私密报告](SECURITY.md)。
 
@@ -92,7 +91,6 @@ sudo env PATH="$PATH" bash install.sh --system  # 系统级服务
 - [命令行使用与配置](docs/usage.md)：完整命令、日常操作、配置和故障排查。
 - [更新、卸载与旧版迁移](docs/migration.md)：命令重装、旧服务清理与入口变更。
 - [Tauri 桌面开发版](docs/tauri-desktop.md)：三平台构建、演示与当前验证范围。
-- [已发布 Qt 兼容版](docs/desktop.md)：Windows / Ubuntu 旧版安装和回退。
 - [开发与验证](docs/development.md)：模块职责、离线测试和 Python 构建。
 
 ## 本地验证

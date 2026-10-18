@@ -2,7 +2,7 @@
 
 日期：2026-10-15  
 状态：已实施，验收结果单列于本轮记录  
-范围：Tauri 桌面共用代码及 Linux 托盘宿主生命周期；不变更 CLI/Qt 兼容版
+范围：Tauri 桌面共用代码及 Linux 托盘宿主生命周期；不变更 CLI
 
 ## 背景
 
@@ -27,4 +27,4 @@
 
 ## 实现与验证
 
-[原生适配](../../../../desktop/src-tauri/src/tray.rs)、[纯状态模型及单元测试](../../../../desktop/src-tauri/src/tray_model.rs)、[原生集成自检](../../../../desktop/src-tauri/src/smoke.rs)、[无宿主生命周期](../../../../packaging/tauri_linux_lifecycle.py)。实际结果、失败修复和未覆盖平台见[本轮验收](../../../../docs/tray-layout-validation.md)，当前产品语义见[桌面文档](../../../../docs/tauri-desktop.md)。
+[原生适配](../../../../desktop/src-tauri/src/tray.rs)、[纯状态模型及单元测试](../../../../desktop/src-tauri/src/tray_model.rs)、[原生集成自检](../../../../desktop/src-tauri/src/smoke.rs)、[无宿主生命周期](../../../../packaging/tauri_linux_lifecycle.py)。实际结果、失败修复和未覆盖平台见本轮验收，当前产品语义见[桌面文档](../../../../docs/tauri-desktop.md)。

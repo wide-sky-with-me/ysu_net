@@ -525,12 +525,12 @@ def obtain_session_id(page, sniffer: SessionSniffer) -> Optional[str]:
 
 
 def _playwright():
-    """sync_playwright() with a Node.js runtime selected for desktop bundles."""
+    """sync_playwright() with a usable Node.js runtime selected."""
     from .node_runtime import configure
 
     if not configure():
         raise RuntimeError(
-            "浏览器认证组件未安装：请在图形界面“设置 → 认证方式”中下载，或改用 API 认证"
+            "浏览器认证组件不可用：请重新安装 browser 可选依赖（uv sync --extra browser）或安装 Node.js 20+，也可改用 API 认证"
         )
     return sync_playwright()
 
