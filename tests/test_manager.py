@@ -23,6 +23,16 @@ class ConfigTests(OfflineTestCase):
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
 
+    def test_empty_or_relative_xdg_config_home_falls_back_to_home(self):
+        if os.name == "nt":
+            self.skipTest("XDG 仅用于类 Unix")
+        with patch.object(config.Path, "home", return_value=Path("/fixture-home")):
+            for value in ("", "relative/config"):
+                with patch.dict(os.environ, {"XDG_CONFIG_HOME": value}):
+                    self.assertEqual(config.config_dir(), Path("/fixture-home/.config/ysu-net"))
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": "/fixture-xdg"}):
+                self.assertEqual(config.config_dir(), Path("/fixture-xdg/ysu-net"))
+
     def test_show_redacts_username_and_password(self):
         public = json.dumps(config.public_config(config.Config(username="private-user", password="secret")))
         self.assertNotIn("private-user", public)

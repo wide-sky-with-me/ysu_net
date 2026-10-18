@@ -52,7 +52,10 @@ def config_dir(scope="user"):
     if os.name == "nt":
         appdata = os.environ.get("APPDATA")
         return (Path(appdata) if appdata else Path.home() / "AppData/Roaming") / "ysu-net"
-    return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "ysu-net"
+    # XDG: an empty or relative value is invalid and must fall back to the default.
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".config"
+    return base / "ysu-net"
 
 
 def config_path(scope="user"):

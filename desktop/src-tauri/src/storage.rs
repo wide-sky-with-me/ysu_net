@@ -161,12 +161,24 @@ pub fn default_config_path() -> Result<PathBuf, String> {
             std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join("AppData/Roaming"))
         });
     #[cfg(not(target_os = "windows"))]
-    let directory = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+    let directory = unix_config_home(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    );
     directory
         .map(|path| path.join("ysu-net/config.json"))
         .ok_or_else(|| "未找到当前用户的配置目录".into())
+}
+
+// XDG: an empty or relative value is invalid and must fall back to the default.
+#[cfg(not(target_os = "windows"))]
+fn unix_config_home(
+    xdg: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    xdg.map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| home.map(|home| PathBuf::from(home).join(".config")))
 }
 
 impl Store {
@@ -557,6 +569,23 @@ mod tests {
                 .unwrap()
                 .join("relative-fixture/config.json")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn empty_or_relative_xdg_config_home_falls_back_to_home() {
+        let home = Some("/fixture-home".into());
+        for xdg in ["", "relative/config"] {
+            assert_eq!(
+                unix_config_home(Some(xdg.into()), home.clone()),
+                Some(PathBuf::from("/fixture-home/.config"))
+            );
+        }
+        assert_eq!(
+            unix_config_home(Some("/fixture-xdg".into()), home),
+            Some(PathBuf::from("/fixture-xdg"))
+        );
+        assert_eq!(unix_config_home(None, None), None);
     }
 
     #[cfg(unix)]
