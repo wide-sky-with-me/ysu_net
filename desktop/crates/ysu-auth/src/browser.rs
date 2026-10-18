@@ -3,34 +3,38 @@
 #[cfg(windows)]
 use crate::browser_process::Child;
 use crate::{
+    cdp_pipe::Pipe,
     protocol::{captcha_required, query},
     transport::{Operation, Transport, REDIRECT_LIMIT, RESPONSE_LIMIT},
     AuthError, Config,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use futures_util::{SinkExt, StreamExt};
 use reqwest::{
     header::{HeaderName, HeaderValue},
     Method,
 };
 use serde_json::{json, Value};
 #[cfg(unix)]
-use std::os::unix::process::CommandExt;
+use std::os::{
+    fd::{AsRawFd, OwnedFd},
+    unix::process::CommandExt,
+};
+#[cfg(any(test, windows))]
+use std::path::Path;
 #[cfg(not(windows))]
 use std::process::{Child, Stdio};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
+    fs::File,
+    path::PathBuf,
     process::Command,
 };
 use tempfile::TempDir;
-use tokio::{net::TcpStream, time::Instant};
-use tokio_tungstenite::{
-    connect_async_with_config,
-    tungstenite::{protocol::WebSocketConfig, Message},
-    MaybeTlsStream, WebSocketStream,
-};
+use tokio::time::Instant;
 use url::Url;
+
+/// CDP messages carry base64 Fetch bodies, so allow twice the response limit.
+const CDP_MESSAGE_LIMIT: usize = RESPONSE_LIMIT * 2;
 
 struct Process {
     child: Option<Child>,
@@ -41,9 +45,7 @@ impl Process {
     fn id(&self) -> u32 {
         self.child.as_ref().expect("live child").id()
     }
-    fn child_mut(&mut self) -> &mut Child {
-        self.child.as_mut().expect("live child")
-    }
+    #[cfg(test)]
     fn profile_path(&self) -> &Path {
         self.profile.as_ref().expect("live profile").path()
     }
@@ -100,7 +102,7 @@ impl Drop for Reaper {
 }
 
 pub(crate) struct Browser {
-    ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    pipe: Pipe,
     _process: Process,
     http: Transport,
     session: String,
@@ -172,7 +174,8 @@ impl Browser {
             .map_err(|_| AuthError::query("创建隔离浏览器目录失败"))?;
         let mut command = Command::new(executable);
         command.args([
-            "--headless=new", "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1",
+            // Private pipes instead of a debugging port: no other local process can attach.
+            "--headless=new", "--remote-debugging-pipe",
             "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
             "--disable-component-update", "--disable-default-apps", "--disable-extensions",
             "--disable-sync", "--disable-domain-reliability", "--disable-breakpad", "--disable-dev-shm-usage",
@@ -180,59 +183,73 @@ impl Browser {
             // Fetch is fulfilled by Rust; any unintercepted browser traffic gets no network route.
             "--proxy-server=http://127.0.0.1:9", "--proxy-bypass-list=<-loopback>", "--disable-quic",
         ]).arg(format!("--user-data-dir={}", profile.path().display())).arg("about:blank");
-        #[cfg(unix)]
-        command.process_group(0);
+        let failed = |_| AuthError::query("启动系统 Chromium 失败，请检查安装与执行权限");
         #[cfg(not(windows))]
-        let child = command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        let (child, pipe) = {
+            // Chromium reads commands from fd 3 and writes replies to fd 4.
+            let (browser_input, commands) = std::io::pipe().map_err(failed)?;
+            let (replies, browser_output) = std::io::pipe().map_err(failed)?;
+            let browser_input = OwnedFd::from(browser_input);
+            let browser_output = OwnedFd::from(browser_output);
+            let (read, write) = (browser_input.as_raw_fd(), browser_output.as_raw_fd());
+            command.process_group(0);
+            unsafe {
+                command.pre_exec(move || {
+                    // Copy above 3/4 first so neither source is overwritten by the other dup2.
+                    let read = libc::fcntl(read, libc::F_DUPFD_CLOEXEC, 10);
+                    let write = libc::fcntl(write, libc::F_DUPFD_CLOEXEC, 10);
+                    if read < 0 || write < 0 || libc::dup2(read, 3) < 0 || libc::dup2(write, 4) < 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            let child = command
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(failed)?;
+            // Only the child may hold its ends, so its exit is seen as EOF.
+            drop((browser_input, browser_output));
+            let pipe = Pipe::new(
+                File::from(OwnedFd::from(replies)),
+                File::from(OwnedFd::from(commands)),
+                CDP_MESSAGE_LIMIT,
+            );
+            (child, pipe)
+        };
         #[cfg(windows)]
-        let child = Child::spawn(
-            Path::new(command.get_program()),
-            &command.get_args().collect::<Vec<_>>(),
-        );
-        let child =
-            child.map_err(|_| AuthError::query("启动系统 Chromium 失败，请检查安装与执行权限"))?;
-        let mut process = Process {
+        let (child, pipe) = {
+            use std::os::windows::io::AsRawHandle;
+            let (browser_input, commands) = crate::browser_process::pipe().map_err(failed)?;
+            let (replies, browser_output) = crate::browser_process::pipe().map_err(failed)?;
+            let handles = [
+                browser_input.as_raw_handle(),
+                browser_output.as_raw_handle(),
+            ];
+            command.arg(format!(
+                "--remote-debugging-io-pipes={},{}",
+                handles[0] as usize, handles[1] as usize
+            ));
+            let child = Child::spawn(
+                Path::new(command.get_program()),
+                &command.get_args().collect::<Vec<_>>(),
+                &handles,
+            )
+            .map_err(failed)?;
+            drop((browser_input, browser_output));
+            let pipe = Pipe::new(File::from(replies), File::from(commands), CDP_MESSAGE_LIMIT);
+            (child, pipe)
+        };
+        let process = Process {
             child: Some(child),
             profile: Some(profile),
         };
-        let endpoint = loop {
-            if process
-                .child_mut()
-                .try_wait()
-                .map_err(|_| AuthError::query("检查 Chromium 进程失败"))?
-                .is_some()
-            {
-                return Err(AuthError::query("系统 Chromium 启动后退出，请检查运行环境"));
-            }
-            let port_file = process.profile_path().join("DevToolsActivePort");
-            if let Ok(metadata) = std::fs::metadata(&port_file) {
-                if metadata.len() > 1024 {
-                    return Err(AuthError::query("Chromium 调试端口信息异常"));
-                }
-                if let Ok(value) = std::fs::read_to_string(&port_file) {
-                    let mut lines = value.lines();
-                    let port = lines.next().and_then(|s| s.parse::<u16>().ok());
-                    let path = lines.next().filter(|s| s.starts_with("/devtools/browser/"));
-                    if let (Some(port), Some(path)) = (port.filter(|p| *p != 0), path) {
-                        break format!("ws://127.0.0.1:{port}{path}");
-                    }
-                }
-            }
-            op.pause().await?;
-        };
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(RESPONSE_LIMIT * 2))
-            .max_frame_size(Some(RESPONSE_LIMIT * 2));
-        let (ws, _) = op
-            .run(connect_async_with_config(endpoint, Some(config), true))
-            .await?
-            .map_err(|_| AuthError::query("连接 Chromium 调试端口失败"))?;
+        let pipe = pipe.map_err(|_| AuthError::query("连接 Chromium 调试管道失败"))?;
         let mut this = Self {
-            ws,
+            pipe,
             _process: process,
             last: http.base.clone(),
             http,
@@ -305,32 +322,18 @@ impl Browser {
         if let Some(session) = session {
             v["sessionId"] = Value::String(session.into());
         }
-        op.run(self.ws.send(Message::Text(v.to_string().into())))
-            .await?
-            .map_err(|_| AuthError::query("Chromium 调试连接中断"))?;
+        op.remaining()?;
+        if !self.pipe.send(v.to_string().into_bytes()) {
+            return Err(AuthError::query("Chromium 调试连接中断"));
+        }
         Ok(id)
     }
     async fn receive(&mut self, op: &Operation) -> Result<Value, AuthError> {
-        loop {
-            let msg = op
-                .run(self.ws.next())
-                .await?
-                .ok_or_else(|| AuthError::query("Chromium 调试连接已关闭"))?
-                .map_err(|_| AuthError::query("Chromium 调试响应异常"))?;
-            match msg {
-                Message::Text(s) => {
-                    return serde_json::from_str(&s)
-                        .map_err(|_| AuthError::query("Chromium 调试响应格式异常"))
-                }
-                Message::Ping(v) => {
-                    op.run(self.ws.send(Message::Pong(v)))
-                        .await?
-                        .map_err(|_| AuthError::query("Chromium 调试连接中断"))?;
-                }
-                Message::Close(_) => return Err(AuthError::query("Chromium 调试连接已关闭")),
-                _ => {}
-            }
-        }
+        let message = op
+            .run(self.pipe.recv())
+            .await?
+            .ok_or_else(|| AuthError::query("Chromium 调试连接已关闭"))?;
+        serde_json::from_slice(&message).map_err(|_| AuthError::query("Chromium 调试响应格式异常"))
     }
     async fn rpc(
         &mut self,
@@ -802,6 +805,8 @@ mod lifecycle_tests {
         let pid = browser._process.id();
         let profile = browser._process.profile_path().to_owned();
         assert!(profile.is_dir());
+        // Chromium writes this file only when it listens on a debugging port.
+        assert!(!profile.join("DevToolsActivePort").exists());
         drop(browser);
         cleaned(pid, &profile).await;
     }
@@ -826,12 +831,12 @@ mod lifecycle_tests {
 
     #[tokio::test]
     #[ignore = "requires host-installed Chromium; no external network"]
-    async fn closed_cdp_socket_reaps_process_and_removes_profile() {
+    async fn closed_cdp_pipe_reaps_process_and_removes_profile() {
         let mut browser = started().await;
         let pid = browser._process.id();
         let profile = browser._process.profile_path().to_owned();
         let op = Operation::new(Instant::now() + std::time::Duration::from_secs(3));
-        browser.ws.close(None).await.unwrap();
+        browser.pipe.close();
         assert!(browser.receive(&op).await.is_err());
         drop(browser);
         cleaned(pid, &profile).await;

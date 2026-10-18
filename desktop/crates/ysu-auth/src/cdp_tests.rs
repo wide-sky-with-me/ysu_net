@@ -1,52 +1,64 @@
 use super::*;
 
+fn pair() -> (File, File) {
+    let (reader, writer) = std::io::pipe().unwrap();
+    (
+        File::from(OwnedFd::from(reader)),
+        File::from(OwnedFd::from(writer)),
+    )
+}
+
+fn read_message(input: &mut impl std::io::Read) -> Value {
+    let mut bytes = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        input.read_exact(&mut byte).unwrap();
+        if byte[0] == 0 {
+            return serde_json::from_slice(&bytes).unwrap();
+        }
+        bytes.push(byte[0]);
+    }
+}
+
+fn write_message(output: &mut impl std::io::Write, value: Value) {
+    output.write_all(value.to_string().as_bytes()).unwrap();
+    output.write_all(b"\0").unwrap();
+}
+
 async fn fixture(failing: bool) -> (Browser, tokio::task::JoinHandle<Vec<Value>>) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let peer = tokio::spawn(async move {
-        let (socket, _) = listener.accept().await.unwrap();
-        let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+    let (replies, mut peer_out) = pair();
+    let (mut peer_in, commands) = pair();
+    let peer = tokio::task::spawn_blocking(move || {
         let mut commands: Vec<Value> = Vec::new();
         for _ in 0..5 {
-            let message = socket.next().await.unwrap().unwrap();
-            commands.push(serde_json::from_str(message.to_text().unwrap()).unwrap());
+            commands.push(read_message(&mut peer_in));
         }
-        let probe = socket.next().await.unwrap().unwrap();
-        let probe: Value = serde_json::from_str(probe.to_text().unwrap()).unwrap();
+        let probe = read_message(&mut peer_in);
         commands.push(probe.clone());
         assert!(commands
             .iter()
             .all(|v| v["method"] != "Runtime.runIfWaitingForDebugger"));
         if failing {
-            socket.send(Message::Text(json!({"id":commands[0]["id"],"error":{"code":-1,"message":"fixture setup failed"}}).to_string().into())).await.unwrap();
+            write_message(
+                &mut peer_out,
+                json!({"id":commands[0]["id"],"error":{"code":-1,"message":"fixture setup failed"}}),
+            );
         } else {
             for command in &commands[..5] {
-                socket
-                    .send(Message::Text(
-                        json!({"id":command["id"],"result":{}}).to_string().into(),
-                    ))
-                    .await
-                    .unwrap();
+                write_message(&mut peer_out, json!({"id":command["id"],"result":{}}));
             }
-            let resumed = socket.next().await.unwrap().unwrap();
-            let resumed: Value = serde_json::from_str(resumed.to_text().unwrap()).unwrap();
+            let resumed = read_message(&mut peer_in);
             assert_eq!(resumed["method"], "Runtime.runIfWaitingForDebugger");
             assert_eq!(resumed["sessionId"], "child");
             commands.push(resumed);
-            socket
-                .send(Message::Text(
-                    json!({"id":probe["id"],"result":{"verified":true}})
-                        .to_string()
-                        .into(),
-                ))
-                .await
-                .unwrap();
+            write_message(
+                &mut peer_out,
+                json!({"id":probe["id"],"result":{"verified":true}}),
+            );
         }
         commands
     });
-    let (ws, _) = connect_async_with_config(format!("ws://{address}"), None, true)
-        .await
-        .unwrap();
+    let pipe = Pipe::new(replies, commands, CDP_MESSAGE_LIMIT).unwrap();
     let profile = tempfile::tempdir().unwrap();
     let child = Command::new("/bin/sleep")
         .arg("10")
@@ -63,7 +75,7 @@ async fn fixture(failing: bool) -> (Browser, tokio::task::JoinHandle<Vec<Value>>
     };
     let http = Transport::new(&config, true).unwrap();
     let browser = Browser {
-        ws,
+        pipe,
         _process: Process {
             child: Some(child),
             profile: Some(profile),

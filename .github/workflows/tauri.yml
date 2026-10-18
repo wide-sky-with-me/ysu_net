@@ -75,10 +75,14 @@ jobs:
           cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml
           cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
           cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
+      # The CDP pipe is wired differently per OS (fd 3/4 vs inherited Win32 handles).
       - name: Real Chromium authentication fixtures
-        if: runner.os == 'Linux'
         run: |
-          chromium="$(command -v google-chrome)"
+          case "$RUNNER_OS" in
+            Linux) chromium="$(command -v google-chrome)" ;;
+            Windows) chromium="C:\Program Files\Google\Chrome\Application\chrome.exe" ;;
+            macOS) chromium="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ;;
+          esac
           export YSU_AUTH_CHROMIUM_PATH="$chromium"
           cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml -- --ignored --test-threads=1
       - name: Build native bundles without Python

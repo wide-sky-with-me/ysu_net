@@ -3,6 +3,7 @@
 mod browser;
 #[cfg(windows)]
 mod browser_process;
+mod cdp_pipe;
 mod cookies;
 mod crypto;
 mod presentation;

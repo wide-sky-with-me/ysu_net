@@ -21,6 +21,7 @@ use windows_sys::Win32::{
             TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         },
+        Pipes::CreatePipe,
         Threading::{
             CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
             InitializeProcThreadAttributeList, UpdateProcThreadAttribute, WaitForSingleObject,
@@ -109,13 +110,29 @@ fn quote(out: &mut Vec<u16>, arg: &OsStr) -> io::Result<()> {
     Ok(())
 }
 
+/// Anonymous, non-inheritable pipe as (read, write). `Child::spawn` marks only the
+/// child's ends inheritable and its handle list hands exactly those to Chromium.
+pub(crate) fn pipe() -> io::Result<(OwnedHandle, OwnedHandle)> {
+    let (mut read, mut write) = (ptr::null_mut(), ptr::null_mut());
+    if unsafe { CreatePipe(&mut read, &mut write, ptr::null(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe {
+        (
+            OwnedHandle::from_raw_handle(read),
+            OwnedHandle::from_raw_handle(write),
+        )
+    })
+}
+
 pub(crate) struct Child {
     process: OwnedHandle,
     job: OwnedHandle,
     pid: u32,
 }
 impl Child {
-    pub fn spawn(executable: &Path, args: &[&OsStr]) -> io::Result<Self> {
+    /// `inherit` lists the only extra handles the child receives besides NUL stdio.
+    pub fn spawn(executable: &Path, args: &[&OsStr], inherit: &[HANDLE]) -> io::Result<Self> {
         let mut application: Vec<u16> = executable.as_os_str().encode_wide().collect();
         if application.contains(&0) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"));
@@ -157,9 +174,18 @@ impl Child {
         if unsafe { SetHandleInformation(raw_nul, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) } == 0 {
             return Err(io::Error::last_os_error());
         }
+        for handle in inherit {
+            if unsafe { SetHandleInformation(*handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) }
+                == 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
         let attributes = Attributes::new()?;
         let jobs = [raw_job];
-        let inherited = [raw_nul];
+        let inherited: Vec<HANDLE> = std::iter::once(raw_nul)
+            .chain(inherit.iter().copied())
+            .collect();
         attributes.add(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
         attributes.add(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
         let mut startup = STARTUPINFOEXW::default();
