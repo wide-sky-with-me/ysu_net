@@ -481,8 +481,10 @@ async fn a_contended_write_does_not_block_snapshots_or_cancellation() {
     let (runtime, receiver) = fixture();
     runtime.launch(receiver);
     let path = runtime.store.path.with_file_name("config.json.write.lock");
+    // Same access as storage::lock_file: Windows LockFileEx needs read or full write access.
     let lock = std::fs::OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
         .open(path)
         .unwrap();
