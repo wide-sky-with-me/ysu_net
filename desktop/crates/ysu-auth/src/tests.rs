@@ -80,6 +80,9 @@ impl Server {
                 let handler = handler.clone();
                 workers.push(thread::spawn(move || {
                     let _ = socket.set_read_timeout(Some(Duration::from_secs(5)));
+                    // A client may reject a body without reading it while the test thread blocks
+                    // in Drop; small socket buffers (macOS) would otherwise stall this write forever.
+                    let _ = socket.set_write_timeout(Some(Duration::from_secs(5)));
                     let mut bytes = Vec::new();
                     let mut buf = [0u8; 4096];
                     let end = loop {
