@@ -25,7 +25,7 @@
   let pending = $state(false);
   let systemDark = $state(false);
   let notice = $state<{ message: string; error: boolean } | null>(null);
-  let confirmation = $state<{ title: string; message: string; confirm: string; danger?: boolean; run: () => void } | null>(null);
+  let confirmation = $state<{ title: string; message: string; confirm: string; danger?: boolean; icon?: string; run: () => void } | null>(null);
   let stop: (() => void) | undefined;
   let mounted = false;
   let accountUsername = $state('');
@@ -42,6 +42,7 @@
   let logFloor = $state(0);
   let previousConfig = '';
   let selectedAccount = $state('');
+  let accountSelect = $state<HTMLSelectElement>();
 
   const online = $derived(snapshot?.status?.online === true);
   const external = $derived(snapshot?.auto.state === 'external');
@@ -151,6 +152,12 @@
     return execute(() => transport.request('action', { name, ...(value === undefined ? {} : { value }) }), undefined, name === 'set_auto' && value === false);
   }
 
+  // The switch button disappears once the target becomes current. Focus cannot return to it while it is
+  // disabled during the switch, so hand keyboard focus back to the picker instead of leaving it on <body>.
+  function keepFocus(node: HTMLElement) {
+    return () => { if (document.activeElement === node || document.activeElement === document.body) void tick().then(() => accountSelect?.focus({ preventScroll: true })); };
+  }
+
   function clearPassword() { password = ''; revealPassword = false; }
   function resetScroll() { void tick().then(() => { document.getElementById('main-content')?.scrollTo({ top: 0 }); }); }
 
@@ -170,7 +177,7 @@
 
   function connect() {
     if (online) {
-      confirmation = { title: '断开校园网连接', message: snapshot?.auto.state === 'on' ? '下线会同时关闭自动重连。之后可随时重新连接。' : '将退出当前校园网连接，之后可随时重新连接。', confirm: '断开连接', danger: true, run: () => { void action('logout'); } };
+      confirmation = { title: '断开校园网连接', message: snapshot?.auto.state === 'on' ? '下线会同时关闭自动重连。之后可随时重新连接。' : '将退出当前校园网连接，之后可随时重新连接。', confirm: '断开连接', danger: true, icon: 'power', run: () => { void action('logout'); } };
     } else if (!snapshot?.config.username || !snapshot.config.password_set) {
       navigate('settings'); notice = { message: '请先保存校园网账号和密码，再连接。', error: false };
     } else { void action('login'); }
@@ -179,14 +186,14 @@
   function chooseService(service: Service) {
     if (locked || external) return;
     if (online && snapshot?.status?.service !== service) {
-      confirmation = { title: `切换到${service}`, message: `将从${snapshot?.status?.service || '当前服务'}下线，再连接${service}。网络会短暂中断；新服务登录失败时，核心会尝试恢复原连接并独立确认结果。`, confirm: '确认切换', run: () => { void action('switch', service); } };
+      confirmation = { title: `切换到${service}`, message: `将从${snapshot?.status?.service || '当前服务'}下线，再连接${service}。网络会短暂中断；新服务登录失败时，核心会尝试恢复原连接并独立确认结果。`, confirm: '确认切换', icon: 'network', run: () => { void action('switch', service); } };
     } else if (service !== selectedService) { void action('set_service', service); }
   }
 
   function chooseAccount() {
     const target = targetAccount;
     if (locked || accountBlocked || !target || target.current || !target.enabled || !target.password_set) return;
-    confirmation = { title: `切换到${target.label || target.username}`, message: `将使用 ${target.username} 连接${target.service}。${online ? '当前连接会短暂中断；失败时核心会尝试恢复原连接。' : '核心会先确认当前网络状态，再连接目标账号。'}只有独立核验完成后才更新当前账号。`, confirm: '确认切换账号', run: () => { void action('switch_account', target.id); } };
+    confirmation = { title: `切换到${target.label || target.username}`, message: `将使用 ${target.username} 连接${target.service}。${online ? '当前连接会短暂中断；失败时核心会尝试恢复原连接。' : '核心会先确认当前网络状态，再连接目标账号。'}只有独立核验完成后才更新当前账号。`, confirm: '确认切换账号', icon: 'rotation', run: () => { void action('switch_account', target.id); } };
   }
 
   async function saveBookAccount(changes: SaveAccount): Promise<true | string> {
@@ -198,7 +205,7 @@
   function deleteBookAccount(item: PublicAccount) {
     if (locked || accountBlocked || item.current) return;
     clearPassword(); accountBookError = null;
-    confirmation = { title: `删除${item.label || item.username}`, message: `从本机账号簿移除 ${item.username} 及其保存的凭据。`, confirm: '删除账号', danger: true, run: () => {
+    confirmation = { title: `删除${item.label || item.username}`, message: `从本机账号簿移除 ${item.username} 及其保存的凭据。`, confirm: '删除账号', danger: true, icon: 'trash', run: () => {
       void execute(() => transport.request('delete_account', { id: item.id }), undefined, false, (message) => {
         accountBookError = { id: item.id, message };
         void tick().then(() => document.getElementById('account-operation-error')?.focus());
@@ -287,7 +294,6 @@
     </nav>
     <div class="sidebar-bottom">
       <div class="sidebar-status" role="status" aria-label={sidebarStatus.label} title={sidebarStatus.label}><span class={`status-dot ${statusTone}`} aria-hidden="true"></span><span>{sidebarStatus.text}</span></div>
-      <button type="button" class="quiet-button diagnostic-link" aria-label="环境诊断" title="环境诊断" disabled={locked} onclick={runDiagnostics}><Icon name="doctor" size={18} /></button>
     </div>
   </aside>
 
@@ -330,24 +336,23 @@
           </div>
         <div class="connection-automation">
         <section class="auto-section">
-          <span class="automation-icon" aria-hidden="true"><Icon name="refresh" size={18} /></span>
+          <span class="automation-icon" aria-hidden="true"><Icon name="reconnect" size={18} /></span>
           <div><h2>自动重连</h2>{#if reconnectMessage}<p>{reconnectMessage}{#if snapshot?.auto.delay !== undefined && snapshot.auto.delay > 0}<span> 本轮等待 {snapshot.auto.delay} 秒。</span>{/if}</p>{/if}</div>
           <Toggle checked={snapshot?.auto.state === 'on'} disabled={localLocked || external || (busy && snapshot?.auto.state !== 'on')} label="自动重连" onchange={(value) => { void action('set_auto', value); }} />
         </section>
         <section class="auto-section rotation-section" aria-label="账号自动轮换">
-          <span class="automation-icon" aria-hidden="true"><Icon name="account" size={18} /></span>
-          <div><h2>自动换号</h2>{#if !external && rotation.reason}<p>{rotation.reason}</p>{/if}</div>
+          <span class="automation-icon" aria-hidden="true"><Icon name="rotation" size={18} /></span>
+          <div><h2>自动换号</h2>{#if !external && rotation.reason}<p>{rotation.reason}</p>{/if}<p class="quota-status" role="status" aria-label="流量状态" data-state={snapshot?.accounts.quota.state || 'unknown'}>{#if snapshot?.accounts.quota.state === 'available' && snapshot.accounts.quota.message}{snapshot.accounts.quota.message}{:else}{quotaTitle}{#if snapshot?.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot?.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p></div>
           <Toggle checked={snapshot?.accounts.auto_switch || false} disabled={localLocked || (!snapshot?.accounts.auto_switch && (pending || !rotation.canEnable))} label="自动换号" onchange={setRotation} />
         </section>
-        <p class="quota-state quota-status" role="status" aria-label="流量状态" data-state={snapshot?.accounts.quota.state || 'unknown'}>{#if snapshot?.accounts.quota.state === 'available' && snapshot.accounts.quota.message}<span>{snapshot.accounts.quota.message}</span>{:else}<span>{quotaTitle}</span>{#if snapshot?.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot?.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p>
         </div>
           <div class="connection-controls">
           <section class="account-choice" aria-label="切换校园网账号">
             <div class="section-heading"><h2>连接账号</h2><button type="button" class="text-button" onclick={() => navigate('settings')}>管理账号</button></div>
-            <div class="account-choice-controls"><select aria-label="选择连接账号" title={targetAccount ? `${targetAccount.label ? `${targetAccount.label}（${targetAccount.username}）` : targetAccount.username}${targetAccount.current ? ' · 当前' : !targetAccount.enabled ? ' · 已停用' : !targetAccount.password_set ? ' · 待设置密码' : ''}` : undefined} value={selectedAccount} disabled={locked || accountBlocked || !snapshot?.accounts.items.length} onchange={(event) => { selectedAccount = event.currentTarget.value; }}>
+            <div class="account-choice-controls"><select bind:this={accountSelect} aria-label="选择连接账号" title={targetAccount ? `${targetAccount.label ? `${targetAccount.label}（${targetAccount.username}）` : targetAccount.username}${targetAccount.current ? ' · 当前' : !targetAccount.enabled ? ' · 已停用' : !targetAccount.password_set ? ' · 待设置密码' : ''}` : undefined} value={selectedAccount} disabled={locked || accountBlocked || !snapshot?.accounts.items.length} onchange={(event) => { selectedAccount = event.currentTarget.value; }}>
               {#if !snapshot?.accounts.items.length}<option value="">尚未保存账号</option>{/if}
               {#each snapshot?.accounts.items || [] as item (item.id)}<option value={item.id} disabled={!item.current && (!item.enabled || !item.password_set)}>{item.label ? `${item.label}（${item.username}）` : item.username}{item.current ? ' · 当前' : !item.enabled ? ' · 已停用' : !item.password_set ? ' · 待设置密码' : ''}</option>{/each}
-            </select><button type="button" title={targetAccount?.current ? '当前已连接该账号' : !targetAccount ? '请先选择账号' : undefined} disabled={locked || accountBlocked || !targetAccount || targetAccount.current || !targetAccount.enabled || !targetAccount.password_set} onclick={chooseAccount}>切换账号</button></div>
+            </select>{#if targetAccount && !targetAccount.current}<button type="button" {@attach keepFocus} disabled={locked || accountBlocked || !targetAccount.enabled || !targetAccount.password_set} onclick={chooseAccount}>切换账号</button>{/if}</div>
             {#if snapshot?.accounts.error}<p class="account-error" role="alert">{snapshot.accounts.error}</p>{:else if snapshot?.accounts.environment_override}<p class="account-hint section-note">环境变量覆盖中，账号切换已停用。</p>{/if}
             {#if snapshot?.accounts.message}<p class="account-hint section-note" role="status">{snapshot.accounts.message}</p>{/if}
           </section>
@@ -366,7 +371,7 @@
         {#if snapshot?.info?.online}
           <section class="account-summary"><h2>套餐与用量</h2><dl>{#each items as [name, value]}<div><dt>{name}</dt><dd class:metric={/流量|余额|用量|额度/.test(name) && /^[+-]?\d/.test(value)} class:missing={value === '门户未提供'}>{value}</dd></div>{/each}</dl></section>
           {#if items.some(([, value]) => value === '门户未提供') || snapshot.info.fields.some(([, value]) => !value.trim())}<p class="portal-note"><Icon name="info" size={16} />门户未提供的项目不代表 0 或不限量。</p>{/if}
-          <section class="account-fields"><h2>在线信息</h2><dl>{#each snapshot.info.fields as [name, value]}<div><dt>{name}</dt><dd>{value.trim() ? value : '门户未提供'}</dd></div>{/each}</dl>{#if !snapshot.info.fields.length}<p class="muted">门户未提供在线信息。</p>{/if}</section>
+          <section class="account-fields"><h2>在线信息</h2>{#if snapshot.info.fields.length}<dl>{#each snapshot.info.fields as [name, value]}<div><dt>{name}</dt><dd>{value.trim() ? value : '门户未提供'}</dd></div>{/each}</dl>{:else}<p class="muted">门户未提供在线信息。</p>{/if}</section>
         {:else}
           <div class="empty-state"><Icon name="account" size={32} /><h2>{online ? '尚未读取账户信息' : '连接后查看账户信息'}</h2><button type="button" class="primary-button" disabled={locked} onclick={() => online ? action('info') : navigate('connection')}>{online ? '读取账户信息' : '前往连接'}</button></div>
         {/if}
@@ -396,7 +401,7 @@
               <div class="section-heading"><h2>启动与退出</h2></div>
               <div class="setting-row"><div><span>登录系统后自动启动</span>{#if transport.mode === 'desktop' && native?.demo}<p>离线模拟不修改系统自启。</p>{/if}</div><Toggle checked={native?.autostart || false} disabled={locked || !native || (transport.mode === 'desktop' && native.demo)} label="登录系统后自动启动" onchange={(enabled) => { void execute(async () => { await transport.setAutostart(enabled); native = await transport.getDesktopSettings(); }, '开机自启设置已保存。'); }} /></div>
               <div class="setting-row"><div><span>关闭窗口时驻留托盘</span>{#if !native?.tray_available}<p>{!native ? transport.mode === 'web' ? '请在桌面客户端设置。' : '托盘状态待确认。' : '当前环境未提供系统托盘，关闭窗口将退出应用。'}</p>{/if}</div><Toggle checked={snapshot?.prefs.close_to_tray || false} disabled={locked || !native?.tray_available} label="关闭窗口时驻留托盘" onchange={(value) => savePreference({ close_to_tray: value })} /></div>
-              <div class="quit-row"><button type="button" disabled={localLocked} onclick={() => { confirmation = { title: '退出 YSU Net', message: '退出后，本客户端的自动重连将停止；当前已建立的校园网连接不会因此自动下线。', confirm: '退出应用', run: () => { void execute(() => transport.quit(), undefined, true); } }; }}><Icon name="exit" size={16} />退出应用</button></div>
+              <div class="quit-row"><button type="button" disabled={localLocked} onclick={() => { confirmation = { title: '退出 YSU Net', message: '退出后，本客户端的自动重连将停止；当前已建立的校园网连接不会因此自动下线。', confirm: '退出应用', icon: 'exit', run: () => { void execute(() => transport.quit(), undefined, true); } }; }}><Icon name="exit" size={16} />退出应用</button></div>
             </section>
           {:else if settingsSection === 'authentication'}
             <form class="authentication-settings" onsubmit={(event) => { event.preventDefault(); saveParameters(); }}>
@@ -427,7 +432,6 @@
             </form>
           {:else}
             <section class="settings-section diagnostics-section">
-              <div class="section-heading"><h2>环境与诊断</h2></div>
               <dl class="environment-list"><div><dt>客户端</dt><dd>YSU Net {native?.version || environment?.version || '0.1.0'}</dd></div><div><dt>认证核心</dt><dd>{environment ? `Rust 原生（${environment.rust}）` : '待核心提供'}</dd></div><div><dt>系统</dt><dd>{environment?.platform || '待核心提供'}</dd></div><div><dt>系统浏览器</dt><dd>{!environment ? '待核心提供' : environment.browser_available ? '已发现 Edge / Chrome' : '未发现 Edge / Chrome'}</dd></div></dl>
               <div class="form-actions"><button type="button" disabled={locked} onclick={runDiagnostics}><Icon name="doctor" size={16} />运行本地诊断</button></div>
               {#if diagnostic}<details class="diagnostic-result"><summary id="diagnostic-result-heading"><span>详细诊断结果</span><span class="saved-indicator" role="status">诊断已完成{#if diagnosticUpdated}<time datetime={diagnosticUpdated}>{new Date(diagnosticUpdated).toLocaleTimeString('zh-CN', { hour12: false })}</time>{/if}</span></summary><pre class="diagnostic-output" aria-label="诊断结果">{diagnostic}</pre></details>{/if}
@@ -449,5 +453,5 @@
 </div>
 
 {#if confirmation}
-  <Confirm title={confirmation.title} message={confirmation.message} confirm={confirmation.confirm} danger={confirmation.danger} oncancel={() => { confirmation = null; }} onconfirm={() => { const run = confirmation?.run; confirmation = null; run?.(); }} />
+  <Confirm title={confirmation.title} message={confirmation.message} confirm={confirmation.confirm} danger={confirmation.danger} icon={confirmation.icon} oncancel={() => { confirmation = null; }} onconfirm={() => { const run = confirmation?.run; confirmation = null; run?.(); }} />
 {/if}

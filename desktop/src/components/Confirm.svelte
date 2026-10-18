@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
-  let { title, message, confirm, danger = false, onconfirm, oncancel }: { title: string; message: string; confirm: string; danger?: boolean; onconfirm: () => void; oncancel: () => void } = $props();
+  let { title, message, confirm, danger = false, icon = danger ? 'warning' : 'info', onconfirm, oncancel }: { title: string; message: string; confirm: string; danger?: boolean; icon?: string; onconfirm: () => void; oncancel: () => void } = $props();
   let dialog: HTMLDialogElement;
   onMount(() => {
     const previousFocus = document.activeElement;
@@ -25,7 +25,7 @@
 </script>
 
 <dialog bind:this={dialog} class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message" onkeydown={trapFocus} oncancel={(event) => { event.preventDefault(); oncancel(); }}>
-  <div class:danger class="dialog-symbol"><Icon name={danger ? 'shield' : 'network'} size={24} /></div>
+  <div class:danger class="dialog-symbol"><Icon name={icon} size={24} /></div>
   <h2 id="confirm-title">{title}</h2>
   <p id="confirm-message">{message}</p>
   <div class="dialog-actions">

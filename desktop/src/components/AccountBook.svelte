@@ -72,8 +72,7 @@
   <ul class="account-list" aria-label="保存的账号">
     {#each accounts?.items || [] as item (item.id)}
       <li class:current={item.current} data-account-id={item.id}>
-        <div class="account-identity"><div><strong>{item.label || item.username}</strong>{#if item.current}<span class="inline-label">当前</span>{/if}</div><span>{item.username} · {item.service}</span></div>
-        <div class="account-traits"><span>{item.enabled ? '已启用' : '已停用'}</span><span>{item.password_set ? '密码已保存' : '待设置密码'}</span></div>
+        <div class="account-identity"><div><strong>{item.label || item.username}</strong>{#if item.current}<span class="inline-label">当前</span>{/if}{#if !item.enabled}<span class="inline-label idle">已停用</span>{/if}{#if !item.password_set}<span class="inline-label warning">待设置密码</span>{/if}</div><span>{item.username} · {item.service}</span></div>
         <div class="account-row-actions"><button type="button" class="quiet-button" aria-label={`编辑${item.label || item.username}`} disabled={blocked || saving} onclick={() => open(item)}>编辑</button><button type="button" class="quiet-button" aria-label={`删除${item.label || item.username}`} disabled={blocked || saving || item.current} title={item.current ? '先切换到其他账号，再删除当前账号' : undefined} onclick={() => ondelete(item)}>删除</button></div>
         {#if operationError?.id === item.id}<p id="account-operation-error" class="account-error account-row-error" role="alert" tabindex="-1">{operationError.message}</p>{/if}
       </li>
