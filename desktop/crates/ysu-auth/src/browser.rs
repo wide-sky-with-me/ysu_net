@@ -776,7 +776,8 @@ mod lifecycle_tests {
             ..Config::default()
         };
         let http = Transport::new(&config, true).unwrap();
-        let op = Operation::new(Instant::now() + std::time::Duration::from_secs(10));
+        // A cold Chromium start on shared CI runners can exceed 10s.
+        let op = Operation::new(Instant::now() + std::time::Duration::from_secs(30));
         Browser::start(http, &op).await.unwrap()
     }
 

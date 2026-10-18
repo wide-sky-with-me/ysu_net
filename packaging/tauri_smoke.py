@@ -198,8 +198,10 @@ def main():
         raise RuntimeError(f"Owned processes remained after quit: {remaining}")
     if set(measurements) != {"visible", "background"}:
         raise RuntimeError("Native smoke phase markers were missing")
+    # WebView2 hosts the Windows UI itself; only a separate Edge/Chrome would be an auth runtime.
     forbidden = sorted(name for name in runtime_names
-                       if name.startswith(("ysu-core", "python", "node", "chrome", "chromium", "msedge")))
+                       if name.startswith(("ysu-core", "python", "node", "chrome", "chromium", "msedge"))
+                       and not name.startswith("msedgewebview2"))
     if forbidden:
         raise RuntimeError(f"Native demo started external authentication runtimes: {forbidden}")
     report.update(measurements=measurements, processes_cleaned=True, memory_scope="native-rust-demo-full-process-tree",
