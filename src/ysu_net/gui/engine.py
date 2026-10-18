@@ -12,8 +12,11 @@ import time
 
 from ysu_net.auth.account import account_summary
 from ysu_net.auth.common import QueryError, online_service, online_state
+from ysu_net.manager.account_switching import AccountController
+from ysu_net.manager.accounts import accounts_path, public_accounts, set_rotation
 from ysu_net.manager.backend import Result, run_backend
 from ysu_net.manager.config import SERVICES, load_config, update_config
+from ysu_net.manager.control import ControlServer
 from ysu_net.manager.daemon import Reconnector
 from ysu_net.manager.locking import exclusive_config
 from ysu_net.manager.switching import switch_service
@@ -59,6 +62,9 @@ class Engine:
         self._lock = None
         self.next_check = None
         self.reconnector = Reconnector(runner=self._run_reconnect)
+        self.accounts = AccountController(path, runner=self._run, stop_event=self.cancel)
+        self.accounts.auto_reconnect = False
+        self.control = ControlServer(path, self._handle_control)
         self.thread = threading.Thread(target=self._loop, name="ysu-engine", daemon=True)
 
     # ---- public API: safe to call from any thread ----
@@ -96,11 +102,19 @@ class Engine:
     def _loop(self):
         while True:
             timeout = None
-            if self.auto and self.next_check is not None:
-                timeout = max(0.0, self.next_check - time.monotonic())
+            if self.auto:
+                try:
+                    self.control.consume()
+                except (ValueError, RuntimeError, OSError) as exc:
+                    self.emit("error", str(exc))
+                timeout = 0.25
+                if self.next_check is not None:
+                    timeout = min(timeout, max(0.0, self.next_check - time.monotonic()))
             try:
                 name, args = self.tasks.get(timeout=timeout)
             except queue.Empty:
+                if self.next_check is None or time.monotonic() < self.next_check:
+                    continue
                 name, args = "tick", ()
             if name == "quit":
                 self._release()
@@ -127,6 +141,9 @@ class Engine:
             raise
 
     def _release(self):
+        self.control.close()
+        self.accounts.auto_reconnect = False
+        self.accounts.rotation.reset()
         if self._lock is not None:
             self._lock.__exit__(None, None, None)
             self._lock = None
@@ -135,6 +152,25 @@ class Engine:
 
     def _config(self):
         return load_config(self.path)
+
+    def _handle_control(self, action, payload, expires_at):
+        result = self.accounts.handle(action, payload, expires_at)
+        self.emit("config", None)
+        self.emit("accounts", self.accounts.snapshot(message=result["message"]))
+        self.emit("result", {"ok": result["code"] == 0, "message": result["message"]})
+        return result
+
+    def _do_accounts(self):
+        self.emit("accounts", self.accounts.snapshot())
+
+    def _do_switch_account(self, id):
+        self.emit("busy", "正在核验并切换账号…")
+        with self._guard():
+            self._handle_control("switch_account", {"id": id},
+                                 time.time() + self._config().operation_timeout)
+
+    def _do_rotation(self, enabled):
+        self._handle_control("rotation", {"enabled": enabled}, time.time() + 30)
 
     def _do_status(self):
         self.emit("busy", "正在查询连接状态…")
@@ -155,6 +191,7 @@ class Engine:
         self.emit("info", summary)
 
     def _do_login(self):
+        self.accounts.rotation.reset(manual=True)
         config = self._config()
         if not config.username or not config.password:
             raise ValueError("请先在“设置”中填写账号和密码")
@@ -165,11 +202,14 @@ class Engine:
         self._run(config, "status")
 
     def _do_logout(self):
+        self.accounts.rotation.disable()
         config = self._config()
         if self.auto:
             # Otherwise the reconnect loop would authenticate again immediately.
             self._release()
             self.emit("auto", {"state": "off", "message": "已为下线关闭自动重连"})
+        if accounts_path(self.path).exists():
+            set_rotation(self.path, False)
         self.emit("busy", "正在下线并确认结果…")
         with self._guard():
             result = self._run(config, "logout")
@@ -179,6 +219,7 @@ class Engine:
     def _do_switch(self, target):
         if target not in SERVICES:
             raise ValueError("目标服务无效")
+        self.accounts.rotation.reset(manual=True)
         config = self._config()
         self.emit("busy", f"正在切换到{target}，连接可能短暂中断…")
         with self._guard():
@@ -212,6 +253,12 @@ class Engine:
             self.emit("auto", {"state": "external", "message": EXTERNAL_DAEMON})
             return
         self._lock = lock
+        self.accounts.auto_reconnect = True
+        try:
+            self.control.start()
+        except (ValueError, RuntimeError, OSError):
+            self._release()
+            raise
         self.auto = True
         self.reconnector.blocked_credentials = None
         self.next_check = time.monotonic()
@@ -224,6 +271,10 @@ class Engine:
             config = self._config()
             self.emit("busy", "自动重连：正在检查连接…")
             delay, message = self.reconnector.step(config)
+            rotation_message = self.accounts.rotation.step(auto_reconnect=self.auto)
+            if rotation_message:
+                message += "；" + rotation_message
+                self.emit("accounts", self.accounts.snapshot(message=rotation_message))
         except (ValueError, OSError):
             delay, message = 30, "配置不可用，等待修复（未发起登录）"
         self.next_check = time.monotonic() + delay

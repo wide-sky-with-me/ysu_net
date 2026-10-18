@@ -1,0 +1,138 @@
+name: Native Rust desktop builds
+on:
+  workflow_dispatch:
+  push:
+    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml"]
+  pull_request:
+    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: tauri-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x64
+            bundles: deb
+            binary: desktop/src-tauri/target/release/ysu-net
+          - os: windows-2022
+            name: windows-x64
+            bundles: nsis
+            binary: desktop/src-tauri/target/release/ysu-net.exe
+          - os: macos-15
+            name: macos-arm64
+            bundles: app,dmg
+            binary: desktop/src-tauri/target/release/bundle/macos/YSU Net.app/Contents/MacOS/ysu-net
+          - os: macos-15-intel
+            name: macos-x64
+            bundles: app,dmg
+            binary: desktop/src-tauri/target/release/bundle/macos/YSU Net.app/Contents/MacOS/ysu-net
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+      CARGO_BUILD_JOBS: "2"
+      MACOSX_DEPLOYMENT_TARGET: "13.5"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            desktop/src-tauri
+            desktop/crates/ysu-auth
+      - name: Linux native SDK
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk
+      - run: npm ci --prefix desktop
+      - name: Frontend and native build entry checks
+        run: |
+          npm --prefix desktop run check
+          npm --prefix desktop test
+          npm --prefix desktop run test:build
+          npm --prefix desktop run build
+      - name: Rust authentication and runtime tests
+        run: |
+          cargo fmt --manifest-path desktop/crates/ysu-auth/Cargo.toml --check
+          cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
+          cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
+      - name: Real Chromium authentication fixtures
+        if: runner.os == 'Linux'
+        run: |
+          chromium="$(command -v google-chrome)"
+          export YSU_AUTH_CHROMIUM_PATH="$chromium"
+          cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml -- --ignored --test-threads=1
+      - name: Build native bundles without Python
+        run: npm --prefix desktop run native:build -- --bundles '${{ matrix.bundles }}'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: External acceptance tools and retained CLI regressions
+        run: |
+          uv sync --locked --group desktop-test
+          uv run --no-sync python -m unittest discover -s tests -p test_desktop_core.py -v
+          uv run --no-sync python -m unittest discover -s tests -p test_node_runtime.py -v
+          uv run --no-sync python -m unittest discover -s tests -p test_system_browser.py -v
+      - name: Built frontend browser acceptance
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p build
+          npm --prefix desktop run preview -- --port 1422 --strictPort > build/tauri-preview.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:1422/ > /dev/null; then break; fi
+            if [ "$attempt" -eq 40 ]; then cat build/tauri-preview.log; exit 1; fi
+            sleep 0.25
+          done
+          uv run --no-sync python packaging/tauri_web_smoke.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/compatibility
+          uv run --no-sync python desktop/tests/rust_desktop_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)"
+      - name: Native WebView and lifecycle acceptance
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            dbus-run-session -- xvfb-run -a -s '-screen 0 1280x900x24' \
+              uv run --no-sync python packaging/tauri_smoke.py --binary '${{ matrix.binary }}' \
+                --output dist/rust-desktop-smoke --capture-desktop
+            dbus-run-session -- xvfb-run -a uv run --no-sync python packaging/tauri_linux_lifecycle.py \
+              --binary '${{ matrix.binary }}' --output dist/rust-desktop-smoke
+          else
+            uv run --no-sync python packaging/tauri_smoke.py --binary '${{ matrix.binary }}' \
+              --output dist/rust-desktop-smoke
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-desktop-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*.deb
+            desktop/src-tauri/target/release/bundle/**/*.exe
+            desktop/src-tauri/target/release/bundle/**/*.dmg
+            dist/rust-desktop-smoke/
+            dist/rust-desktop-preview/
+# Artifacts only. The retained Qt tag workflow is not changed by this migration.

@@ -276,17 +276,23 @@ class InstallTests(OfflineTestCase):
 
     def test_uninstall_preserves_config_and_source(self):
         install.main([])
+        book = self.config.with_suffix(".accounts.json")
+        book.write_text('{"version":1,"auto_switch":false,"accounts":[]}', encoding="utf-8")
         install.main(["--uninstall"])
         self.assertFalse(self.unit.exists())
         self.assertFalse((self.bin / "ysu").exists())
         self.assertTrue(self.config.exists())
+        self.assertTrue(book.exists())
         self.assertTrue(self.root.exists())
         self.assertIn(call("user", "disable", "--now", "ysu-net.service"), self.systemctl.call_args_list)
 
     def test_purge_removes_config(self):
         install.main([])
+        book = self.config.with_suffix(".accounts.json")
+        book.write_text('{"version":1,"auto_switch":false,"accounts":[]}', encoding="utf-8")
         install.main(["--uninstall", "--purge"])
         self.assertFalse(self.config.exists())
+        self.assertFalse(book.exists())
 
     def test_foreign_command_not_overwritten(self):
         self.bin.mkdir()

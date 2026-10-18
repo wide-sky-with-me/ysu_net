@@ -19,7 +19,8 @@ ysu = "ysu_net.manager.cli:main"
 ysu-gui = "ysu_net.gui.app:main"
 
 [dependency-groups]
-build = ["pyinstaller>=6.10"]
+build = ["pyinstaller>=6.10", "psutil>=7,<8"]
+desktop-test = ["playwright>=1.40", "psutil>=7,<8"]
 
 [build-system]
 requires = ["hatchling>=1.27"]

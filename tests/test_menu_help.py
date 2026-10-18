@@ -29,7 +29,7 @@ class MenuHelpTests(OfflineTestCase):
     def test_help_covers_every_option_and_important_effects(self):
         ui.menu_help()
         text = self.output.getvalue()
-        for number in range(16):
+        for number in range(17):
             self.assertRegex(text, rf'(?m)^  {number} ')
         for phrase in ('远程 SSH 可能断开', '不立即切换当前连接', '不会停止当前守护',
                        '已启动的后台服务会继续运行', '不代表零或不限量'):

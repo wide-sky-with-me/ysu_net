@@ -1,6 +1,8 @@
-# 图形界面客户端（Windows / Ubuntu）
+# Qt 兼容版客户端（Windows / Ubuntu）
 
-[返回首页](../README.md) · [使用与配置](usage.md) · [开发与验证](development.md)
+[返回首页](../README.md) · [产品与架构](architecture.md) · [使用与配置](usage.md) · [开发与验证](development.md)
+
+本文仅描述已发布的 Qt 客户端，保留作当前版本使用与兼容回退；它不是三个新桌面目标之外的第四个产品。Windows / Linux / macOS 新桌面共用 Tauri，实现、构建与验证边界见[Tauri 桌面开发版](tauri-desktop.md)。`v0.1.0` 发布附件尚未替换，`ysu-gui` 仍启动 Qt。
 
 图形界面版与命令行版共用认证实现、运营商切换和自动重连逻辑，只是换了一种操作方式。
 Linux 服务器或无桌面环境继续使用 `ysu` 命令行和 systemd 服务，两者互不替代。

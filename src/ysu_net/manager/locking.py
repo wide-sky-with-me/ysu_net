@@ -41,9 +41,22 @@ def exclusive_config(path):
 
 
 @contextmanager
-def configuration_write(path):
-    """Short write lock, separate from the daemon's lifetime operation lock."""
+def configuration_write(path, *, timeout=None, stop_event=None):
+    """Short shared write lock, optionally bounded by a caller's operation budget."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    deadline = None if timeout is None else time.monotonic() + max(0, timeout)
     with path.with_name(path.name + ".write.lock").open("a+") as stream:
-        _lock(stream)
+        if deadline is None and stop_event is None:
+            _lock(stream)
+        else:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    raise TimeoutError("配置写入已取消，操作未确认")
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("配置写锁等待超时，操作未确认")
+                try:
+                    _try_lock(stream)
+                    break
+                except BlockingIOError:
+                    time.sleep(min(0.05, max(0, deadline - time.monotonic())) if deadline is not None else 0.05)
         yield

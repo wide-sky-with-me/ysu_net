@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -23,7 +24,7 @@ class FindSystemBrowserTests(OfflineTestCase):
         self.assertEqual(labels[:2], ["Microsoft Edge", "Microsoft Edge"])
         self.assertLess(labels.index("Microsoft Edge"), labels.index("Google Chrome"))
 
-    @unittest.skipIf(os.name == "nt", "POSIX lookup")
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux/Snap lookup")
     def test_snap_browsers_are_skipped(self):
         with patch.dict(os.environ, {}, clear=False) as env:
             env.pop(system_browser.ENV, None)
@@ -31,7 +32,7 @@ class FindSystemBrowserTests(OfflineTestCase):
                 self.assertIsNone(system_browser.find_system_browser())
 
 
-    @unittest.skipIf(os.name == "nt", "POSIX lookup")
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux/Snap lookup")
     def test_snap_symlink_to_launcher_is_skipped(self):
         with patch.dict(os.environ, {}, clear=True), \
                 patch.object(system_browser.shutil, "which", return_value="/snap/bin/chromium"), \
@@ -39,7 +40,7 @@ class FindSystemBrowserTests(OfflineTestCase):
                 patch.object(Path, "is_file", return_value=True):
             self.assertIsNone(system_browser.find_system_browser())
 
-    @unittest.skipIf(os.name == "nt", "POSIX lookup")
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux/Snap lookup")
     def test_snap_launcher_falls_through_to_regular_browser(self):
         def which(command):
             return {"chromium": "/snap/bin/chromium", "brave-browser": "/usr/bin/brave-browser"}.get(command)
@@ -49,6 +50,21 @@ class FindSystemBrowserTests(OfflineTestCase):
                 patch.object(Path, "resolve", return_value=Path("/usr/bin/snap")), \
                 patch.object(Path, "is_file", return_value=True):
             self.assertEqual(system_browser.find_system_browser(), ("Brave", Path("/usr/bin/brave-browser")))
+
+    def test_macos_finds_user_application_bundle(self):
+        expected = self.tmp / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(system_browser.sys, "platform", "darwin"), \
+                patch.object(Path, "home", return_value=self.tmp), \
+                patch.object(Path, "is_file", lambda path: path == expected):
+            self.assertEqual(system_browser.find_system_browser(), ("Google Chrome", expected))
+
+    def test_macos_finds_system_edge_before_chrome(self):
+        expected = Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(system_browser.sys, "platform", "darwin"), \
+                patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(system_browser.find_system_browser(), ("Microsoft Edge", expected))
 
 
 class LaunchFallbackTests(OfflineTestCase):

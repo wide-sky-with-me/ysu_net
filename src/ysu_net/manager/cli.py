@@ -11,7 +11,11 @@ import subprocess
 import sys
 
 from .backend import run_backend
+from .accounts import (accounts_path, delete_account, environment_override, load_accounts,
+                       public_accounts, save_account, set_rotation)
+from .account_switching import switch_account
 from .config import Config, SERVICES, config_path, load_config, public_config, update_config
+from .control import request_control
 from .daemon import run_daemon
 from .locking import exclusive_config
 from .switching import switch_service
@@ -66,6 +70,26 @@ def parser():
     p.add_argument("--network", action="store_true", help="额外查询校园网状态")
     p = sub.add_parser("daemon", help="前台自动重连（也适用于无 systemd 环境）")
     p.add_argument("--once", action="store_true", help="仅执行一轮检查")
+    p = sub.add_parser("accounts", help="管理多账号、核验热切换与零流量轮换")
+    account_sub = p.add_subparsers(dest="account_action")
+    account_sub.add_parser("menu", help="打开多账号交互菜单")
+    p = account_sub.add_parser("list", help="展示账号与活动配置覆盖后的状态（无密码）")
+    p.add_argument("--raw", action="store_true", help="输出 JSON")
+    p = account_sub.add_parser("save", help="保存账号；密码仅通过终端交互读取")
+    p.add_argument("username")
+    p.add_argument("--id", help="更新既有账号；用户名保持不变")
+    p.add_argument("--label")
+    p.add_argument("--service", choices=SERVICES)
+    p.add_argument("--backend", choices=("api", "browser"))
+    enabled = p.add_mutually_exclusive_group()
+    enabled.add_argument("--disabled", action="store_true", default=None, help="停用该切换候选")
+    enabled.add_argument("--enabled", dest="disabled", action="store_false", help="重新启用该切换候选")
+    p.set_defaults(disabled=None)
+    for name in ("delete", "switch"):
+        p = account_sub.add_parser(name, help="删除非活动账号" if name == "delete" else "独立核验并热切换账号")
+        p.add_argument("id")
+    p = account_sub.add_parser("rotation", help="随自动重连运行的零剩余流量轮换（默认关闭）")
+    p.add_argument("state", choices=("on", "off"))
     return ap
 
 
@@ -216,7 +240,7 @@ def menu(args, path):
         "1": ["status"], "2": ["login"], "3": ["on"], "4": ["off"],
         "5": ["config", "account"], "6": ["service"], "7": ["doctor"], "8": ["logs"],
         "9": ["stop"], "10": ["boot", "on"], "11": ["boot", "off"], "12": ["config", "show"],
-        "13": ["info"], "14": ["doctor", "--network"],
+        "13": ["info"], "14": ["doctor", "--network"], "16": ["accounts"],
     }
     while True:
         ui.heading("YSU · 燕山大学校园网")
@@ -232,7 +256,7 @@ def menu(args, path):
         print("\n  连接管理")
         ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连"])
         print("\n  配置与维护")
-        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", " 8  查看日志", "10  开启自启", "11  关闭自启", "12  查看配置", "13  账户与剩余流量", "14  联网诊断 doctor"])
+        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", " 8  查看日志", "10  开启自启", "11  关闭自启", "12  查看配置", "13  账户与剩余流量", "14  联网诊断 doctor", "16  多账号与自动换号"])
         print()
         ui.choices(["15  选项说明（用途与影响）", " 0  退出"])
         print()
@@ -252,6 +276,58 @@ def menu(args, path):
             ui.message("请输入菜单中的编号，或输入 0 退出。", "warning")
 
 
+def account_command(args, path):
+    action = args.account_action
+    if action in (None, "menu"):
+        from .account_menu import run_menu
+        return run_menu(args, path, main)
+    if action == "list":
+        view = public_accounts(path)
+        print(json.dumps(view, ensure_ascii=False, indent=2))
+        return 2 if view["error"] else 0
+    if action == "save":
+        if not sys.stdin.isatty():
+            raise ValueError("请在交互终端保存账号，密码仅通过隐藏输入读取")
+        book = load_accounts(path)
+        previous = next((item for item in book["accounts"] if item["id"] == args.id), None)
+        if args.id is not None and previous is None:
+            raise ValueError("账号 id 未找到")
+        password = getpass.getpass("  密码（更新时留空保留）: ")
+        saved = save_account(path, id=args.id, username=args.username, password=password,
+                             label=args.label if args.label is not None else previous["label"] if previous else "",
+                             service=args.service or (previous["service"] if previous else "校园网"),
+                             backend=args.backend or (previous["backend"] if previous else "api"),
+                             enabled=not args.disabled if args.disabled is not None else previous["enabled"] if previous else True)
+        ui.message(f"账号已保存，id：{saved['id']}", "success")
+        return 0
+    if action == "delete":
+        delete_account(path, args.id)
+        ui.message("账号已删除。", "success")
+        return 0
+    operation = "switch_account" if action == "switch" else "rotation"
+    payload = {"id": args.id} if action == "switch" else {"enabled": args.state == "on"}
+    if environment_override() and (operation == "switch_account" or payload.get("enabled")):
+        raise ValueError("环境变量覆盖存在，账号切换与轮换已停用")
+    lock = exclusive_config(path)
+    try:
+        lock.__enter__()
+    except RuntimeError:
+        timeout = min(load_config(path, environ={}).operation_timeout + 5, 300)
+        result = request_control(path, operation, payload, timeout=timeout)
+    else:
+        try:
+            if operation == "switch_account":
+                outcome = switch_account(path, args.id, runner=run_backend)
+                result = {"code": outcome.code, "message": outcome.message}
+            else:
+                set_rotation(path, payload["enabled"], auto_reconnect=False)
+                result = {"code": 0, "message": "自动轮换已关闭"}
+        finally:
+            lock.__exit__(None, None, None)
+    ui.message(result["message"], "success" if result["code"] == 0 else "error")
+    return result["code"]
+
+
 def dispatch(args):
     path = (args.config or config_path(args.scope)).expanduser().absolute()
     command = args.command
@@ -262,6 +338,8 @@ def dispatch(args):
         return menu(args, path)
     if command == "config":
         return configure(args, path)
+    if command == "accounts":
+        return account_command(args, path)
     if command == "doctor":
         return doctor(args, path)
     if command == "switch":
@@ -349,6 +427,8 @@ def dispatch(args):
         ui.progress({"login": "正在登录校园网，请稍候…", "logout": "正在下线并确认结果…",
                      "status": "正在查询校园网状态…", "info": "正在读取账户信息…"}[action], raw=raw)
         with exclusive_config(path) if action in ("login", "logout") else nullcontext():
+            if action == "logout" and accounts_path(path).exists():
+                set_rotation(path, False)
             result = run_backend(config, action, interactive=action in ("login", "logout") and sys.stdin.isatty(), raw=getattr(args, "raw", False))
         if raw and result.output and result.code in (0, 1):
             print(result.output, end="" if result.output.endswith("\n") else "\n")

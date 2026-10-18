@@ -3,6 +3,8 @@ from contextlib import ExitStack
 from contextvars import ContextVar
 from functools import wraps
 
+from .quota import successful_envelope
+
 
 class QueryError(RuntimeError):
     exit_code = 2
@@ -20,7 +22,11 @@ def online_state(payload):
     """Only a recognized offline response permits automatic authentication."""
     try:
         info = payload["data"]["portalOnlineUserInfo"]
+        if not successful_envelope(payload) or not successful_envelope(payload["data"]):
+            raise QueryError("在线状态的外层业务结果未确认")
         if info.get("result") == "success":
+            if not successful_envelope(info):
+                raise QueryError("在线状态的内层业务结果矛盾")
             return True
         if info.get("message") == "dx.failed.user.offline":
             return False
@@ -35,8 +41,10 @@ def online_service(payload):
         return None
     info = payload["data"]["portalOnlineUserInfo"]
     services = {"校园网", "中国移动", "中国联通", "中国电信"}
-    names = {value for key in ("realServiceName", "service")
-             if isinstance(value := info.get(key), str) and value in services}
+    values = [info[key] for key in ("realServiceName", "service") if key in info]
+    if "realServiceName" in info and (not isinstance(info["realServiceName"], str) or info["realServiceName"] not in services):
+        raise QueryError("在线原始服务名称未知，暂不切换连接")
+    names = {value for value in values if isinstance(value, str) and value in services}
     if len(names) != 1:
         raise QueryError("在线响应未返回唯一可识别的服务，暂不切换连接")
     return names.pop()

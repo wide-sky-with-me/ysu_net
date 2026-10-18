@@ -1,24 +1,26 @@
 # ysu-net · 燕山大学校园网管理工具
 
-通过 `ysu` 统一管理校园网登录、下线、自动重连、账号配置、开机自启和日志。
-交互方式参考 [clash-for-linux](https://github.com/wnlen/clash-for-linux)，认证仍使用本项目的 Portal / CAS 实现。
+项目分为 **Linux 命令行版（Shell / Python）** 与 **Tauri 图形版（Windows / Linux / macOS / Rust 认证）**。两种产品保持配置和认证语义兼容，不再共用 Python 桌面旁车。入口与职责见[项目架构](docs/architecture.md)。
 
-支持 Linux + Python 3.12；后台服务使用 systemd。没有 systemd 的环境可使用前台守护。
-默认采用轻量 API 认证，Playwright 浏览器认证按需安装。
+命令行统一使用 `ysu`，支持 Linux + Python 3.12；systemd 管理后台服务，无 systemd 时可用前台守护。默认 API 认证，浏览器认证按需安装。终端交互参考 [clash-for-linux](https://github.com/wnlen/clash-for-linux)，认证使用本项目的 Portal / CAS 实现。
 
-默认 API 后端的校园网认证闭环、中国移动切换，以及用户级后台服务的真实重连和异常恢复均已验收，196 项本地测试通过。支持 `ysu info` 查看账户与门户提供的流量余额，`ysu doctor` / `ysu doctor --network` 诊断环境和连接。菜单内输入 `15`、`h` 或 `?` 可查看各选项的用途与影响。详见[使用说明](docs/usage.md)、[真实网络验收](docs/live-test.md)与[远端部署验收](docs/deployment-test.md)。
+默认 API 后端的校园网认证闭环、中国移动切换和用户级后台服务已有历史验收记录。支持 `ysu info` 查看门户账户信息，`ysu doctor` / `ysu doctor --network` 诊断环境和连接。命令与菜单见[使用说明](docs/usage.md)，历史实测范围见[真实网络验收](docs/live-test.md)与[远端部署验收](docs/deployment-test.md)，不作为新桌面版本的验收成绩。
 可以先在非校园网环境安装、配置和运行 `ysu doctor`；登录和真实状态查询需要接入校园网。
 敏感资料处理、审计范围与发布前检查见[敏感信息与发布检查](docs/security.md)。
 
-## 图形界面版（Windows / Ubuntu）
+## 桌面版（Windows / Linux / macOS）
 
-除命令行版外，还提供 Windows 和 Ubuntu 的图形界面客户端，支持浅色和深色外观、系统托盘、一键连接、运营商切换、自动重连和开机自启。
-安装包见 Releases；从源码运行：`uv sync --locked --extra gui && uv run ysu-gui`。详见[图形界面客户端](docs/desktop.md)。
+图形版在 `feat/rust-desktop` 使用 **Tauri 2 + Svelte + 全 Rust 认证和后台**：三平台共用界面与原生逻辑，不依赖 Python、Node 或 Playwright 认证运行时。当前为未发布开发版，柔和分区式设置界面见[设计说明](docs/rust-desktop-design.md)，构建与验证边界见[Tauri 桌面说明](docs/tauri-desktop.md)。
+
+开发版支持[多账号热切换与可选流量换号](docs/accounts.md)：界面管理账号，CLI/守护复用账号簿；仅确认门户连续报告零剩余流量时自动尝试备用账号，缺失流量不猜测。
+
+已发布的 `v0.1.0` 附件仍是 Windows / Ubuntu 的 Qt 版本；`ysu-gui` 保留为 Qt 兼容入口，不会启动新 Tauri 窗口。安装与回退见[已发布 Qt 兼容版](docs/desktop.md)。
 
 ## 选择版本与交流入口
 
-- **Linux 命令行版**：以下安装步骤使用默认分支 `main`，适合桌面、服务器和 systemd 后台运行。
-- **Windows / Ubuntu 桌面版**：下载 [v0.1.0](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0)，阅读[对应版本的桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0/docs/desktop.md)。`main` 已包含 `ysu-gui`，该版本修复自动重连后的界面状态刷新；旧测试版保留供历史问题复现。
+- **Linux 命令行版**：以下安装步骤使用默认分支 `main`，适合终端、服务器和 systemd 后台运行。
+- **三平台桌面开发版**：按[Tauri 构建说明](docs/tauri-desktop.md)从源码构建；尚未替换正式发布附件。
+- **已发布 Qt 兼容版**：下载 [v0.1.0](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0)，使用[该版本说明](https://github.com/wide-sky-with-me/ysu_net/blob/v0.1.0/docs/desktop.md)；旧测试版仅供历史问题复现。
 - **入门与排障**：[Wiki 源文档](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) · [支持与反馈](SUPPORT.md)。
 - **社区协作**：[Discussions 问答与建议](https://github.com/wide-sky-with-me/ysu_net/discussions) · [Issue 故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [贡献指南](CONTRIBUTING.md) · [安全问题私密报告](SECURITY.md)。
 
@@ -50,7 +52,7 @@ ysu on                      # 开启后台自动重连
 ysu boot on                 # 可选：启用自启
 ```
 
-直接执行 `ysu` 打开交互菜单；非交互终端中显示帮助。
+直接执行 `ysu` 打开交互菜单；非交互终端中显示帮助。开发版主菜单 **16** 或 `ysu accounts` 进入[多账号管理与流量自动换号](docs/accounts.md#shell-版交互菜单)。
 只安装 Python 环境而不注册服务：`uv sync --locked`，然后运行 `uv run ysu <命令>`。
 也支持 `uv run python -m ysu_net <命令>`；安装注册后的 `ysu` 可从任意目录运行。
 
@@ -79,34 +81,19 @@ sudo env PATH="$PATH" bash install.sh --system  # 系统级服务
 
 ## 项目结构
 
-```text
-ysu_net/
-├── src/ysu_net/          # Python 包
-│   ├── __main__.py      # python -m ysu_net 入口
-│   ├── paths.py         # 项目路径
-│   ├── auth/            # API / 浏览器认证及协议工具
-│   └── manager/         # CLI、配置、守护、安装、systemd、终端展示
-├── tests/               # mock 测试与本地入口检查
-├── docs/                # 使用、迁移、开发文档
-├── .github/workflows/   # CI 检查
-├── install.sh           # 用户安装入口
-├── uninstall.sh         # 用户卸载入口
-├── pyproject.toml       # 包配置、依赖及 ysu 命令声明
-├── uv.lock              # 锁定依赖
-├── .python-version      # Python 版本
-├── README.md
-└── LICENSE
-```
+源码按 Python 命令行、Rust 桌面认证与后台、共用 Svelte 前端及平台集成分层。目录、命令名称和构建链路统一维护在[项目架构](docs/architecture.md)，不按操作系统复制界面。
 
 账号配置、锁文件位于用户或系统配置目录，`.venv` 和构建产物不提交到仓库。
 旧版根目录认证脚本、守护脚本及 `requirements.txt` 已移除，迁移方式见下文链接。
 
 ## 文档导航
 
-- [使用与配置](docs/usage.md)：完整命令表、日常操作、配置参数、浏览器方式和故障排查。
-- [更新、卸载与旧版迁移](docs/migration.md)：升级后的命令重装、旧服务清理和入口变更。
-- [图形界面客户端](docs/desktop.md)：Windows / Ubuntu 安装、功能、配置位置与限制。
-- [开发与验证](docs/development.md)：模块职责、mock 测试、打包及新增认证实现。
+- [产品入口与项目架构](docs/architecture.md)：命令行与三平台桌面的关系、目录职责和兼容边界。
+- [命令行使用与配置](docs/usage.md)：完整命令、日常操作、配置和故障排查。
+- [更新、卸载与旧版迁移](docs/migration.md)：命令重装、旧服务清理与入口变更。
+- [Tauri 桌面开发版](docs/tauri-desktop.md)：三平台构建、演示与当前验证范围。
+- [已发布 Qt 兼容版](docs/desktop.md)：Windows / Ubuntu 旧版安装和回退。
+- [开发与验证](docs/development.md)：模块职责、离线测试和 Python 构建。
 
 ## 本地验证
 

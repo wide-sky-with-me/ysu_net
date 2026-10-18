@@ -3,9 +3,12 @@ from pathlib import Path
 import random
 import signal
 import threading
+import time
 
+from .account_switching import AccountController
 from .backend import run_backend
 from .config import load_config
+from .control import ControlServer
 from .locking import exclusive_config
 
 
@@ -49,12 +52,25 @@ def run_daemon(config_file, *, once=False):
         previous = {}
         for sig in (signal.SIGTERM, signal.SIGINT):
             previous[sig] = signal.signal(sig, lambda *_: stop.set())
-        worker = Reconnector(runner=lambda config, action: run_backend(config, action, stop_event=stop))
+        runner = lambda config, action, **kwargs: run_backend(config, action, stop_event=stop, **kwargs)
+        worker = Reconnector(runner=runner)
+        accounts = AccountController(config_file, runner=runner, stop_event=stop)
+        control = ControlServer(config_file, accounts.handle)
         last_message = None
+        next_check = 0.0
         try:
+            control.start()
             while not stop.is_set():
+                control.consume()
+                now = time.monotonic()
+                if now < next_check:
+                    stop.wait(min(0.25, next_check - now))
+                    continue
                 try:
                     delay, message = worker.step(load_config(config_file))
+                    rotation_message = accounts.rotation.step()
+                    if rotation_message:
+                        message += "；" + rotation_message
                 except (ValueError, OSError):
                     delay, message = 30, "配置不可用，等待修复（未发起登录）"
                 if message != last_message:
@@ -62,8 +78,9 @@ def run_daemon(config_file, *, once=False):
                     last_message = message
                 if once:
                     return 0
-                stop.wait(delay)
+                next_check = time.monotonic() + delay
         finally:
+            control.close()
             for sig, handler in previous.items():
                 signal.signal(sig, handler)
     return 0

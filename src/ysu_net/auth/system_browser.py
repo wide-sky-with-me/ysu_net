@@ -25,6 +25,17 @@ def _windows_candidates():
                 yield label, Path(root) / relative
 
 
+def _macos_candidates():
+    for root in (Path("/Applications"), Path.home() / "Applications"):
+        for label, bundle, executable in (
+            ("Microsoft Edge", "Microsoft Edge", "Microsoft Edge"),
+            ("Google Chrome", "Google Chrome", "Google Chrome"),
+            ("Chromium", "Chromium", "Chromium"),
+            ("Brave", "Brave Browser", "Brave Browser"),
+        ):
+            yield label, root / f"{bundle}.app" / "Contents" / "MacOS" / executable
+
+
 def _posix_candidates():
     # Snap packages (Ubuntu's chromium) run confined and cannot read Playwright's
     # temporary profile directory, so only regular .deb / distro installs qualify.
@@ -46,7 +57,12 @@ def find_system_browser():
     if override:
         path = Path(override)
         return ("自定义浏览器", path) if path.is_file() else None
-    candidates = _windows_candidates() if sys.platform == "win32" else _posix_candidates()
+    if sys.platform == "win32":
+        candidates = _windows_candidates()
+    elif sys.platform == "darwin":
+        candidates = _macos_candidates()
+    else:
+        candidates = _posix_candidates()
     for label, path in candidates:
         if path.is_file():
             return label, path

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import platform
 import tempfile
 import zipfile
 
@@ -25,6 +26,10 @@ ARCHIVES = {
               "ec56b84a7551893ab2324ebdfdc4ab974a63b4781162600b68a1293cc3e53765", 37177316),
     "linux": (f"node-{VERSION}-linux-x64.tar.xz",
               "d6c664df3f3f61458e8c277585571328522d705166723a7c7823a9253a4d15a0", 31525884),
+    "darwin": (f"node-{VERSION}-darwin-x64.tar.xz",
+               "f892c7895720f40d3750bde24f3554242d36f23602b5167b5b73ec4d13938aef", 28704372),
+    "darwin-arm64": (f"node-{VERSION}-darwin-arm64.tar.xz",
+                     "1d60b703fe5d7e7072489be8187f430f1a095a658c31e5e1e281331a5873fac3", 27028232),
 }
 MIRRORS = ("https://npmmirror.com/mirrors/node", "https://nodejs.org/dist")
 ENV = "PLAYWRIGHT_NODEJS_PATH"
@@ -36,7 +41,8 @@ def _exe_name():
 
 def runtime_dir():
     from ysu_net.manager.config import config_dir
-    return config_dir() / "runtime" / f"node-{VERSION}"
+    suffix = "-arm64" if platform.machine().lower() in ("arm64", "aarch64") else ""
+    return config_dir() / "runtime" / f"node-{VERSION}{suffix}"
 
 
 def downloaded_node():
@@ -89,12 +95,21 @@ def configure():
     return True
 
 
+def archive_key():
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return sys.platform
+    if machine in ("arm64", "aarch64") and sys.platform == "darwin":
+        return "darwin-arm64"
+    return None
+
+
 def supported():
-    return sys.platform in ARCHIVES
+    return archive_key() in ARCHIVES
 
 
 def download_size():
-    return ARCHIVES[sys.platform][2] if supported() else 0
+    return ARCHIVES[archive_key()][2] if supported() else 0
 
 
 def _fetch(url, expected_size, progress, cancel):
@@ -128,7 +143,7 @@ def install(progress=None, cancel=None, mirrors=MIRRORS):
     """Download, verify and install the pinned Node.js runtime; returns its path."""
     if not supported():
         raise RuntimeError("当前平台不支持自动下载浏览器认证组件")
-    name, digest, size = ARCHIVES[sys.platform]
+    name, digest, size = ARCHIVES[archive_key()]
     errors = []
     for base in mirrors:
         try:

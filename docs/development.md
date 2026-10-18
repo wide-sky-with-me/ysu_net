@@ -1,10 +1,10 @@
 # 开发与验证
 
-[返回首页](../README.md) · [使用与配置](usage.md) · [更新与迁移](migration.md)
+[返回首页](../README.md) · [产品与架构](architecture.md) · [使用与配置](usage.md) · [更新与迁移](migration.md)
 
 ## 模块职责
 
-所有运行时代码位于 `src/ysu_net/`，通过安装包导入，不修改 `sys.path` 或依赖调用者的工作目录。
+Python 运行时代码位于 `src/ysu_net/`，通过安装包导入，不修改 `sys.path` 或依赖调用者的工作目录。三平台共用的 Svelte 前端与 Rust 原生壳位于仓库根 `desktop/`；整体边界见[项目架构](architecture.md)。下表的 Python 模块路径均相对 `src/ysu_net/`。
 开发使用 uv 的可编辑安装；Linux 安装器仍直接引用项目 `.venv`，因此项目目录必须保留。
 
 | 位置 | 职责 |
@@ -27,11 +27,14 @@
 | `auth/system_browser.py` | 查找本机 Edge / Chrome，供浏览器认证在缺少 Playwright Chromium 时使用 |
 | `auth/node_runtime.py` | 浏览器认证所需 Node.js 的查找与按需下载（固定版本、SHA-256 校验） |
 | `auth/worker.py` | 打包后的程序以 `--ysu-auth` 重新进入自身，运行认证模块 |
-| `gui/engine.py` | 与界面库无关的后台线程：串行执行登录、下线、切换与自动重连 |
-| `gui/window.py` | PySide6 主窗口、各页面与系统托盘 |
-| `gui/widgets.py`、`gui/theme.py`、`gui/icons.py` | 自绘控件、浅色 / 深色样式与 SVG 图标 |
-| `gui/prefs.py` | 界面偏好与 Windows 注册表 / XDG 开机自启 |
-| `gui/app.py` | `ysu-gui` 入口、单实例和字体设置 |
+| `gui/engine.py` | 旧 Qt 与保留 JSONL 原型使用的无 Qt 后台线程；新 Rust 桌面不调用 |
+| `gui/window.py` | 旧 Qt 主窗口、各页面与系统托盘 |
+| `gui/widgets.py`、`gui/theme.py`、`gui/icons.py` | 旧 Qt 控件、样式与图标 |
+| `gui/prefs.py` | Qt / JSONL 原型的偏好读写及 Qt 自启适配；Rust 配置层保持格式兼容 |
+| `gui/app.py` | Qt 兼容命令 `ysu-gui`、单实例和字体设置 |
+| `desktop/app.py`、`desktop/__main__.py` | JSONL 旁车启动与关闭，不是图形窗口入口 |
+| `desktop/core.py`、`desktop/protocol.py` | 无 Qt 桌面状态、快照、命令校验与协议 |
+| `desktop/demo.py` | 隔离的离线演示后端 |
 
 `install.sh` 和 `uninstall.sh` 是保留在根目录的用户入口，业务逻辑不放入 shell 文件。
 认证进程通过 `python -m ysu_net.auth.api` 或 `python -m ysu_net.auth.browser` 启动，
@@ -69,9 +72,10 @@ uv lock --check
 - `tests/test_gui.py`：图形界面引擎、锁冲突、偏好与自启、打包入口，以及可选的离屏窗口冒烟测试（未安装 PySide6 时跳过）。
 - `tests/test_system_browser.py`：系统浏览器查找、Snap 排除与启动回退。
 - `tests/test_node_runtime.py`：Node.js 运行时查找顺序、镜像回退、校验失败与取消下载。
+- `tests/test_desktop_core.py`：无 Qt 旁车协议、演示隔离、并发状态、凭据脱敏与退出清理。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
 
-当前离线回归为 196 项，包含自动重连状态同步、偏好持久化、账户缓存、可访问控件、Snap 浏览器查找以及社区文档检查。认证展示统一在 `auth/account.py` 修改；两个后端保留原导出名称，直接引用共享函数，避免重新出现双份逻辑。
+执行旧 Qt 窗口测试需安装 gui extra 并设置 `QT_QPA_PLATFORM=offscreen`；未安装时相关测试跳过。Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#验证命令)，按不同栈分别报告覆盖范围。Python 两个后端的账户展示统一在 `auth/account.py` 修改；Rust 对应实现位于 `desktop/crates/ysu-auth/`，协议或展示语义变更需同时补相应回归。
 
 连接相关测试 mock Portal、CAS、Playwright 和认证子进程；测试基类禁止 socket 连接与 DNS 查询。
 服务管理命令使用 mock，安装卸载在临时目录验证；可用时调用 `systemd-analyze verify`
@@ -90,12 +94,15 @@ uv sync --locked               # 仅安装 API 依赖
 uv sync --locked --extra browser
 ```
 
-打包使用 Hatchling，`pyproject.toml` 是依赖和命令入口的唯一声明位置。
-`uv.lock` 锁定应用依赖；构建依赖由 `[build-system]` 声明。
+Python 分发使用 Hatchling，`pyproject.toml` 声明 Python 依赖和 `ysu` / Qt 兼容命令；`uv.lock` 锁定应用依赖，`[build-system]` 声明 Python 构建依赖。前端依赖与原生配置分别属于 `desktop/package.json` 和 `desktop/src-tauri/`，不是 Python 命令声明的一部分。
 不再维护重复的 `requirements.txt`。`.venv/`、`dist/`、`build/` 和真实账号配置均不提交。
 包可构建用于分发，Linux 服务安装当前仍以源码目录的可编辑安装为支持方式。
 
-### 图形界面安装包
+### 桌面构建
+
+Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令见[Tauri 开发说明](tauri-desktop.md#构建前提)。`desktop-test` 依赖组仅供外部浏览器/进程验收，不是 GUI 构建或运行依赖。本节以下仅说明保留的 Qt 兼容构建；发行边界见[项目架构](architecture.md#构建与发行边界)。
+
+### Qt 兼容版安装包
 
 ```bash
 uv sync --locked --extra gui --group build

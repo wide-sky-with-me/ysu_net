@@ -1,0 +1,42 @@
+[package]
+name = "ysu-auth"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT"
+description = "Bounded native Rust Portal/CAS authentication for YSU desktop"
+
+[dependencies]
+aes = "0.8"
+base64 = "0.22"
+cbc = { version = "0.1.2", features = ["alloc", "block-padding"] }
+cookie_store = { version = "0.22.1", default-features = false }
+futures-util = { version = "0.3", features = ["sink"] }
+rand = "0.8"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json", "gzip", "brotli", "deflate"] }
+scraper = "0.24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros", "net", "sync", "time", "io-util"] }
+tokio-tungstenite = "0.28"
+unicode-general-category = "1"
+url = "2"
+zeroize = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[dev-dependencies]
+flate2 = "1"
+hex-literal = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[features]
+default = []
+# Explicit loopback-only transport for fixtures; production constructors stay HTTPS-only.
+local-fixtures = []

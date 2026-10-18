@@ -1,6 +1,6 @@
 # 使用与配置
 
-[返回首页](../README.md) · [更新与迁移](migration.md) · [开发说明](development.md)
+[返回首页](../README.md) · [更新与迁移](migration.md) · [多账号热切换](accounts.md) · [开发说明](development.md)
 
 命令均在安装后使用。用户级配置位于 `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json`，
 系统级配置位于 `/etc/ysu-net/config.json`，系统级管理命令需要 `sudo ysu ...`。
@@ -9,7 +9,8 @@
 
 | 命令 | 作用 |
 | --- | --- |
-| `ysu` / `ysu menu` | 交互菜单 |
+| `ysu` / `ysu menu` | 交互主菜单，16 进入多账号管理 |
+| `ysu accounts` / `ysu accounts menu` | 多账号交互菜单；管理账号、热切换与自动换号 |
 | `ysu login` | 登录一次；已运行守护时先 `ysu stop` |
 | `ysu on` / `ysuon` | 启动自动重连，认证结果查看状态或日志 |
 | `ysu stop` | 停止自动重连，保留当前网络连接 |
@@ -77,7 +78,7 @@ ysu switch 中国移动     # 成功后才保存服务；失败尝试恢复原�
 ysu on                  # 验证成功后恢复自动重连
 ```
 
-修改账号时，先使用旧配置 `ysu off` 下线，再 `ysu config account`、`ysu login`，确认成功后恢复守护。
+多个账号可从主菜单 **16** 或直接运行 `ysu accounts` 进入[账号簿与热切换菜单](accounts.md#shell-版交互菜单)，也支持独立子命令。守护运行时由锁所有者执行，不先停止后台。旧 `ysu config account` 仍是直接修改单账号配置；沿用此路径时，先用旧配置 `ysu off` 下线，再修改、登录并恢复守护。
 遇到运营商“同时在线数量已达上限”，先在其他终端正常下线或通过门户核对在线设备，再重试；工具不自动踢其他设备。
 
 **无 systemd 或用户总线不可用：**

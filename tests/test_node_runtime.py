@@ -36,8 +36,9 @@ class NodeRuntimeTests(OfflineTestCase):
         self.mock("ysu_net.auth.node_runtime._system_node", return_value=None)
 
     def install_with(self, archive, digest, *, fail_first=False):
-        name = node_runtime.ARCHIVES[node_runtime.sys.platform][0]
-        entries = {node_runtime.sys.platform: (name, digest, len(archive))}
+        key = node_runtime.archive_key()
+        name = node_runtime.ARCHIVES[key][0]
+        entries = {key: (name, digest, len(archive))}
         calls = []
 
         def fetch(url, size, progress, cancel):
@@ -101,6 +102,26 @@ class NodeRuntimeTests(OfflineTestCase):
         with patch.object(node_runtime, "bundled_node", return_value=bundled):
             self.assertTrue(node_runtime.configure())
         self.assertNotIn(node_runtime.ENV, os.environ)
+
+    def test_macos_architecture_selects_verified_archive(self):
+        with patch.object(node_runtime.sys, "platform", "darwin"):
+            for machine, expected in (("x86_64", "darwin"), ("AMD64", "darwin"),
+                                      ("arm64", "darwin-arm64"), ("aarch64", "darwin-arm64")):
+                with self.subTest(machine=machine), patch.object(node_runtime.platform, "machine", return_value=machine):
+                    self.assertEqual(node_runtime.archive_key(), expected)
+                    self.assertTrue(node_runtime.supported())
+                    self.assertGreater(node_runtime.download_size(), 0)
+            with patch.object(node_runtime.platform, "machine", return_value="unknown-cpu"):
+                self.assertFalse(node_runtime.supported())
+                self.assertEqual(node_runtime.download_size(), 0)
+
+    def test_macos_arm_install_checks_digest_and_extracts_node(self):
+        archive, payload = fake_archive("darwin")
+        with patch.object(node_runtime.sys, "platform", "darwin"), \
+                patch.object(node_runtime.platform, "machine", return_value="arm64"):
+            path, calls = self.install_with(archive, hashlib.sha256(archive).hexdigest())
+            self.assertEqual(path.read_bytes(), payload)
+            self.assertIn("darwin-arm64", calls[0])
 
 
 if __name__ == "__main__":
