@@ -74,6 +74,8 @@ jobs:
           npm --prefix desktop run build
       - name: Rust authentication and runtime tests
         run: |
+          # generate_context! embeds the generated icons, so tests need them first.
+          npm --prefix desktop run native:build -- --prepare-only
           cargo fmt --manifest-path desktop/crates/ysu-auth/Cargo.toml --check
           cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml
           cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
