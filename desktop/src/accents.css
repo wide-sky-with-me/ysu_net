@@ -62,7 +62,7 @@
   .accent-setting > div:first-child { flex: 0 0 auto; padding-top: 7px; }
   .accent-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-width: 0; width: min(330px, 100%); }
   .accent-option { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; min-height: 34px; padding: 6px 8px; border-radius: 10px; font-size: 12px; }
-  .accent-option[aria-pressed='true'], .accent-option[aria-pressed='true']:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+  .accent-option[aria-pressed='true'], .accent-option[aria-pressed='true']:hover:not(:disabled) { border-color: var(--control-border-hover); background: var(--segment-selected); color: var(--text); font-weight: 650; box-shadow: var(--segment-shadow); }
   .accent-swatch { display: grid; place-items: center; flex: 0 0 14px; width: 14px; height: 14px; border-radius: 50%; background: var(--swatch-light); color: #ffffff; }
   :root[data-theme='dark'] .accent-swatch { background: var(--swatch-dark); color: var(--on-accent); }
 }
