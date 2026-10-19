@@ -55,12 +55,12 @@ def row(label, value):
 def choices(items):
     if shutil.get_terminal_size((80, 24)).columns < 64:
         for item in items:
-            print("  " + item)
+            print("  " + clean(item))
         return
     for index in range(0, len(items), 2):
-        left = items[index]
+        left = clean(items[index])
         width = sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in left)
-        right = items[index + 1] if index + 1 < len(items) else ""
+        right = clean(items[index + 1]) if index + 1 < len(items) else ""
         print("  " + left + (" " * max(2, 30 - width) + right if right else ""))
 
 

@@ -1,3 +1,4 @@
+import os
 from unittest.mock import patch
 
 from helpers import OfflineTestCase
@@ -25,6 +26,20 @@ class MenuHelpTests(OfflineTestCase):
         self.service.assert_not_called()
         self.save.assert_not_called()
         self.assertFalse((self.tmp/'config.json').exists())
+
+    def test_choices_strip_terminal_controls_from_saved_labels(self):
+        label = "1 备用\x1b]8;;https://secret.invalid\x07\x1b[31m账号\x07"
+        for columns in (40, 100):
+            with self.subTest(columns=columns), \
+                    patch('ysu_net.manager.ui.shutil.get_terminal_size', return_value=os.terminal_size((columns, 24))):
+                self.output.truncate(0)
+                self.output.seek(0)
+                ui.choices([label, "2 返回"])
+                text = self.output.getvalue()
+                self.assertNotIn("\x1b", text)
+                self.assertNotIn("\x07", text)
+                self.assertIn("备用", text)
+                self.assertIn("账号", text)
 
     def test_help_covers_every_option_and_important_effects(self):
         ui.menu_help()
