@@ -158,7 +158,10 @@ jobs:
             uv run --no-sync python packaging/tauri_smoke.py --binary /usr/bin/ysu-net \
               --output dist/rust-desktop-installed --capture-desktop
           sudo apt-get remove -y ysu-net
-          ! dpkg-query -W -f='${Status}\n' ysu-net 2>/dev/null | grep -q '^install ok installed'
+          # set -e ignores `!`-negated commands, so failures must exit explicitly.
+          if dpkg-query -W -f='${Status}\n' ysu-net 2>/dev/null | grep -q '^install ok installed'; then
+            echo 'ysu-net is still installed'; exit 1
+          fi
           test ! -e /usr/bin/ysu-net
           test ! -e "$entry"
       - name: Installed package acceptance (Windows)
@@ -196,6 +199,38 @@ jobs:
           if (Test-Path $exe) { throw 'executable remained after uninstall' }
           if (Get-ItemProperty $roots -ErrorAction SilentlyContinue | Where-Object DisplayName -eq 'YSU Net') { throw 'uninstall entry remained' }
           if (@(Get-ChildItem $programs -Recurse -Filter 'YSU Net.lnk').Count) { throw 'Start menu shortcut remained' }
+      # macOS has no installer: mount the .dmg, copy the app like a user would, run it, delete it.
+      - name: Installed package acceptance (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          image=(desktop/src-tauri/target/release/bundle/dmg/*.dmg)
+          [ "${#image[@]}" -eq 1 ] || { echo "expected one .dmg: ${image[*]}"; exit 1; }
+          volume="$RUNNER_TEMP/ysu-net-dmg"
+          app="/Applications/YSU Net.app"
+          [ ! -e "$app" ] || { echo "$app already exists on the runner"; exit 1; }
+          hdiutil attach -nobrowse -readonly -mountpoint "$volume" "${image[0]}"
+          trap 'hdiutil detach "$volume" -force >/dev/null 2>&1 || true' EXIT
+          test -d "$volume/YSU Net.app"
+          [ "$(readlink "$volume/Applications")" = /Applications ]
+          ditto "$volume/YSU Net.app" "$app"
+          hdiutil detach "$volume"
+          trap - EXIT
+          plist="$app/Contents/Info.plist"
+          value() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
+          [ "$(value CFBundleIdentifier)" = io.github.wide-sky-with-me.ysunet ]
+          [ "$(value CFBundleShortVersionString)" = 0.1.0 ]
+          [ "$(value CFBundleExecutable)" = ysu-net ]
+          [ "$(value LSMinimumSystemVersion)" = 13.5 ]
+          test -f "$app/Contents/Resources/$(value CFBundleIconFile | sed 's/\.icns$//').icns"
+          exe="$app/Contents/MacOS/ysu-net"
+          test -x "$exe"
+          lipo -archs "$exe" | tr ' ' '\n' | grep -qx "$(uname -m)"
+          "$exe" --help | grep -q -- '--minimized'
+          uv run --no-sync python packaging/tauri_smoke.py --binary "$exe" --output dist/rust-desktop-installed
+          rm -rf "$app"
+          test ! -e "$app"
+          if hdiutil info | grep -qF "$volume"; then echo 'disk image is still attached'; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

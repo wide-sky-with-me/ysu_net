@@ -50,7 +50,7 @@ CLI 的 Linux systemd 服务面向无桌面运行；图形版的托盘和用户�
 | Python CLI 分发 | wheel / 源码包；保留现有安装器和依赖 | [pyproject.toml](../pyproject.toml)、`uv build` |
 | Rust 桌面构建 | 本平台原生程序及安装包，不冻结 Python | [desktop.mjs](../desktop/scripts/desktop.mjs)、[Tauri CI](../.github/workflows/tauri.yml) |
 
-Tauri CI 定义跨平台构建和离线验收；Linux `.deb` 与 Windows NSIS 安装包还会在运行器上实际安装，核对安装位置、卸载登记、菜单入口与图标，从安装位置运行原生冒烟后卸载并确认清理；推送 `v*` 标签时，同一工作流在各平台构建通过后发布 Tauri 安装包与 Python 分发包，并附 `SHA256SUMS`。定义存在不代表对应系统已经跑通。
+Tauri CI 定义跨平台构建和离线验收；Linux `.deb` 与 Windows NSIS 安装包还会在运行器上实际安装，核对安装位置、卸载登记、菜单入口与图标，从安装位置运行原生冒烟后卸载并确认清理；macOS 挂载 `.dmg`，核对应用与“应用程序”快捷方式，复制到 /Applications 后核对包标识、版本、最低系统、图标与本机架构，运行原生冒烟后删除；推送 `v*` 标签时，同一工作流在各平台构建通过后发布 Tauri 安装包与 Python 分发包，并附 `SHA256SUMS`。定义存在不代表对应系统已经跑通。
 
 Tauri Linux 包沿用旧 Qt 包的 `ysu-net` 包名与 `0.1.0` 版本，同版本替换需 `apt install --reinstall`；Windows 旧 Qt 版由 Inno Setup 安装、新版由 NSIS 安装，二者不会互相替换，需先卸载旧版。发行前仍需提升版本号并处理既有自启项与签名。
 
