@@ -836,9 +836,15 @@ mod lifecycle_tests {
         let mut browser = started().await;
         let pid = browser._process.id();
         let profile = browser._process.profile_path().to_owned();
-        let op = Operation::new(Instant::now() + std::time::Duration::from_secs(3));
+        let op = Operation::new(Instant::now() + std::time::Duration::from_secs(10));
         browser.pipe.close();
-        assert!(browser.receive(&op).await.is_err());
+        // Chromium may still flush queued events; the pipe must then report closure, not a timeout.
+        let error = loop {
+            if let Err(error) = browser.receive(&op).await {
+                break error;
+            }
+        };
+        assert!(error.message.contains("已关闭"), "{}", error.message);
         drop(browser);
         cleaned(pid, &profile).await;
     }
