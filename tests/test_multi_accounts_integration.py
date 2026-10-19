@@ -62,7 +62,8 @@ class MultiAccountIntegrationTests(OfflineTestCase):
             worker = threading.Thread(target=run, name="fixture-daemon")
             worker.start()
             try:
-                self.assertTrue(self.ready.wait(2))
+                # Generous: returns as soon as the daemon's first check runs, even on a loaded runner.
+                self.assertTrue(self.ready.wait(10))
                 yield worker
             finally:
                 stop.set()
