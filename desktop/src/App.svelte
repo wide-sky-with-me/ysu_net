@@ -332,16 +332,16 @@
             <div><dt>{online ? '校园网账号' : '待连接账号'}</dt><dd>{online ? snapshot?.status?.user || '门户未提供' : snapshot?.config.username || '尚未设置'}{#if !snapshot?.config.username}<button type="button" class="text-button" onclick={() => navigate('settings')}>设置账号</button>{/if}</dd></div>
             <div><dt>IP 地址</dt><dd class="numeric">{online ? snapshot?.status?.ip || '门户未提供' : snapshot?.status?.online === false ? '待连接后获取' : '待核心确认'}</dd></div>
           </dl>
-          <div class="connection-footer"><Icon name="shield" size={14} /><span>{!snapshot ? '认证配置待核心提供' : snapshot.config.verify_tls ? 'HTTPS 证书校验已开启' : 'HTTPS 证书校验已关闭'}</span><span class="footer-backend">{!snapshot ? '桌面核心未连接' : snapshot.config.backend === 'browser' ? '浏览器认证' : 'API 认证'}</span></div>
+          <div class="connection-footer" class:unverified={Boolean(snapshot && !snapshot.config.verify_tls)}><Icon name={snapshot && !snapshot.config.verify_tls ? 'warning' : 'shield'} size={14} /><span>{!snapshot ? '认证配置待核心提供' : snapshot.config.verify_tls ? 'HTTPS 证书校验已开启' : 'HTTPS 证书校验已关闭'}</span><span class="footer-backend">{!snapshot ? '桌面核心未连接' : snapshot.config.backend === 'browser' ? '浏览器认证' : 'API 认证'}</span></div>
           </div>
         <div class="connection-automation">
         <section class="auto-section">
-          <span class="automation-icon" aria-hidden="true"><Icon name="reconnect" size={18} /></span>
+          <span class="automation-icon" class:active={snapshot?.auto.state === 'on'} aria-hidden="true"><Icon name="reconnect" size={18} /></span>
           <div><h2>自动重连</h2>{#if reconnectMessage}<p>{reconnectMessage}{#if snapshot?.auto.delay !== undefined && snapshot.auto.delay > 0}<span> 本轮等待 {snapshot.auto.delay} 秒。</span>{/if}</p>{/if}</div>
           <Toggle checked={snapshot?.auto.state === 'on'} disabled={localLocked || external || (busy && snapshot?.auto.state !== 'on')} label="自动重连" onchange={(value) => { void action('set_auto', value); }} />
         </section>
         <section class="auto-section rotation-section" aria-label="账号自动轮换">
-          <span class="automation-icon" aria-hidden="true"><Icon name="rotation" size={18} /></span>
+          <span class="automation-icon" class:active={Boolean(snapshot?.accounts.auto_switch)} aria-hidden="true"><Icon name="rotation" size={18} /></span>
           <div><h2>自动换号</h2>{#if !external && rotation.reason}<p>{rotation.reason}</p>{/if}<p class="quota-status" role="status" aria-label="流量状态" data-state={snapshot?.accounts.quota.state || 'unknown'}>{#if snapshot?.accounts.quota.state === 'available' && snapshot.accounts.quota.message}{snapshot.accounts.quota.message}{:else}{quotaTitle}{#if snapshot?.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot?.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p></div>
           <Toggle checked={snapshot?.accounts.auto_switch || false} disabled={localLocked || (!snapshot?.accounts.auto_switch && (pending || !rotation.canEnable))} label="自动换号" onchange={setRotation} />
         </section>
