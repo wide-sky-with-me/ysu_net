@@ -64,7 +64,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk
+            librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk desktop-file-utils
       - run: npm ci --prefix desktop
       - name: Frontend and native build entry checks
         run: |
@@ -134,6 +134,68 @@ jobs:
             uv run --no-sync python packaging/tauri_smoke.py --binary '${{ matrix.binary }}' \
               --output dist/rust-desktop-smoke
           fi
+      # Install the real package, run the smoke from the installed location, then uninstall.
+      - name: Installed package acceptance (Linux)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: |
+          set -euo pipefail
+          entry="/usr/share/applications/YSU Net.desktop"
+          package=(desktop/src-tauri/target/release/bundle/deb/*.deb)
+          [ "${#package[@]}" -eq 1 ] || { echo "expected one .deb: ${package[*]}"; exit 1; }
+          sudo apt-get install -y "./${package[0]}"
+          dpkg-query -W -f='${Status} ${Version}\n' ysu-net | tee /dev/stderr | grep -q '^install ok installed '
+          test -x /usr/bin/ysu-net
+          desktop-file-validate "$entry"
+          grep -qx 'Exec=ysu-net' "$entry"
+          grep -qx 'Icon=ysu-net' "$entry"
+          for size in 32x32 128x128; do test -f "/usr/share/icons/hicolor/$size/apps/ysu-net.png"; done
+          [ "$(command -v ysu-net)" = /usr/bin/ysu-net ]
+          ysu-net --help | grep -q -- '--minimized'
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x900x24' \
+            uv run --no-sync python packaging/tauri_smoke.py --binary /usr/bin/ysu-net \
+              --output dist/rust-desktop-installed --capture-desktop
+          sudo apt-get remove -y ysu-net
+          ! dpkg-query -W -f='${Status}\n' ysu-net 2>/dev/null | grep -q '^install ok installed'
+          test ! -e /usr/bin/ysu-net
+          test ! -e "$entry"
+      - name: Installed package acceptance (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = @(Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe)
+          if ($setup.Count -ne 1) { throw "expected one NSIS installer, found $($setup.Count)" }
+          $process = Start-Process $setup[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "installer exited $($process.ExitCode)" }
+          # The installer may start the app; the smoke run needs the single instance to itself.
+          Get-Process ysu-net -ErrorAction SilentlyContinue | Stop-Process -Force
+          $roots = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          $entry = Get-ItemProperty $roots -ErrorAction SilentlyContinue | Where-Object DisplayName -eq 'YSU Net'
+          if (-not $entry) { throw 'per-user uninstall entry for YSU Net is missing' }
+          if ($entry.DisplayVersion -ne '0.1.0') { throw "unexpected DisplayVersion $($entry.DisplayVersion)" }
+          $dir = $entry.InstallLocation
+          if (-not $dir) { $dir = Split-Path ($entry.UninstallString.Trim('"')) }
+          $dir = $dir.Trim('"')
+          $exe = Join-Path $dir 'ysu-net.exe'
+          if (-not (Test-Path $exe)) { throw "installed executable missing: $exe" }
+          if (-not $dir.StartsWith($env:LOCALAPPDATA, [StringComparison]::OrdinalIgnoreCase)) { throw "not a per-user install: $dir" }
+          $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+          $shortcut = @(Get-ChildItem $programs -Recurse -Filter 'YSU Net.lnk')
+          if ($shortcut.Count -lt 1) { throw 'Start menu shortcut is missing' }
+          $target = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut[0].FullName).TargetPath
+          if ($target -ne $exe) { throw "shortcut points to $target" }
+          uv run --no-sync python packaging/tauri_smoke.py --binary $exe --output dist/rust-desktop-installed
+          if ($LASTEXITCODE -ne 0) { throw "installed smoke exited $LASTEXITCODE" }
+          # _?= keeps the uninstaller in place so -Wait covers the real removal.
+          $uninstaller = $entry.UninstallString.Trim('"')
+          $process = Start-Process $uninstaller -ArgumentList '/S', "_?=$dir" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "uninstaller exited $($process.ExitCode)" }
+          if (Test-Path $exe) { throw 'executable remained after uninstall' }
+          if (Get-ItemProperty $roots -ErrorAction SilentlyContinue | Where-Object DisplayName -eq 'YSU Net') { throw 'uninstall entry remained' }
+          if (@(Get-ChildItem $programs -Recurse -Filter 'YSU Net.lnk').Count) { throw 'Start menu shortcut remained' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -145,6 +207,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.dmg
             dist/rust-desktop-smoke/
             dist/rust-desktop-preview/
+            dist/rust-desktop-installed/
       - uses: actions/upload-artifact@v4
         if: startsWith(github.ref, 'refs/tags/v')
         with:
