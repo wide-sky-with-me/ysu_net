@@ -1,42 +1,31 @@
-## YSU Net v0.1.0
+## YSU Net（下一版本草稿）
 
-命令行工具与 Windows / Ubuntu 桌面客户端整合到 `main`，原 `feat/desktop-gui` 与 `docs/community-20261014` 分支继续保留。
+<!-- 打标签前把上面的标题改为 `## YSU Net vX.Y.Z`；发布任务只接受与标签一致的标题。 -->
 
-### 修复
+桌面客户端改为 Tauri 2 + Rust，Windows、Linux、macOS 共用同一套界面与认证实现，不再依赖 Python、Node 或 Playwright。原 Qt 客户端（`v0.1.0` 附件、`ysu-gui`）停止维护。
 
-- 修复 [Issue #1](https://github.com/wide-sky-with-me/ysu_net/issues/1)：自动重连完成后，概览与托盘仍显示未连接，需要手动刷新。
-- 登录成功后立即独立查询并同步连接状态、运营商、连接按钮与托盘；仅确认在线后报告重连成功。
-- 查询失败或异常响应保持状态未知并退避重试；已经在线时不重复登录，登录失败不额外发起确认查询。
-- 自动重连开启偏好只在引擎确认后保存；下线或关闭开关时立即记忆关闭，缺少凭据或配置锁冲突也会清除开启偏好。
-- 下线或账户刷新失败后清除旧账户展示与缓存；为桌面开关补充可访问名称。
-- 浏览器查找在解析软链接前排除 Snap 启动器，继续查找受支持的系统浏览器。
+### 主要变化
 
-### 功能与社区
+- 认证、自动重连、运营商切换与多账号热切换由 Rust 原生后台执行；登录、切换以独立状态查询确认，未知状态不自动登录。
+- 可选零流量自动换号：门户连续报告零剩余流量时才尝试备用账号，缺失流量不猜测。
+- 浏览器认证经私有管道驱动本机 Edge / Chrome，不开放本机调试端口。
+- 界面改为参考 Linear 的中性风格，提供浅色 / 深色与六种主题色。
 
-- 桌面客户端支持浅色 / 深色外观、系统托盘、运营商切换、自动重连与登录系统后自启。
-- 默认 API 认证无需浏览器组件；可选浏览器认证使用本机 Edge / Chrome，所需运行时按需下载并校验。
-- 合并社区文档、Wiki 审查源、贡献 / 支持入口与脱敏反馈表单，更新主线和版本选择说明。
-
-### 下载与升级
+### 安装与升级
 
 | 系统 | 文件 |
 | --- | --- |
-| Windows 10 / 11 x64 | `YSU-Net-0.1.0-windows-setup.exe`，或 `YSU-Net-0.1.0-windows-portable.zip` |
-| Ubuntu 22.04 及更新，x86_64 | `ysu-net_0.1.0_amd64.deb`，或 `YSU-Net-0.1.0-linux-x86_64.tar.gz` |
+| Windows 10 / 11 x64 | NSIS 安装程序（当前用户安装，无需管理员）；安装前先卸载旧 Qt 版 |
+| Ubuntu 22.04 及更新，x86_64 | `.deb`；与旧包同名，同版本替换用 `sudo apt install --reinstall` |
+| macOS 13.5 及更新 | `.dmg`（Apple 芯片与 Intel 分别提供），拖入“应用程序” |
 | Python / Linux 命令行 | wheel、源码包，或按 README 从源码安装 |
 
-旧测试版附件文件名也含 `0.1.0`，请从本次 **v0.1.0** 发布页下载修复后的包，而不是 `v0.1.0-beta.1`。
-
-Windows 安装无需管理员权限；安装包未签名，系统可能显示未知发布者。Ubuntu 使用 `sudo apt install --reinstall ./ysu-net_0.1.0_amd64.deb`：旧测试版的包版本号同为 `0.1.0`，保留 `--reinstall` 才会替换同版本旧程序。升级前退出旧桌面程序，既有账户配置与界面偏好仍保存在用户配置目录。
-
-所有附件的 SHA-256 摘要见 `SHA256SUMS`，下载后可核对文件完整性。
+安装包未签名：Windows 可能提示未知发布者，macOS 首次打开可能需要在“系统设置 → 隐私与安全性”中允许。附件的 SHA-256 摘要见 `SHA256SUMS`。
 
 ### 验证范围
 
-新增回归先在旧实现上复现，再在修复后通过；合并后的本地离线回归共 196 项，含 Qt 窗口状态同步与偏好持久化测试。社区链接 / 表单检查、锁文件检查、shell 语法和 Python 分发包构建按发布前流程执行。桌面安装包由 GitHub Actions 分别在 Windows / Ubuntu 构建并执行安装、启动与截图检查。
-
-本次未新增真实校园网、所有运营商、验证码或长稳验收。历史 API / 校园网、中国移动与 systemd 验收的范围见项目文档，CI 检查不等于当前校内环境的全场景验证。
+CI 在四个平台运行 Rust 与前端测试、真实 Chrome 认证夹具、原生窗口冒烟，并实际安装、启动、卸载安装包。发布前需补充校内真实认证结果；CI 检查不等于校园网全场景验证。
 
 ### 反馈
 
-用法问答见 [Discussions](https://github.com/wide-sky-with-me/ysu_net/discussions)，可复现故障见 [Issues](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose)。只提供版本、环境、复现步骤与最少必要提示；公开前移除账号、密码、会话、设备地址和本机路径，不上传完整配置、原始日志或认证截图。
+用法问答见 [Discussions](https://github.com/wide-sky-with-me/ysu_net/discussions)，可复现故障见 [Issues](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose)。公开前移除账号、密码、会话、设备地址和本机路径。

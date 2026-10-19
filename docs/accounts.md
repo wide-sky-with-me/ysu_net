@@ -67,4 +67,4 @@ Rust 图形版不消费 Python 文件控制通道。其后台正在持锁时，C
 
 普通卸载保留活动配置及账号簿；显式 `uninstall.sh --purge` 同时删除两者，原有运行锁保护仍生效。
 
-Shell 菜单、真实包装脚本及终端输入验证见 [Shell 验收记录](shell-accounts-validation.md)；此前桌面与共享核心的验证见[账号轮换验收记录](account-rotation-validation.md)。共同规则由 [Python 账号存储](../src/ysu_net/manager/accounts.py)、[原生账号存储](../desktop/src-tauri/src/accounts.rs)及[共享流量样本](../tests/fixtures/account-quota.json)约束。
+Shell 菜单由 [Shell 回归](../tests/test_shell_accounts.py)覆盖，桌面交互由 [多账号浏览器回归](../desktop/tests/multi_account_preview.py)与[原生状态机回归](../desktop/src-tauri/src/account_runtime_tests.rs)覆盖。共同规则由 [Python 账号存储](../src/ysu_net/manager/accounts.py)、[原生账号存储](../desktop/src-tauri/src/accounts.rs)及[共享流量样本](../tests/fixtures/account-quota.json)约束。

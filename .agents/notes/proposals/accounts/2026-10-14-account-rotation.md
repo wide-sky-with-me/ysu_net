@@ -55,4 +55,4 @@ Shell 补齐（2026-10-14）：主菜单 16、无动作 `ysu accounts` 与 `acco
 
 实现位于 [Rust 账号存储](../../../../desktop/src-tauri/src/accounts.rs)、[原生调度](../../../../desktop/src-tauri/src/account_runtime.rs)、[账号界面](../../../../desktop/src/components/AccountBook.svelte)、[Python 存储](../../../../src/ysu_net/manager/accounts.py)与[调度](../../../../src/ysu_net/manager/account_switching.py)。
 
-[原生状态机回归](../../../../desktop/src-tauri/src/account_runtime_tests.rs)、[Python 审查回归](../../../../tests/test_multi_accounts_review.py)及[84 项共享额度样本](../../../../tests/fixtures/account-quota.json)约束实现；此前桌面/共享核心的命令、最终包及未覆盖项见[账号轮换验收](../../../../docs/account-rotation-validation.md)。Shell 适配见[账号菜单](../../../../src/ysu_net/manager/account_menu.py)、[Shell 回归](../../../../tests/test_shell_accounts.py)与[本轮 Shell 验收](../../../../docs/shell-accounts-validation.md)，不以旧成绩代替。
+[原生状态机回归](../../../../desktop/src-tauri/src/account_runtime_tests.rs)、[Python 审查回归](../../../../tests/test_multi_accounts_review.py)及[84 项共享额度样本](../../../../tests/fixtures/account-quota.json)约束实现。Shell 适配见[账号菜单](../../../../src/ysu_net/manager/account_menu.py)与[Shell 回归](../../../../tests/test_shell_accounts.py)。

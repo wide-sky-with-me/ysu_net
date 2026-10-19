@@ -90,6 +90,6 @@ dbus-run-session -- xvfb-run -a uv run --no-sync python packaging/tauri_linux_li
   --binary desktop/src-tauri/target/release/ysu-net --output dist/rust-desktop-smoke
 ```
 
-截图只用于专用测试显示。Windows 传 `.exe`，macOS 传 `.app/Contents/MacOS/ysu-net`。脚本测量程序拥有的完整进程树，检查旧旁车及 Python/Node 认证进程缺席、退出清理。RSS 求和会重复共享页；PSS 可用时另记；短样本不作为稳态、认证峰值或跨机器性能比较。最小化 API 自检不代替带真实窗口管理器的桌面点击验证。Windows 渲染与字体可用 [Windows 渲染脚本](../desktop/tests/windows_render_preview.py)经 CDP 驱动真实 Chrome 验证。
+截图只用于专用测试显示。Windows 传 `.exe`，macOS 传 `.app/Contents/MacOS/ysu-net`。脚本测量程序拥有的完整进程树，检查旧旁车及 Python/Node 认证进程缺席、退出清理。RSS 求和会重复共享页；PSS 可用时另记；短样本不作为稳态、认证峰值或跨机器性能比较。最小化 API 自检不代替带真实窗口管理器的桌面点击验证。
 
-[Tauri CI](../.github/workflows/tauri.yml)上传构建和测试附件；推送 `v*` 标签时在全部平台通过后发布 Release。本次多账号、忙碌控制和原生包结果见[多账号验收](account-rotation-validation.md)，UI 来源与截图见[设计说明](rust-desktop-design.md)。此前 [Rust 迁移基线](rust-desktop-validation.md)与 [Python 旁车验收](tauri-validation.md)均为历史证据，不作为当前包的本次成绩。
+[Tauri CI](../.github/workflows/tauri.yml)在四个平台运行上述全部验收并实际安装、卸载安装包，上传构建和测试附件；推送 `v*` 标签时在全部平台通过后发布 Release。当前结果以最新 CI 运行为准，视觉规则见[设计说明](rust-desktop-design.md)。

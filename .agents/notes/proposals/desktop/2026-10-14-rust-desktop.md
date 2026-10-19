@@ -8,7 +8,7 @@
 
 用户明确要求图形版使用 Tauri + 全 Rust 认证，在新分支开发，并重新参考 Figma 与优秀软件的设置页，视觉素净柔和。产品只分命令行版和图形版，Windows / Linux / macOS 是图形版的平台目标。
 
-本决定替代[此前 Python 旁车方案](2026-10-14-tauri-migration.md)中桌面复用 Python 引擎和 JSONL 进程的部分。此前的认证独立核验、未知状态、切换恢复、演示隔离、窗口与后台分离原则继续有效；此前安装包和测试不作为新 Rust 实现的成绩。
+本决定替代此前 Python 旁车方案中桌面复用 Python 引擎和 JSONL 进程的部分（旁车与 Qt 源码已于 2026-10-18 移除）。此前的认证独立核验、未知状态、切换恢复、演示隔离、窗口与后台分离原则继续有效；此前安装包和测试不作为新 Rust 实现的成绩。
 
 ## 选择与边界
 
@@ -42,4 +42,4 @@ Figma 资源和实际软件截图按真实可访问范围记录；页面返回 4
 
 实现：[认证库](../../../../desktop/crates/ysu-auth/src/lib.rs)、[运行器](../../../../desktop/src-tauri/src/runtime.rs)、[配置存储](../../../../desktop/src-tauri/src/storage.rs)、[原生壳](../../../../desktop/src-tauri/src/main.rs)。回归：[协议样本](../../../../desktop/crates/ysu-auth/src/tests.rs)、[运行器](../../../../desktop/src-tauri/src/runtime_tests.rs)、[独立复核](../../../../desktop/src-tauri/src/runtime_review_tests.rs)。
 
-实际命令、失败复现、最终包及未验边界见[2026-10-14 Rust 验收](../../../../docs/rust-desktop-validation.md)；视觉证据由设计记录维护。旧旁车包已另存到 `build/tauri-history/`，保留当时哈希；历史验收文档未改写。
+验收以 [Tauri CI](../../../../.github/workflows/tauri.yml) 为准；视觉规则见[设计说明](../../../../docs/rust-desktop-design.md)。
