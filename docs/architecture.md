@@ -4,7 +4,7 @@
 
 ## 两个产品
 
-项目分为 **Shell 命令行版** 与 **Tauri 图形版**。Windows、Linux、macOS 是图形版的发行目标，不是三套产品。当前原生迁移在 `feat/rust-desktop` 开发，尚未替换正式发布附件。
+项目分为 **Shell 命令行版** 与 **Tauri 图形版**。Windows、Linux、macOS 是图形版的发行目标，不是三套产品。自 `v0.2.0` 起，桌面由 Qt 迁移为 Tauri，独立 Python CLI 同步版本；旧 `v0.1.0` Qt 标签与附件保留历史，不覆盖。
 
 | 产品 | 入口 | 认证实现与运行时 |
 | --- | --- | --- |
@@ -50,9 +50,9 @@ CLI 的 Linux systemd 服务面向无桌面运行；图形版的托盘和用户�
 | Python CLI 分发 | wheel / 源码包；保留现有安装器和依赖 | [pyproject.toml](../pyproject.toml)、`uv build` |
 | Rust 桌面构建 | 本平台原生程序及安装包，不冻结 Python | [desktop.mjs](../desktop/scripts/desktop.mjs)、[Tauri CI](../.github/workflows/tauri.yml) |
 
-Tauri CI 定义跨平台构建和离线验收；Linux `.deb` 与 Windows NSIS 安装包还会在运行器上实际安装，核对安装位置、卸载登记、菜单入口与图标，从安装位置运行原生冒烟后卸载并确认清理；macOS 挂载 `.dmg`，核对应用与“应用程序”快捷方式，复制到 /Applications 后核对包标识、版本、最低系统、图标与本机架构，运行原生冒烟后删除；推送 `v*` 标签时，同一工作流在各平台构建通过后发布 Tauri 安装包与 Python 分发包，并附 `SHA256SUMS`。定义存在不代表对应系统已经跑通。
+Tauri CI 定义四平台构建和离线验收；Linux `.deb` 与 Windows NSIS 安装包还会在运行器上实际安装，核对安装位置、卸载登记、菜单入口与图标，从安装位置运行原生冒烟后卸载并确认清理；macOS arm64 / x64 分别挂载 `.dmg`，核对应用与“应用程序”快捷方式，复制到 /Applications 后核对包标识、版本、最低系统、图标与本机架构，运行原生冒烟后删除。推送 `v*` 标签时，Release 作业依赖四个平台构建、原生与安装验收全部成功，再发布 Tauri 安装包、独立 Python 分发包和 `SHA256SUMS`。定义存在不代表本轮对应系统已经跑通，实际结果以对应 CI 运行为准。
 
-Tauri Linux 包沿用旧 Qt 包的 `ysu-net` 包名与 `0.1.0` 版本，同版本替换需 `apt install --reinstall`；Windows 旧 Qt 版由 Inno Setup 安装、新版由 NSIS 安装，二者不会互相替换，需先卸载旧版。发行前仍需提升版本号并处理既有自启项与签名。
+Linux 包名仍为 `ysu-net`，0.2.0 高于旧 Qt 0.1.0，正常升级无需 `--reinstall`。Windows 旧 Inno Setup 与新版当前用户 NSIS 不会互相替换，先关闭旧自启、退出并卸载旧版；macOS 13.5+ 按 arm64 / x64 分包。Windows / macOS 安装包未签名，完整迁移要求见[迁移说明](migration.md#桌面-v020-升级)。
 
 ## 文档归属
 

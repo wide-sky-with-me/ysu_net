@@ -2,13 +2,13 @@
 
 [返回首页](../README.md) · [两个产品与架构](architecture.md) · [Rust 迁移决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)
 
-当前在 `feat/rust-desktop` 开发，尚未发布。图形版采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI 与 systemd 保留；原 Qt 客户端与 Python 旁车源码已移除，新桌面不启动或打包 Python、Node、Playwright 认证运行时。
+自 **v0.2.0** 起，桌面采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI 与 systemd 独立保留，版本同步为 0.2.0；原 Qt 客户端与 Python 旁车源码已移除，新桌面不启动或打包 Python、Node、Playwright 认证运行时，也没有 Python `gui` 可选依赖。[对应 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.0)附件由四平台构建、原生与安装验收全部成功后发布，旧 `v0.1.0` Qt 附件保留历史。安装及旧自启迁移见[迁移说明](migration.md#桌面-v020-升级)。
 
 ## 运行语义
 
 [认证库](../desktop/crates/ysu-auth/src/lib.rs)实现 Portal/CAS、加密、状态、登录、下线、运营商切换及账户解析；[原生运行器](../desktop/src-tauri/src/runtime.rs)调度有界串行任务、重连、取消与快照。前端只提交类型化命令，排队确认不是认证成功。
 
-连接与实际运营商以独立状态查询为准；查询失败保持未知，不触发自动登录。显式切换失败尝试有界恢复，只在确认目标服务后保存服务字段。用户认证操作及一次自动重连的查询、变更与核验共享配置的总超时；超时后提示重新查询实际状态。账户读取失败或超时只清理账户数据，不改连接状态；缺项、原文和零值按门户数据展示，不补造余额、额度或单位。
+连接与实际运营商以独立状态查询为准；查询失败保持未知，不触发自动登录。显式切换失败尝试有界恢复，只在确认目标服务后保存服务字段。用户认证操作及一次自动重连的查询、变更与核验共享配置的总超时；超时后提示重新查询实际状态。账户读取失败或超时只清理账户数据，不改连接状态；快照 `info_error` 提供固定公共错误，旧快照缺该字段按空串处理。页面区分未知、确认离线、未读取和失败，失败可只读重试，信息成功后清错；新在线观测会作废旧离线账户结果。缺项、原文和零值按门户数据展示，不补造余额、额度或单位。
 
 配置字段与 Python CLI 兼容；密码仅在本机配置保存，快照无密码字段，空密码保存保留原值。设置更新在独立短写锁下合并最新配置并原子替换，认证/守护使用兼容运行锁。环境变量 `YSU_USER`、`YSU_PASS`、`YSU_SERVICE` 保留原覆盖语义；修改磁盘值不覆盖仍生效的环境变量。
 
@@ -34,9 +34,9 @@ Windows/macOS 使用系统原生悬停提示；Windows 摘要按 UTF-16 长度�
 
 - Windows x64：Visual Studio C++ 桌面构建工具、Windows SDK；客户端使用系统 WebView2，安装器可按原配置引导安装。
 - Linux x64：Ubuntu 22.04 / glibc 2.35 构建基线，依赖 WebKitGTK 4.1、GTK3、AppIndicator；SDK 清单见 [tauri.Dockerfile](../packaging/tauri.Dockerfile)。
-- macOS：Apple Silicon / Intel 分别原生构建 `.app` / `.dmg`。本轮暂保留 13.5 的保守部署目标，不再以 Node 的运行要求作为理由；更早系统须独立验证后再调整。
+- macOS：Apple Silicon（arm64）/ Intel（x64）分别原生构建 `.app` / `.dmg`，不是通用二进制；最低系统为 13.5，更早系统须独立验证后再调整。
 
-跨系统安装包在对应系统构建。Windows/macOS、签名与公证是否通过，以实际验收记录为准，不依据框架支持推断。
+跨系统安装包在对应系统构建。0.2.0 的 Windows / macOS 安装包未签名、未公证；下载核对 `SHA256SUMS`，按系统的发布者 / 首次打开提示处理。平台是否跑通以实际验收记录为准，不依据框架支持推断。
 
 ```bash
 npm ci --prefix desktop
@@ -92,4 +92,6 @@ dbus-run-session -- xvfb-run -a uv run --no-sync python packaging/tauri_linux_li
 
 截图只用于专用测试显示。Windows 传 `.exe`，macOS 传 `.app/Contents/MacOS/ysu-net`。脚本测量程序拥有的完整进程树，检查旧旁车及 Python/Node 认证进程缺席、退出清理。RSS 求和会重复共享页；PSS 可用时另记；短样本不作为稳态、认证峰值或跨机器性能比较。最小化 API 自检不代替带真实窗口管理器的桌面点击验证。
 
-[Tauri CI](../.github/workflows/tauri.yml)在四个平台运行上述全部验收并实际安装、卸载安装包，上传构建和测试附件；推送 `v*` 标签时在全部平台通过后发布 Release。当前结果以最新 CI 运行为准，视觉规则见[设计说明](rust-desktop-design.md)。
+[Tauri CI](../.github/workflows/tauri.yml)要求 Linux x64、Windows x64、macOS arm64 / x64 四个平台完成上述构建、原生与实际安装/卸载验收，上传构建和测试附件；推送 `v*` 标签时仅在全部平台成功后发布 Release。流程定义不是本轮通过声明，结果以对应标签的实际运行为准。
+
+[2026-10-21 Windows 本机只读验收](windows-readonly-fix-2026-10-21.md)确认当时的 0.1.0 开发快照可查询中国联通在线并读取账户，门户缺少剩余流量和余额，页面保持“门户未提供”。该次没有实际登录、下线、切换账号/服务、自动重连或轮换，不代替 v0.2.0 四平台 CI、浏览器认证、物理断网或长稳验收；原记录保持历史版本。视觉规则见[设计说明](rust-desktop-design.md)。

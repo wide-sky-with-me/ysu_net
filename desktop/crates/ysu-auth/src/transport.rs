@@ -271,11 +271,58 @@ impl Transport {
     }
     pub async fn follow(
         &self,
+        method: Method,
+        url: Url,
+        headers: HeaderMap,
+        body: Option<Vec<u8>>,
+        op: &Operation,
+    ) -> Result<Reply, AuthError> {
+        self.follow_inner(method, url, headers, body, op, false)
+            .await
+    }
+    pub(crate) fn portal_navigation_target(
+        &self,
+        from: &Url,
+        mut next: Url,
+        method: &Method,
+        has_body: bool,
+    ) -> Url {
+        // The HTTPS redirect.jsp emits a legacy HTTP portal-main Location, whose
+        // HTTP endpoint only upgrades back to HTTPS. Skip that cleartext hop;
+        // this exception is a URL rewrite, never permission to send HTTP.
+        let entry = self.endpoint("eportal/redirect.jsp").ok();
+        let portal = self.endpoint("portal/portal-main").ok();
+        let mut ids = next.query_pairs().filter(|(key, _)| key == "sessionId");
+        let valid_sid = ids.next().is_some_and(|(_, value)| {
+            !value.is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control)
+        }) && ids.next().is_none();
+        if !self.local
+            && method == Method::GET
+            && !has_body
+            && self.base.scheme() == "https"
+            && self.base.port_or_known_default() == Some(443)
+            && entry.as_ref() == Some(from)
+            && next.scheme() == "http"
+            && next.port_or_known_default() == Some(80)
+            && next.host() == self.base.host()
+            && portal.as_ref().is_some_and(|url| next.path() == url.path())
+            && next.username().is_empty()
+            && next.password().is_none()
+            && next.fragment().is_none()
+            && valid_sid
+        {
+            let _ = next.set_scheme("https");
+        }
+        next
+    }
+    async fn follow_inner(
+        &self,
         mut method: Method,
         mut url: Url,
         mut headers: HeaderMap,
         mut body: Option<Vec<u8>>,
         op: &Operation,
+        portal_navigation: bool,
     ) -> Result<Reply, AuthError> {
         let mut chain = Vec::new();
         for hop in 0..=REDIRECT_LIMIT {
@@ -302,6 +349,11 @@ impl Transport {
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| url.join(v).ok())
                 .ok_or_else(|| AuthError::query("认证重定向缺少有效地址"))?;
+            let next = if portal_navigation {
+                self.portal_navigation_target(&url, next, &method, body.is_some())
+            } else {
+                next
+            };
             self.allowed(&next)?;
             let origin_changed = next.origin() != url.origin();
             if origin_changed && body.is_some() && matches!(r.status, 307 | 308) {
@@ -331,6 +383,10 @@ impl Transport {
     }
     pub async fn get(&self, url: Url, op: &Operation) -> Result<Reply, AuthError> {
         self.follow(Method::GET, url, HeaderMap::new(), None, op)
+            .await
+    }
+    pub async fn navigation_get(&self, url: Url, op: &Operation) -> Result<Reply, AuthError> {
+        self.follow_inner(Method::GET, url, HeaderMap::new(), None, op, true)
             .await
     }
     pub async fn json_post(

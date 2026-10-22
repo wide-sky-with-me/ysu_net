@@ -282,6 +282,11 @@ def main():
                 screenshot("settings-compact-authentication.png")
                 button("保存参数").scroll_into_view_if_needed()
                 expect(page.get_by_role("tab", name="认证与重试", exact=True)).to_be_visible()
+                assert page.evaluate("""() => {
+                    const main = document.querySelector('main').getBoundingClientRect();
+                    const tabs = document.querySelector('.settings-tabs').getBoundingClientRect();
+                    return Math.round(tabs.top - main.top) <= 12;
+                }""")
                 screenshot("settings-compact-parameters.png")
                 navigate("保存参数")
                 expect(page.get_by_text("连接参数已保存，在下一轮核心操作时生效。", exact=True)).to_be_visible()

@@ -1,11 +1,13 @@
 import json
 import os
 import threading
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tests.helpers import OFFLINE, OfflineTestCase
+from ysu_net.auth.common import QueryError
 from ysu_net.manager import accounts
-from ysu_net.manager.account_switching import AccountSwitchResult, switch_account
+from ysu_net.manager.account_switching import AccountSwitchResult, _bound_online, switch_account
 from ysu_net.manager.backend import Result
 from ysu_net.manager.config import Config, load_config, save_config, update_config
 
@@ -42,6 +44,45 @@ class AccountSwitchTests(OfflineTestCase):
 
     def actions(self):
         return [call.args[1] for call in self.runner.call_args_list]
+
+    def test_shared_raw_service_contract_gates_account_switch(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "online-service.json").read_text())
+        before = self.path.read_bytes()
+        for case in fixture["cases"]:
+            payload = {"data": {"portalOnlineUserInfo": {
+                "result": "success", "userId": "fixture-a", **case["fields"]}}}
+            initial = Result(0, json.dumps({"online": payload, "is_online": True}))
+            runner = Mock(return_value=initial)
+            with self.subTest(case=case["id"]):
+                if case["bound"]:
+                    self.assertEqual(_bound_online(payload), ({"fixture-a"}, case["expected"]))
+                else:
+                    with self.assertRaises(QueryError):
+                        _bound_online(payload)
+                    outcome = switch_account(self.path, self.target["id"], runner=runner, clock=self.clock)
+                    self.assertEqual(outcome.code, 2)
+                    self.assertEqual(runner.call_count, 1)
+                self.assertEqual(self.path.read_bytes(), before)
+
+    def test_null_raw_service_switch_and_recovery_are_independently_verified(self):
+        def null_raw(owner, service="校园网"):
+            result = status(owner, service)
+            payload = json.loads(result.output)
+            payload["online"]["data"]["portalOnlineUserInfo"]["realServiceName"] = None
+            result.output = json.dumps(payload)
+            return result
+
+        outcome = self.run_switch([null_raw("fixture-a"), Result(0), status(), Result(4),
+                                   status(), Result(0), null_raw("fixture-a")])
+        self.assertEqual(outcome.code, 4)
+        self.assertTrue(outcome.restored)
+        self.assertFalse(outcome.committed)
+        self.assertEqual(load_config(self.path, environ={}).username, "fixture-a")
+        outcome = self.run_switch([null_raw("fixture-a"), Result(0), status(), Result(0),
+                                   null_raw("fixture-b", "中国移动")])
+        self.assertEqual(outcome.code, 0)
+        self.assertTrue(outcome.committed)
+        self.assertEqual(load_config(self.path, environ={}).username, "fixture-b")
 
     def test_verified_online_switch_and_source_snapshot(self):
         outcome = self.run_switch([status("fixture-a"), Result(0), status(), Result(0),

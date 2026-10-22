@@ -31,7 +31,8 @@ def write_owned(path, text, mode):
 
 
 def wrapper(scope, alias=None):
-    command = [str(ROOT / ".venv/bin/python"), "-m", "ysu_net", "--scope", scope]
+    # Keep -m from prepending the caller's cwd ahead of the installed package.
+    command = [str(ROOT / ".venv/bin/python"), "-P", "-m", "ysu_net", "--scope", scope]
     if alias:
         command.append(alias)
     return "#!/usr/bin/env bash\n" + MARKER + "\nexec " + shlex.join(command) + ' "$@"\n'

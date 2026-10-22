@@ -323,6 +323,33 @@ async fn verified_info_returns_zero_report_only_after_two_raw_state_queries() {
 }
 
 #[tokio::test]
+async fn shared_service_fields_gate_both_raw_rotation_snapshots() {
+    for case in crate::service_tests::cases() {
+        let service = case.expected.as_deref().unwrap_or("校园网");
+        let payload = case.online("fixture-user");
+        for snapshots in [
+            vec![payload.clone()],
+            vec![online("fixture-user", service), payload.clone()],
+        ] {
+            let mut f = Fixture::new(Plan {
+                snapshots,
+                ..Plan::default()
+            })
+            .await;
+            f.config.service = service.into();
+            let result = f.client().verified_info().await;
+            assert_eq!(result.is_ok(), case.bound, "{}: {result:?}", case.id);
+            if case.bound {
+                assert_eq!(result.unwrap()["quota"]["state"], "zero_reported");
+                assert_eq!(f.count("/eportal/adaptor/getOnlineUserInfo"), 2);
+                assert_eq!(f.count("/eportal/operator/getAccountInfo"), 1);
+            }
+            f.read_only();
+        }
+    }
+}
+
+#[tokio::test]
 async fn verified_info_never_queries_saved_offline_or_foreign_accounts() {
     for before in [
         online("other-account", "校园网"),
@@ -365,12 +392,7 @@ async fn verified_info_rejects_identity_service_or_state_changes_during_account_
 
 #[tokio::test]
 async fn verified_info_requires_original_unambiguous_service_labels() {
-    for label in [
-        json!("unrecognized"),
-        json!("中国移动"),
-        Value::Null,
-        json!(1),
-    ] {
+    for label in [json!("unrecognized"), json!("中国移动"), json!(1)] {
         let mut ambiguous = online("fixture-user", "校园网");
         ambiguous["data"]["portalOnlineUserInfo"]["realServiceName"] = label;
         for snapshots in [

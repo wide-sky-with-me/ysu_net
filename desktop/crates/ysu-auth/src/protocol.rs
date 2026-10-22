@@ -44,8 +44,10 @@ impl Snapshot {
         };
         let service = if online {
             if !crate::quota::successful_envelope(info)
+                // A JSON null raw label is absent; other unknown values stay errors.
                 || info.get("realServiceName").is_some_and(|value| {
-                    value.as_str().is_none_or(|name| !SERVICES.contains(&name))
+                    !value.is_null()
+                        && value.as_str().is_none_or(|name| !SERVICES.contains(&name))
                 })
             {
                 return Err(AuthError::query(
@@ -134,7 +136,7 @@ impl Session {
             let mut url = http.endpoint(path)?;
             let mut hops = 0;
             loop {
-                let r = http.get(url, op).await?;
+                let r = http.navigation_get(url, op).await?;
                 r.ensure_success()?;
                 hops += r.chain.len();
                 if hops > REDIRECT_LIMIT + 1 {

@@ -7,7 +7,7 @@
   import AccentPicker from './components/AccentPicker.svelte';
   import AccountBook from './components/AccountBook.svelte';
   import { createTransport } from './lib/bridge';
-  import { reconnectNotice } from './lib/presentation';
+  import { accountInfoState, reconnectNotice } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
   import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
 
@@ -75,6 +75,7 @@
     if (message) return routine.includes(message) ? '' : message;
     return starting ? '正在连接桌面核心…' : !snapshot?.status || snapshot.status.online === null ? '点击刷新重试。' : '';
   });
+  const accountState = $derived(accountInfoState(snapshot));
   const items = $derived(accountItems(snapshot?.info || null));
   const logs = $derived((snapshot?.logs || []).slice(logFloor).filter((log) => (logFilter === 'all' || log.level === logFilter) && log.message.toLowerCase().includes(logSearch.toLowerCase())));
   const pageTitle = $derived(navigation.find((item) => item.id === page)?.label || '连接');
@@ -166,7 +167,7 @@
     if (target === 'settings' && page !== 'settings') settingsSection = 'account';
     page = target;
     resetScroll();
-    if (target === 'account' && online && !snapshot?.info && !locked) void action('info');
+    if (target === 'account' && online && !snapshot?.info?.online && !snapshot?.info_error && !locked) void action('info');
   }
 
   function chooseSettings(section: typeof settingsSection) {
@@ -368,12 +369,12 @@
         </div>
 
       {:else if page === 'account'}
-        {#if snapshot?.info?.online}
+        {#if accountState === 'ready' && snapshot?.info}
           <section class="account-summary"><h2>套餐与用量</h2><dl>{#each items as [name, value]}<div><dt>{name}</dt><dd class:metric={/流量|余额|用量|额度/.test(name) && /^[+-]?\d/.test(value)} class:missing={value === '门户未提供'}>{value}</dd></div>{/each}</dl></section>
           {#if items.some(([, value]) => value === '门户未提供') || snapshot.info.fields.some(([, value]) => !value.trim())}<p class="portal-note"><Icon name="info" size={16} />门户未提供的项目不代表 0 或不限量。</p>{/if}
           <section class="account-fields"><h2>在线信息</h2>{#if snapshot.info.fields.length}<dl>{#each snapshot.info.fields as [name, value]}<div><dt>{name}</dt><dd>{value.trim() ? value : '门户未提供'}</dd></div>{/each}</dl>{:else}<p class="muted">门户未提供在线信息。</p>{/if}</section>
         {:else}
-          <div class="empty-state"><Icon name="account" size={32} /><h2>{online ? '尚未读取账户信息' : '连接后查看账户信息'}</h2><button type="button" class="primary-button" disabled={locked} onclick={() => online ? action('info') : navigate('connection')}>{online ? '读取账户信息' : '前往连接'}</button></div>
+          <div class="empty-state"><Icon name={accountState === 'error' ? 'alert' : 'account'} size={32} /><h2 role={accountState === 'error' ? 'alert' : undefined}>{accountState === 'error' ? snapshot?.info_error : accountState === 'offline' ? '连接后查看账户信息' : accountState === 'unknown' ? '连接状态未知' : '尚未读取账户信息'}</h2><button type="button" class="primary-button" disabled={locked} onclick={() => accountState === 'offline' ? navigate('connection') : action('info')}>{accountState === 'error' ? '重试读取账户信息' : accountState === 'offline' ? '前往连接' : '读取账户信息'}</button></div>
         {/if}
 
       {:else if page === 'settings'}
@@ -432,7 +433,7 @@
             </form>
           {:else}
             <section class="settings-section diagnostics-section">
-              <dl class="environment-list"><div><dt>客户端</dt><dd>YSU Net {native?.version || environment?.version || '0.1.0'}</dd></div><div><dt>认证核心</dt><dd>{environment ? `Rust 原生（${environment.rust}）` : '待核心提供'}</dd></div><div><dt>系统</dt><dd>{environment?.platform || '待核心提供'}</dd></div><div><dt>系统浏览器</dt><dd>{!environment ? '待核心提供' : environment.browser_available ? '已发现 Edge / Chrome' : '未发现 Edge / Chrome'}</dd></div></dl>
+              <dl class="environment-list"><div><dt>客户端</dt><dd>YSU Net {native?.version || environment?.version || '0.2.0'}</dd></div><div><dt>认证核心</dt><dd>{environment ? `Rust 原生（${environment.rust}）` : '待核心提供'}</dd></div><div><dt>系统</dt><dd>{environment?.platform || '待核心提供'}</dd></div><div><dt>系统浏览器</dt><dd>{!environment ? '待核心提供' : environment.browser_available ? '已发现 Edge / Chrome' : '未发现 Edge / Chrome'}</dd></div></dl>
               <div class="form-actions"><button type="button" disabled={locked} onclick={runDiagnostics}><Icon name="doctor" size={16} />运行本地诊断</button></div>
               {#if diagnostic}<details class="diagnostic-result"><summary id="diagnostic-result-heading"><span>详细诊断结果</span><span class="saved-indicator" role="status">诊断已完成{#if diagnosticUpdated}<time datetime={diagnosticUpdated}>{new Date(diagnosticUpdated).toLocaleTimeString('zh-CN', { hour12: false })}</time>{/if}</span></summary><pre class="diagnostic-output" aria-label="诊断结果">{diagnostic}</pre></details>{/if}
             </section>

@@ -1,12 +1,13 @@
 import io
 import json
 import runpy
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
 from ysu_net.auth import api
-from ysu_net.auth.common import InteractionRequired, OperationFailed, QueryError, online_state
+from ysu_net.auth.common import InteractionRequired, OperationFailed, QueryError, online_service, online_state
 from tests.helpers import OFFLINE, ONLINE, OfflineTestCase
 
 
@@ -21,6 +22,32 @@ class ProtocolTests(OfflineTestCase):
         self.mock("ysu_net.auth.api.requests.Session", return_value=sess)
         self.mock("ysu_net.auth.api._portal_api_headers", return_value={})
         return sess
+
+    def test_shared_online_service_contract(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "online-service.json").read_text())
+        self.assertEqual(fixture["version"], 1)
+        for case in fixture["cases"]:
+            payload = {"data": {"portalOnlineUserInfo": {"result": "success", **case["fields"]}}}
+            with self.subTest(case=case["id"]):
+                if case["expected"] is None:
+                    with self.assertRaises(QueryError):
+                        online_service(payload)
+                else:
+                    self.assertEqual(online_service(payload), case["expected"])
+
+    def test_login_accepts_null_raw_service_after_independent_online_query(self):
+        sess = self.context()
+        online = {"data": {"portalOnlineUserInfo": {
+            "result": "success", "service": "校园网", "realServiceName": None, "userId": "user"}}}
+        sess.get.side_effect = [self.response(OFFLINE), self.response(online)]
+        sess.post.side_effect = [
+            self.response({"data": {"currentNodePath": "serviceSelection"}}),
+            self.response({"result": "success"}), self.response({"result": "success"}),
+            self.response({"data": {}}),
+        ]
+        api.cmd_login("校园网", "user", "password", False, 5)
+        self.assertEqual(sess.get.call_count, 2)
+        self.assertIn("已在线", self.output.getvalue())
 
     def test_recognized_states(self):
         self.assertTrue(online_state(ONLINE))
@@ -146,6 +173,27 @@ class ProtocolTests(OfflineTestCase):
         self.mock("os.environ", new={"YSU_PASS": " pass "})
         self.assertEqual(api.build_parser().parse_args(["login"]).password, " pass ")
 
+    def test_portal_legacy_http_history_keeps_https_status_query(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "portal-navigation.json").read_text())
+        self.assertEqual(fixture["version"], 1)
+        sess = self.session()
+        sess.get.side_effect = [
+            SimpleNamespace(history=[], url=fixture["index"], text="entry has no static navigation"),
+            SimpleNamespace(
+                history=[SimpleNamespace(url=fixture["redirect"]), SimpleNamespace(url=fixture["legacy_target"])],
+                url=fixture["https_target"], text="fixture portal",
+            ),
+            self.response(ONLINE),
+        ]
+        context = api.open_portal_get_session(False)
+        self.assertEqual(context.session_id, fixture["session_id"])
+        self.assertEqual(context.last_url, fixture["https_target"])
+        self.assertTrue(api.is_online(api.get_online_info(sess, context.session_id, False, context.last_url)))
+        self.assertEqual([call.args[0] for call in sess.get.call_args_list[:2]], [fixture["index"], fixture["redirect"]])
+        self.assertTrue(sess.get.call_args_list[2].args[0].startswith(api.URLS.api_get_online + "?"))
+        self.assertTrue(sess.get.call_args_list[2].args[0].startswith("https://"))
+        sess.post.assert_not_called()
+
     def test_portal_session_comes_from_redirect_history(self):
         sess = self.session()
         sess.get.return_value = SimpleNamespace(
@@ -253,6 +301,20 @@ class BrowserTests(OfflineTestCase):
         page = Mock(url="https://cer.ysu.edu.cn/authserver/login")
         self.mock("ysu_net.auth.browser.open_portal_and_get_session", return_value=(SimpleNamespace(session_id="sid"), (Mock(), Mock()), context, page))
         return context
+
+    def test_browser_login_accepts_null_raw_service_after_online_verification(self):
+        self.browser_context()
+        online = {"data": {"portalOnlineUserInfo": {
+            "result": "success", "service": "校园网", "realServiceName": None,
+            "userId": "mock-user"}}}
+        query = self.mock("ysu_net.auth.browser.get_online_info", side_effect=[OFFLINE, online])
+        self.mock("ysu_net.auth.browser.get_current_node", return_value="serviceSelection")
+        self.mock("ysu_net.auth.browser.ui_cas_login")
+        self.mock("ysu_net.auth.browser.api_post_json", return_value=(200, {"result": "success"}))
+        self.mock("ysu_net.auth.browser.get_account_info", return_value=(200, {}))
+        self.browser.cmd_login("校园网", "mock-user", "password", False, 5, False)
+        self.assertEqual(query.call_count, 2)
+        self.assertIn("已在线", self.output.getvalue())
 
     def test_browser_login_authenticates_selects_service_and_verifies_online(self):
         self.browser_context()

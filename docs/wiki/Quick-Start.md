@@ -7,7 +7,7 @@
 - Windows / Linux / macOS 桌面：使用 Tauri 桌面客户端，见 [桌面客户端](Desktop-Client.md)；服务器/无桌面环境使用命令行版。
 - Linux 命令行：需要 Git、uv 和 Python 3.12 及以上；systemd 可选，没有用户总线时可使用前台守护。
 
-安装包来自对应版本 Release 的 Assets，不要把仓库的 Source code ZIP 当成安装程序；`v0.1.0` 附件为已停止维护的 Qt 旧版。
+桌面安装包和独立 Python CLI 0.2.0 分发包来自[对应版本 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.0)的 Assets；发布流程要求四平台构建、原生与安装验收全部通过。尚无附件时从源码构建，不要把 Source code ZIP 当成安装程序，也不要下载 `v0.1.0` 的 Qt 附件代替新版。旧安装迁移见[桌面客户端](Desktop-Client.md)。
 
 ## Linux 命令行初次安装
 

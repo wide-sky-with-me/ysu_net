@@ -219,6 +219,94 @@ async fn cross_origin_redirect_strips_sensitive_headers_and_blocks_repost() {
 }
 
 #[test]
+fn portal_navigation_upgrades_only_the_fixed_legacy_entry_target() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/portal-navigation.json"
+    ))
+    .unwrap();
+    assert_eq!(fixture["version"], 1);
+    let http = Transport::new(&Config::default(), false).unwrap();
+    let from = Url::parse(fixture["redirect"].as_str().unwrap()).unwrap();
+    let legacy = Url::parse(fixture["legacy_target"].as_str().unwrap()).unwrap();
+    let expected = Url::parse(fixture["https_target"].as_str().unwrap()).unwrap();
+    let next = http.portal_navigation_target(&from, legacy.clone(), &Method::GET, false);
+    assert_eq!(next, expected);
+    assert_eq!(next.query(), legacy.query());
+    assert!(http.allowed(&next).is_ok());
+    // Normalization never makes cleartext transport itself permissible.
+    assert!(http.allowed(&legacy).is_err());
+}
+
+#[test]
+fn legacy_navigation_upgrade_preserves_trust_and_credential_boundaries() {
+    let from = Url::parse("https://auth1.ysu.edu.cn/eportal/redirect.jsp").unwrap();
+    let legacy =
+        Url::parse("http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session").unwrap();
+    for verify_tls in [true, false] {
+        let config = Config {
+            verify_tls,
+            ..Config::default()
+        };
+        let http = Transport::new(&config, false).unwrap();
+        for value in [
+            "http://auth1.ysu.edu.cn/eportal/redirect.jsp",
+            "https://auth1.ysu.edu.cn/eportal/index.jsp",
+            "https://auth1.ysu.edu.cn/eportal/redirect.jsp?other=1",
+            "https://cer.ysu.edu.cn/eportal/redirect.jsp",
+            "https://124.124.124.124/eportal/redirect.jsp",
+            "https://outside.invalid/eportal/redirect.jsp",
+        ] {
+            let source = Url::parse(value).unwrap();
+            let next = http.portal_navigation_target(&source, legacy.clone(), &Method::GET, false);
+            assert_eq!(next, legacy);
+            assert!(http.allowed(&next).is_err());
+        }
+        for value in [
+            "http://auth1.ysu.edu.cn.outside.invalid/portal/portal-main?sessionId=fixture-session",
+            "http://cer.ysu.edu.cn/portal/portal-main?sessionId=fixture-session",
+            "http://124.124.124.124/portal/portal-main?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn:8080/portal/portal-main?sessionId=fixture-session",
+            "http://user:pass@auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn/eportal/operator/getAccountInfo?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn/portal/portal-main/other?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn/portal/portal-main",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session&sessionId=other",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture%0Asession",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session#fragment",
+        ] {
+            let target = Url::parse(value).unwrap();
+            let next = http.portal_navigation_target(&from, target.clone(), &Method::GET, false);
+            assert_eq!(next, target);
+            assert!(http.allowed(&next).is_err());
+        }
+        for (method, has_body) in [
+            (Method::POST, true),
+            (Method::POST, false),
+            (Method::GET, true),
+            (Method::HEAD, false),
+        ] {
+            let next = http.portal_navigation_target(&from, legacy.clone(), &method, has_body);
+            assert_eq!(next, legacy);
+            assert!(http.allowed(&next).is_err());
+        }
+    }
+    let custom_port = Transport::new(
+        &Config {
+            base: "https://auth1.ysu.edu.cn:444".into(),
+            ..Config::default()
+        },
+        false,
+    )
+    .unwrap();
+    let source = custom_port.endpoint("eportal/redirect.jsp").unwrap();
+    assert_eq!(
+        custom_port.portal_navigation_target(&source, legacy.clone(), &Method::GET, false),
+        legacy
+    );
+}
+
+#[test]
 fn tls_and_exact_origin_boundaries_are_not_relaxed_by_certificate_toggle() {
     for verify_tls in [true, false] {
         let config = Config {

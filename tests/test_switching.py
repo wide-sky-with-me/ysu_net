@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -25,6 +26,24 @@ def status(service=None, owner="mock-user"):
 
 
 class ServiceProtocolTests(OfflineTestCase):
+    def test_network_doctor_uses_shared_service_contract(self):
+        path = self.tmp / "config.json"
+        self.mock("ysu_net.manager.cli.config_path", return_value=path)
+        self.mock("ysu_net.manager.cli.unit_path", return_value=self.tmp / "absent.service")
+        runner = self.mock("ysu_net.manager.cli.run_backend")
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "online-service.json").read_text())
+        for case in fixture["cases"]:
+            config.save_config(path, config.Config(username="mock-user", password="fixture-only",
+                                                   service=case["expected"] or "校园网"))
+            payload = {"data": {"portalOnlineUserInfo": {
+                "result": "success", "userId": "mock-user", **case["fields"]}}}
+            runner.return_value = Result(0, json.dumps({"is_online": True, "online": payload}))
+            with self.subTest(case=case["id"]):
+                self.assertEqual(cli.main(["doctor", "--network"]),
+                                 0 if case["expected"] is not None else 2)
+        self.assertTrue(all(call.args[1] == "status" and call.kwargs["raw"]
+                            for call in runner.call_args_list))
+
     def test_live_session_limit_is_immediate_and_redacted(self):
         response = {"code": 200, "data": {"online": False,
             "message": "portal认证失败，失败原因：你使用的账号已达到同时在线用户数量上限!，用户(secret-account)"}}
@@ -108,6 +127,20 @@ class SwitchingTests(OfflineTestCase):
     def run_switch(self, results, target="中国移动"):
         self.runner = Mock(side_effect=results)
         return switch_service(self.config, target, runner=self.runner)
+
+    def test_null_raw_service_allows_verified_switch(self):
+        def null_raw(service):
+            result = status(service)
+            payload = json.loads(result.output)
+            payload["online"]["data"]["portalOnlineUserInfo"]["realServiceName"] = None
+            result.output = json.dumps(payload)
+            return result
+
+        result = self.run_switch([null_raw("校园网"), Result(0), status(), Result(0),
+                                  null_raw("中国移动")])
+        self.assertEqual(result.code, 0)
+        self.assertEqual(result.previous, "校园网")
+        self.assertEqual(self.runner.call_count, 5)
 
     def test_verified_switch(self):
         result = self.run_switch([status("校园网"), Result(0), status(), Result(0), status("中国移动")])

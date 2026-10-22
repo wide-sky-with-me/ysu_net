@@ -51,6 +51,13 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+      - name: Read and validate release version
+        run: |
+          version="$(node -p "require('./desktop/package.json').version")"
+          echo "YSU_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$version" ]] || { echo 'tag and desktop version differ'; exit 1; }
+          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -178,7 +185,7 @@ jobs:
           $roots = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
           $entry = Get-ItemProperty $roots -ErrorAction SilentlyContinue | Where-Object DisplayName -eq 'YSU Net'
           if (-not $entry) { throw 'per-user uninstall entry for YSU Net is missing' }
-          if ($entry.DisplayVersion -ne '0.1.0') { throw "unexpected DisplayVersion $($entry.DisplayVersion)" }
+          if ($entry.DisplayVersion -ne $env:YSU_RELEASE_VERSION) { throw "unexpected DisplayVersion $($entry.DisplayVersion)" }
           $dir = $entry.InstallLocation
           if (-not $dir) { $dir = Split-Path ($entry.UninstallString.Trim('"')) }
           $dir = $dir.Trim('"')
@@ -219,7 +226,7 @@ jobs:
           plist="$app/Contents/Info.plist"
           value() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
           [ "$(value CFBundleIdentifier)" = io.github.wide-sky-with-me.ysunet ]
-          [ "$(value CFBundleShortVersionString)" = 0.1.0 ]
+          [ "$(value CFBundleShortVersionString)" = "$YSU_RELEASE_VERSION" ]
           [ "$(value CFBundleExecutable)" = ysu-net ]
           [ "$(value LSMinimumSystemVersion)" = 13.5 ]
           test -f "$app/Contents/Resources/$(value CFBundleIconFile | sed 's/\.icns$//').icns"
@@ -262,10 +269,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
       - name: Release notes match the tag
         run: |
           grep -qx "## YSU Net $GITHUB_REF_NAME" packaging/release-notes.md || {
             echo "packaging/release-notes.md must start a section '## YSU Net $GITHUB_REF_NAME'"; exit 1; }
+          python - <<'PY'
+          import json, os, pathlib, tomllib
+          version = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
+          desktop = json.loads(pathlib.Path('desktop/package.json').read_text())['version']
+          assert os.environ['GITHUB_REF_NAME'] == f'v{version}' and desktop == version, 'release versions differ'
+          PY
       - name: Build Python distributions
         run: uv build
       - uses: actions/download-artifact@v4
@@ -277,7 +292,19 @@ jobs:
         run: |
           find artifacts -mindepth 2 -type f -exec mv -t artifacts {} +
           find artifacts -mindepth 1 -type d -empty -delete
+          # Keep the names in SHA256SUMS identical to GitHub's downloadable assets.
+          for file in artifacts/*; do
+            normalized="${file// /-}"
+            if [ "$file" != "$normalized" ]; then
+              [ ! -e "$normalized" ] || { echo 'duplicate normalized asset name'; exit 1; }
+              mv "$file" "$normalized"
+            fi
+          done
           cp dist/*.whl dist/*.tar.gz artifacts/
+          [ "$(find artifacts -maxdepth 1 -type f -name '*.deb' | wc -l)" -eq 1 ]
+          [ "$(find artifacts -maxdepth 1 -type f -name '*.exe' | wc -l)" -eq 1 ]
+          [ "$(find artifacts -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 2 ]
+          [ "$(find artifacts -maxdepth 1 -type f | wc -l)" -eq 6 ]
           (cd artifacts && sha256sum * > ../SHA256SUMS)
       - name: Publish release
         env:

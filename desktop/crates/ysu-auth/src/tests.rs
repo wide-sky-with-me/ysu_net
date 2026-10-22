@@ -192,6 +192,7 @@ struct State {
     cas: String,
     online: Option<String>,
     owner: String,
+    null_raw_service: bool,
     selected: String,
     cas_required: bool,
     authenticated: bool,
@@ -222,6 +223,7 @@ impl Default for State {
             cas: String::new(),
             online: None,
             owner: "fixture-user".into(),
+            null_raw_service: false,
             selected: "校园网".into(),
             cas_required: false,
             authenticated: false,
@@ -314,6 +316,10 @@ impl Fixture {
 fn status_value(s: &State) -> Value {
     match &s.online {
         Some(service) => {
+            if s.null_raw_service {
+                return json!({"data":{"portalOnlineUserInfo":{"result":"success",
+                    "realServiceName":null,"service":service,"userId":s.owner}}});
+            }
             json!({"data":{"portalOnlineUserInfo":{"result":"success","realServiceName":service,"service":"opaque-id","userId":s.owner,"userName":"Fixture Name","userIp":"192.0.2.1","ssid":"fixture-wifi","userIndex":"private-session"}}})
         }
         None => {
@@ -892,6 +898,72 @@ fn account_empty_html_control_and_nested_boundaries() {
     assert_eq!(presentation::text(&json!(0)), "0");
     assert_eq!(presentation::text(&json!("12\nGB")), "12 GB");
 }
+#[tokio::test]
+async fn null_raw_service_login_and_switch_verify_the_actual_service() {
+    let f = Fixture::new();
+    f.mutate(|state| state.null_raw_service = true);
+    let client = f.client();
+    assert_eq!(
+        client.login().await.unwrap().service.as_deref(),
+        Some("校园网")
+    );
+    assert_eq!(
+        client.login().await.unwrap().service.as_deref(),
+        Some("校园网")
+    );
+    assert_eq!(f.selections(), vec!["校园网"]);
+    assert_eq!(
+        client
+            .switch_service("中国移动")
+            .await
+            .unwrap()
+            .service
+            .as_deref(),
+        Some("中国移动")
+    );
+    assert_eq!(f.count("/eportal/network/offline"), 1);
+    assert_eq!(f.selections(), vec!["校园网", "中国移动"]);
+}
+
+#[tokio::test]
+async fn null_raw_service_failed_switch_verifies_original_service_recovery() {
+    let f = Fixture::new();
+    f.mutate(|state| {
+        state.null_raw_service = true;
+        state.online = Some("校园网".into());
+        state.rejected_service = Some("中国移动".into());
+    });
+    let error = f.client().switch_service("中国移动").await.unwrap_err();
+    assert_eq!(error.code, INTERACTION_ERROR);
+    assert!(error.message.contains("已独立确认恢复原服务"));
+    assert_eq!(
+        f.client().status().await.unwrap().service.as_deref(),
+        Some("校园网")
+    );
+    assert_eq!(f.count("/eportal/network/offline"), 1);
+}
+
+#[tokio::test]
+async fn shared_unknown_service_fields_never_authenticate_or_switch() {
+    for case in crate::service_tests::cases()
+        .into_iter()
+        .filter(|case| case.expected.is_none())
+    {
+        for switching in [false, true] {
+            let f = Fixture::new();
+            f.mutate(|state| state.state_override = Some(case.online("fixture-user")));
+            let client = f.client();
+            let result = if switching {
+                client.switch_service("中国移动").await
+            } else {
+                client.login().await
+            };
+            assert_eq!(result.unwrap_err().code, QUERY_ERROR, "{}", case.id);
+            assert_eq!(f.count("/eportal/network/"), 0, "{}", case.id);
+        }
+    }
+}
+
 #[test]
 fn recognized_service_and_authoritative_account_boundaries() {
     for info in [

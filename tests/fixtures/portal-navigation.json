@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "description": "Fixed synthetic reconstruction of the read-only 2026-10-21 entry chain; no live query values.",
+  "base": "https://auth1.ysu.edu.cn",
+  "index": "https://auth1.ysu.edu.cn/eportal/index.jsp",
+  "redirect": "https://auth1.ysu.edu.cn/eportal/redirect.jsp",
+  "legacy_target": "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session&userIp=192.0.2.1&ssid=fixture-wifi&redirectUrl=http%3A%2F%2Fexample.invalid%2F",
+  "https_target": "https://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session&userIp=192.0.2.1&ssid=fixture-wifi&redirectUrl=http%3A%2F%2Fexample.invalid%2F",
+  "session_id": "fixture-session"
+}

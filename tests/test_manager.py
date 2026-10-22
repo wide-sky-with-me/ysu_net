@@ -342,7 +342,7 @@ class InstallTests(OfflineTestCase):
         interpreter.chmod(0o755)
         install.main(["--no-service"])
         result = subprocess.run([str(self.bin / "ysu"), "service", "中国移动"], text=True, capture_output=True, check=True)
-        self.assertEqual(result.stdout.splitlines(), ["-m", "ysu_net", "--scope", "user", "service", "中国移动"])
+        self.assertEqual(result.stdout.splitlines(), ["-P", "-m", "ysu_net", "--scope", "user", "service", "中国移动"])
 
     def test_uninstall_refuses_while_foreground_daemon_holds_lock(self):
         from ysu_net.manager.locking import exclusive_config

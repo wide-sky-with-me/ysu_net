@@ -57,6 +57,7 @@ export interface Snapshot {
   busy: boolean;
   busy_message: string;
   info: { online: boolean; fields: Pair[]; items: Pair[] } | null;
+  info_error: string;
   logs: { timestamp: string; level: LogLevel; message: string }[];
   environment: {
     version: string; rust: string; runtime: 'rust'; platform: string;
@@ -126,6 +127,7 @@ export function parseSnapshot(value: unknown): Snapshot {
   if (!object(a) || !enumValue(a.state, ['off', 'on', 'external']) || !text(a.message) || (a.delay !== undefined && (typeof a.delay !== 'number' || !Number.isFinite(a.delay) || a.delay < 0))) throw new Error('桌面核心重连状态格式异常');
   if (!bool(value.busy) || !text(value.busy_message)) throw new Error('桌面核心任务状态格式异常');
   if (i !== null && (!object(i) || !bool(i.online) || !pairs(i.fields) || !pairs(i.items))) throw new Error('桌面核心账户信息格式异常');
+  if (value.info_error !== undefined && !text(value.info_error)) throw new Error('桌面核心账户读取错误格式异常');
   if (!Array.isArray(value.logs) || !value.logs.every((log) => object(log) && text(log.timestamp) && enumValue(log.level, ['info', 'success', 'error']) && text(log.message))) throw new Error('桌面核心日志格式异常');
   if (!object(e) || ![e.version, e.rust, e.platform].every(text) || e.runtime !== 'rust' || ![e.browser_available, e.browser_component_available].every(bool)) throw new Error('桌面核心环境信息格式异常');
   // Select the public contract so an accidental extra password field never enters UI state.
@@ -141,6 +143,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     auto: { state: a.state, message: a.message, ...(a.delay === undefined ? {} : { delay: a.delay as number }) },
     busy: value.busy, busy_message: value.busy_message,
     info: i === null ? null : { online: i.online as boolean, fields: i.fields as Pair[], items: i.items as Pair[] },
+    info_error: value.info_error === undefined ? '' : value.info_error as string,
     logs: value.logs.map((log) => ({ timestamp: log.timestamp as string, level: log.level as LogLevel, message: log.message as string })),
     environment: { version: e.version as string, rust: e.rust as string, runtime: 'rust', platform: e.platform as string, browser_available: e.browser_available as boolean, browser_component_available: e.browser_component_available as boolean },
   };

@@ -62,7 +62,8 @@ def _bound_online(payload):
         return None
     service = online_service(payload)
     info = payload["data"]["portalOnlineUserInfo"]
-    if any(key in info and info[key] != service for key in ("realServiceName", "service")):
+    if any(info.get(key) is not None and info[key] != service
+           for key in ("realServiceName", "service")):
         raise QueryError("unknown or conflicting raw service")
     owner = info["userId"] if "userId" in info else info.get("userName")
     if not isinstance(owner, str) or not owner:

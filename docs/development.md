@@ -29,7 +29,7 @@ Python 运行时代码位于 `src/ysu_net/`，通过安装包导入，不修改 
 
 `install.sh` 和 `uninstall.sh` 是保留在根目录的用户入口，业务逻辑不放入 shell 文件。
 认证进程通过 `python -m ysu_net.auth.api` 或 `python -m ysu_net.auth.browser` 启动，
-安装包装器和 systemd 通过 `.venv/bin/python -m ysu_net` 进入管理命令。
+安装包装器通过 `.venv/bin/python -P -m ysu_net` 进入管理命令，避免调用目录中的同名旧模块或包遮蔽已安装程序；`-P` 不改工作目录，保留可编辑安装和显式 `PYTHONPATH`。systemd 使用项目解释器绝对路径执行 `.venv/bin/python -m ysu_net`，未指定工作目录；迁移时需移走用户主目录的同名旧模块，避免用户服务解析到它。
 
 ## 环境与命令
 
@@ -59,7 +59,9 @@ uv lock --check
 - `tests/test_account_info.py`：共享账户实现、嵌套响应、缺失值与零值、原始 JSON 兼容及诊断。
 - `tests/test_menu_help.py`：说明页入口、选项覆盖、返回菜单以及无操作副作用。
 - `tests/test_repository.py`：在临时 Git 仓库验证敏感文件忽略规则，不修改项目索引。
-- `tests/test_layout.py`：包入口、项目外调用和模块启动路径。
+- `tests/test_layout.py`：包入口、项目外调用，以及 user/system 三个包装命令对同名模块和包的启动隔离。
+- `tests/fixtures/online-service.json`：Python/Rust 共用服务字段兼容样本，覆盖缺失、`null`、未知值、类型异常、冲突及账号证据的严格校验。
+- [`tests/fixtures/portal-navigation.json`](../tests/fixtures/portal-navigation.json)：旧门户引导的 Python/Rust 共享样本；Rust 在专用 GET 引导中规范化可信旧地址，不发送 HTTP，也不放宽通用 API/CAS/POST 边界。精确条件和负例见 [`transport.rs::portal_navigation_target`](../desktop/crates/ysu-auth/src/transport.rs) 与认证库回归。
 - `tests/test_system_browser.py`：系统浏览器查找、Snap 排除与启动回退。
 - `tests/test_node_runtime.py`：Node.js 运行时查找顺序与缺失时的报错。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
@@ -73,6 +75,7 @@ Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#�
 **默认 API 后端的校园网认证闭环已通过真实校内网络验收。** 覆盖 CAS 登录、独立在线查询、账户查询、下线、自动重连及单轮守护入口，详见[真实网络验收记录](live-test.md)。离线识别以实测协议中的
 `portalOnlineUserInfo.message == "dx.failed.user.offline"` 为准，未知响应仍按查询失败处理。
 中国移动已由增强版 `switch` 真实切换成功，独立查询服务与外网 HTTPS 均通过；用户级 systemd 安装、真实重连、崩溃恢复及重装保留配置也已[实测验收](deployment-test.md)。此前会话上限错误及新版切换失败恢复由分离的真实记录与模拟测试说明。可选浏览器后端、验证码/风控、其他运营商、服务器重启及长稳运行仍未实测。
+当前开发快照另见 [2026-10-20 Shell 真实复测](shell-live-2026-10-20.md)与 [2026-10-21 Windows 原生只读修复及复装验收](windows-readonly-fix-2026-10-21.md)；历史运营商上线成绩不代表当前账号的可用会话。
 `manager/switching.py` 不持久化凭据；CLI 在成功后通过独立写锁合并服务字段。配置写锁与守护运行锁分开，避免破坏热更新或覆盖并发修改。
 
 ## 构建与依赖

@@ -395,6 +395,87 @@ async fn account_failure_clears_account_without_faking_offline() {
     worker.execute(Action::Info).await.unwrap();
     assert!(runtime.snapshot()["info"].is_null());
     assert_eq!(runtime.snapshot()["status"]["online"], true);
+    assert_eq!(
+        runtime.snapshot()["info_error"],
+        "账户信息获取失败，请稍后重试"
+    );
+    for private in [
+        "fixture account",
+        "portal.invalid",
+        "fixture-user",
+        "fixture-secret",
+        "fixture-token",
+    ] {
+        assert!(!runtime.snapshot().to_string().contains(private));
+    }
+    demo(&runtime).lock().unwrap().info_error = false;
+    worker.execute(Action::Info).await.unwrap();
+    assert_eq!(runtime.snapshot()["info"]["online"], true);
+    assert_eq!(runtime.snapshot()["info_error"], "");
+}
+
+#[tokio::test]
+async fn unknown_account_failure_and_retry_do_not_invent_connection_status() {
+    let (runtime, receiver) = fixture();
+    let mut worker = Worker::new(runtime.clone(), receiver);
+    assert_eq!(runtime.snapshot()["info_error"], "");
+    assert!(runtime.snapshot()["status"].is_null());
+    demo(&runtime).lock().unwrap().info_error = true;
+    worker.execute(Action::Info).await.unwrap();
+    let failed = runtime.snapshot();
+    assert!(failed["status"].is_null());
+    assert!(failed["info"].is_null());
+    assert_eq!(failed["info_error"], "账户信息获取失败，请稍后重试");
+    {
+        let demo = demo(&runtime);
+        let mut demo = demo.lock().unwrap();
+        demo.info_error = false;
+        demo.online = true;
+    }
+    worker.execute(Action::Info).await.unwrap();
+    let success = runtime.snapshot();
+    assert!(success["status"].is_null());
+    assert_eq!(success["info"]["online"], true);
+    assert_eq!(success["info_error"], "");
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 0);
+    assert_eq!(demo(&runtime).lock().unwrap().logouts, 0);
+    demo(&runtime).lock().unwrap().online = false;
+    worker.execute(Action::Info).await.unwrap();
+    assert_eq!(runtime.snapshot()["info"]["online"], false);
+    assert_eq!(runtime.snapshot()["info_error"], "");
+}
+
+#[tokio::test]
+async fn online_status_invalidates_previous_offline_account_result() {
+    let (runtime, receiver) = fixture();
+    let mut worker = Worker::new(runtime.clone(), receiver);
+    worker.execute(Action::Info).await.unwrap();
+    assert_eq!(runtime.snapshot()["info"]["online"], false);
+    demo(&runtime).lock().unwrap().online = true;
+    worker.execute(Action::Status).await.unwrap();
+    assert_eq!(runtime.snapshot()["status"]["online"], true);
+    assert!(runtime.snapshot()["info"].is_null());
+    assert_eq!(runtime.snapshot()["info_error"], "");
+}
+
+#[test]
+fn account_timeout_is_public_and_keeps_connection_observation() {
+    let (runtime, receiver) = fixture();
+    let worker = Worker::new(runtime.clone(), receiver);
+    runtime.update(|state| {
+        state.status = json!({"online":true});
+        state.info = json!({"online":true,"fields":[],"items":[]});
+    });
+    worker.operation_timed_out(true);
+    assert_eq!(runtime.snapshot()["status"]["online"], true);
+    assert!(runtime.snapshot()["info"].is_null());
+    assert_eq!(
+        runtime.snapshot()["info_error"],
+        "账户信息读取超时，请稍后重试"
+    );
+    // Verified quota reads also publish through update, so they must clear an old read error.
+    runtime.update(|state| state.info = json!({"online":true,"fields":[],"items":[]}));
+    assert_eq!(runtime.snapshot()["info_error"], "");
 }
 
 #[tokio::test]
@@ -585,6 +666,7 @@ async fn broken_configuration_is_unknown_and_account_reads_do_not_change_status(
     worker.execute(Action::Info).await.unwrap();
     assert!(runtime.snapshot()["info"].is_null());
     assert_eq!(runtime.snapshot()["status"]["online"], true);
+    assert_eq!(runtime.snapshot()["info_error"], CONFIG_ERROR);
     worker.execute(Action::Status).await.unwrap();
     assert!(runtime.snapshot()["status"]["online"].is_null());
     assert_eq!(demo(&runtime).lock().unwrap().logins, 1);
@@ -637,7 +719,15 @@ async fn accent_snapshots_round_trip_preserve_authentication_and_auto_intent() {
         );
         let (reopened, _) = Runtime::new(store.clone(), Arc::new(|_| {})).unwrap();
         assert_eq!(reopened.snapshot()["prefs"], saved["prefs"]);
-        for key in ["config", "accounts", "status", "auto", "busy", "info"] {
+        for key in [
+            "config",
+            "accounts",
+            "status",
+            "auto",
+            "busy",
+            "info",
+            "info_error",
+        ] {
             assert_eq!(saved[key], before[key]);
         }
         assert!(!runtime.desired.load(Ordering::Acquire));

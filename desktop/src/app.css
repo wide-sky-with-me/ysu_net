@@ -416,6 +416,7 @@
     .page-header { padding: 0 14px 0 18px; }
     .notice, .busy-line { width: calc(100% - 36px); }
     main { padding: 16px 18px 20px; }
+    .settings-page { padding-top: 12px; }
     .connection-overview { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'context' 'automation' 'controls'; gap: 10px; }
     .connection-context { padding: 16px 18px; }
     .connection-state { display: flex; gap: 12px; }
@@ -444,7 +445,7 @@
   }
   @media (max-height: 650px) and (min-width: 521px) {
     .page-header { min-height: 44px; }
-    main { padding-top: 14px; }
+    main:not(.settings-page) { padding-top: 14px; }
     .sidebar { padding-top: 10px; }
     .sidebar nav { margin-top: 14px; }
   }
@@ -497,6 +498,7 @@
     .page-header { min-height: 44px; padding: 0 10px 0 14px; }
     .notice, .busy-line { width: calc(100% - 24px); }
     main { overflow: visible; padding: 14px 12px 16px; }
+    .settings-page { padding-top: 12px; }
     .connection-context { padding: 16px; }
     .connection-state > button { margin-left: 0; width: 100%; margin-top: 4px; }
     .auto-section { grid-template-columns: 28px minmax(0, 1fr) auto; padding: 14px 16px; }

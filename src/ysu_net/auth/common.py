@@ -42,7 +42,9 @@ def online_service(payload):
     info = payload["data"]["portalOnlineUserInfo"]
     services = {"校园网", "中国移动", "中国联通", "中国电信"}
     values = [info[key] for key in ("realServiceName", "service") if key in info]
-    if "realServiceName" in info and (not isinstance(info["realServiceName"], str) or info["realServiceName"] not in services):
+    # Portal variants send JSON null when the raw label is absent, not unknown.
+    raw_service = info.get("realServiceName")
+    if raw_service is not None and (not isinstance(raw_service, str) or raw_service not in services):
         raise QueryError("在线原始服务名称未知，暂不切换连接")
     names = {value for value in values if isinstance(value, str) and value in services}
     if len(names) != 1:

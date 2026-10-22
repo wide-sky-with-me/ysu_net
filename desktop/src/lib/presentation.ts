@@ -13,3 +13,10 @@ export function reconnectNotice(auto: Snapshot['auto'] | undefined): string {
   if (!auto || auto.state === 'external' || ROUTINE_RECONNECT_MESSAGES.has(auto.message)) return '';
   return auto.message;
 }
+
+export function accountInfoState(snapshot: Snapshot | null): 'error' | 'ready' | 'offline' | 'unread' | 'unknown' {
+  if (snapshot?.info_error) return 'error';
+  if (snapshot?.info?.online) return 'ready';
+  if (snapshot?.status?.online === false || snapshot?.info?.online === false) return 'offline';
+  return snapshot?.status?.online === true ? 'unread' : 'unknown';
+}

@@ -15,6 +15,7 @@ class LayoutTests(OfflineTestCase):
     def invoke(self, *command):
         env = os.environ.copy()
         env.pop("PYTHONPATH", None)
+        env.pop("PYTHONSAFEPATH", None)
         return subprocess.run(
             command, cwd=self.tmp, env=env, text=True,
             capture_output=True, timeout=15,
@@ -40,12 +41,42 @@ class LayoutTests(OfflineTestCase):
             self.skipTest("需要 browser 可选依赖")
         self.assert_help(self.invoke(sys.executable, "-m", "ysu_net.auth.browser", "--help"))
 
+    def assert_installed_wrappers_help(self):
+        for scope in ("user", "system"):
+            for name, alias in (("ysu", None), ("ysuon", "on"), ("ysuoff", "off")):
+                with self.subTest(scope=scope, command=name):
+                    command = self.tmp / f"bin-{scope}" / name
+                    command.parent.mkdir(exist_ok=True)
+                    command.write_text(install.wrapper(scope, alias))
+                    command.chmod(0o755)
+                    result = self.invoke(str(command), "--help")
+                    self.assert_help(result)
+                    self.assertIn(f"usage: ysu{(' ' + alias) if alias else ''} ", result.stdout)
+
     def test_installed_wrapper_outside_checkout(self):
-        command = self.tmp / "bin/ysu"
-        command.parent.mkdir()
-        command.write_text(install.wrapper("user"))
-        command.chmod(0o755)
-        self.assert_help(self.invoke(str(command), "--help"))
+        self.assert_installed_wrappers_help()
+
+    def assert_cwd_shadow_ignored(self, *names):
+        marker = self.tmp / "shadow-executed"
+        source = (
+            "from pathlib import Path\n"
+            "Path('shadow-executed').write_text('unexpected cwd import')\n"
+            "raise RuntimeError('cwd ysu_net shadow executed')\n"
+        )
+        for name in names:
+            path = self.tmp / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source)
+        self.assert_installed_wrappers_help()
+        self.assertFalse(marker.exists())
+        for name in names:
+            self.assertEqual((self.tmp / name).read_text(), source)
+
+    def test_installed_wrappers_ignore_cwd_module(self):
+        self.assert_cwd_shadow_ignored("ysu_net.py")
+
+    def test_installed_wrappers_ignore_cwd_package(self):
+        self.assert_cwd_shadow_ignored("ysu_net/__init__.py", "ysu_net/__main__.py")
 
     def test_backend_spawns_importable_module(self):
         process = Mock(returncode=0)

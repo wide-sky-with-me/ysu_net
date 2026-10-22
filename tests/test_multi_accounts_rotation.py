@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tests.helpers import OfflineTestCase
@@ -49,6 +50,41 @@ class RotationTests(OfflineTestCase):
         self.assertEqual(self.rotation.step(auto_reconnect=False), "")
         self.runner.assert_not_called()
         self.switcher.assert_not_called()
+
+    def test_shared_raw_service_contract_gates_every_rotation_observation(self):
+        self.enable()
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "online-service.json").read_text())
+        for case in fixture["cases"]:
+            expected = case["expected"] or "校园网"
+            update_config(self.path, service=expected)
+            good = json.loads(status("fixture-a", expected).output)["online"]
+            payload = {"data": {"portalOnlineUserInfo": {
+                "result": "success", "userId": "fixture-a", **case["fields"]}}}
+            for stage in ("before", "embedded", "after"):
+                with self.subTest(case=case["id"], stage=stage):
+                    self.rotation.reset(manual=True)
+                    self.runner.reset_mock()
+                    self.switcher.reset_mock()
+                    self.classifier.reset_mock()
+                    observed = Result(0, json.dumps({"is_online": True, "online": payload}))
+                    normal = Result(0, json.dumps({"is_online": True, "online": good}))
+                    info = Result(0, json.dumps({"online": payload if stage == "embedded" else good,
+                                                "account_http_status": 200, "account": self.raw}))
+                    for _ in range(2):
+                        self.runner.side_effect = [observed if stage == "before" else normal, info,
+                                                   observed if stage == "after" else normal]
+                        self.rotation.step()
+                        self.clock.now += 60
+                    if case["bound"]:
+                        self.assertEqual(self.classifier.call_count, 2)
+                        self.switcher.assert_called_once()
+                    else:
+                        self.switcher.assert_not_called()
+                        self.assertIsNone(self.rotation.zero_time)
+                        self.assertEqual(self.rotation.quota["state"], "unknown")
+                    if not case["bound"] and stage == "before":
+                        self.assertEqual([call.args[1] for call in self.runner.call_args_list],
+                                         ["status", "status"])
 
     def test_zero_requires_independent_queries_at_least_sixty_seconds_apart(self):
         self.enable()

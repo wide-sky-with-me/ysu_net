@@ -28,13 +28,14 @@ export function demoSnapshot(search = ''): Snapshot {
       message: '',
     },
     busy: scenario === 'busy', busy_message: scenario === 'busy' ? '模拟：正在独立确认在线状态…' : '',
-    info: online ? { online: true, fields: [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']], items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB'], ['账户余额', '23.50 元']] } : null,
+    info: online && !['info-error', 'info-failure', 'info-unread'].includes(scenario || '') ? { online: true, fields: [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']], items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB'], ['账户余额', '23.50 元']] } : null,
+    info_error: scenario === 'info-error' ? '账户信息获取失败，请稍后重试' : '',
     logs: [
       { timestamp: '08:42:03', level: 'info', message: '离线模拟已启动；所有数据和操作均为演示' },
       { timestamp: '08:42:04', level: 'success', message: '模拟：校园网状态查询完成' },
       { timestamp: '08:42:05', level: 'info', message: '模拟：自动重连监测已开启' },
     ],
-    environment: { version: '0.1.0-demo', rust: '离线演示', runtime: 'rust', platform: '离线演示', browser_available: true, browser_component_available: true },
+    environment: { version: '0.2.0-demo', rust: '离线演示', runtime: 'rust', platform: '离线演示', browser_available: true, browser_component_available: true },
   };
 }
 
@@ -42,8 +43,9 @@ export function createDemoTransport(search = ''): Transport {
   const scenario = new URLSearchParams(search).get('scenario');
   let state = demoSnapshot(search);
   const handlers = new Set<(event: unknown) => void>();
-  let settings: DesktopSettings = { autostart: false, tray_available: true, version: '0.1.0-demo' };
+  let settings: DesktopSettings = { autostart: false, tray_available: true, version: '0.2.0-demo' };
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
+  let infoTimer: ReturnType<typeof setTimeout> | undefined;
   let nextId = 1;
   const snapshot = () => structuredClone(state);
   const publish = () => {
@@ -69,6 +71,21 @@ export function createDemoTransport(search = ''): Transport {
       if (command === 'action') {
         const { name, value } = args as CoreCommands['action'];
         if (state.auto.state === 'external' && ['login', 'logout', 'switch', 'set_auto', 'switch_account'].includes(name)) throw new Error('模拟：连接由外部服务管理，请先停止后台服务');
+        if (name === 'info') {
+          if (state.busy) throw new Error('模拟：当前任务尚未完成');
+          state.busy = true; state.busy_message = '正在读取账户信息'; publish();
+          infoTimer = setTimeout(() => {
+            if (scenario === 'info-failure' || state.status?.online == null) {
+              state.info = null; state.info_error = '账户信息获取失败，请稍后重试';
+              log(state.info_error, 'error');
+            } else {
+              state.info = state.status.online ? { online: true, fields: [['账号', state.config.username], ['当前服务', state.status.service || '门户未提供'], ['IP 地址', state.status.ip]], items: [['套餐', '校园网络套餐'], ['剩余流量', '80.00 GB']] } : { online: false, fields: [], items: [] };
+              state.info_error = ''; log('账户查询完成');
+            }
+            state.busy = false; state.busy_message = ''; publish();
+          }, 300);
+          return { accepted: true, message: '模拟：账户读取已排队' };
+        }
         if (name === 'switch_account') {
           guardAccounts();
           const target = state.accounts.items.find((item) => item.id === value);
@@ -87,7 +104,7 @@ export function createDemoTransport(search = ''): Transport {
               for (const item of state.accounts.items) item.current = item.id === target.id;
               Object.assign(state.config, { username: target.username, service: target.service, backend: target.backend, password_set: target.password_set });
               state.status = { online: true, service: target.service, user: target.username, ip: '10.24.16.83', message: '模拟：独立查询已确认目标账号在线' };
-              state.info = null; state.accounts.quota = { state: 'unknown', message: '目标账号剩余流量待核心确认' };
+              state.info = null; state.info_error = ''; state.accounts.quota = { state: 'unknown', message: '目标账号剩余流量待核心确认' };
               state.accounts.message = `已确认切换到${target.label || target.username}`; log('目标账号切换与核验完成');
             }
             state.busy = false; state.busy_message = ''; publish();
@@ -104,13 +121,12 @@ export function createDemoTransport(search = ''): Transport {
         }
         if (name === 'logout') {
           state.status = { online: false, service: null, user: '', ip: '', message: '模拟：已断开连接' };
-          state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.info = null; state.accounts.auto_switch = false;
+          state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.info = null; state.info_error = ''; state.accounts.auto_switch = false;
         }
         if (name === 'set_auto') {
           state.auto = { state: value ? 'on' : 'off', message: value ? '正在监测连接，断线后自动登录' : '自动重连已关闭' }; state.prefs.auto_reconnect = !!value;
           if (!value) state.accounts.auto_switch = false;
         }
-        if (name === 'info') state.info = state.status?.online ? { online: true, fields: [['账号', state.config.username], ['当前服务', state.status.service || '门户未提供'], ['IP 地址', state.status.ip]], items: [['套餐', '校园网络套餐'], ['剩余流量', '80.00 GB']] } : null;
         log({ login: '连接并独立查询状态完成', logout: '下线完成', switch: `已切换到${value}`, set_service: `下次连接使用${value}`, set_auto: value ? '自动重连已开启' : '自动重连已关闭', info: '账户查询完成', status: '状态查询完成' }[name]);
       } else if (command === 'save_account') {
         guardAccounts();
@@ -168,6 +184,6 @@ export function createDemoTransport(search = ''): Transport {
     },
     getDesktopSettings: async () => ({ ...settings }),
     setAutostart: async (enabled) => { settings = { ...settings, autostart: enabled }; log(enabled ? '开机自启已开启' : '开机自启已关闭'); publish(); },
-    quit: async () => { clearTimeout(switchTimer); state.busy = false; state.busy_message = ''; state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.accounts.auto_switch = false; log('退出按钮已触发（演示页面保留）'); publish(); },
+    quit: async () => { clearTimeout(switchTimer); clearTimeout(infoTimer); state.busy = false; state.busy_message = ''; state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.accounts.auto_switch = false; log('退出按钮已触发（演示页面保留）'); publish(); },
   };
 }

@@ -10,16 +10,18 @@
 
 ## 桌面版（Windows / Linux / macOS）
 
-图形版在 `feat/rust-desktop` 使用 **Tauri 2 + Svelte + 全 Rust 认证和后台**：三平台共用界面与原生逻辑，不依赖 Python、Node 或 Playwright 认证运行时。当前为未发布开发版，柔和分区式设置界面见[设计说明](docs/rust-desktop-design.md)，构建与验证边界见[Tauri 桌面说明](docs/tauri-desktop.md)。
+自 **v0.2.0** 起，桌面版采用 **Tauri 2 + Svelte + 全 Rust 认证和后台**：三平台共用界面与原生逻辑，不依赖 Python、Node 或 Playwright 认证运行时。下载[对应版本 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.0)的附件；发布流程要求四平台构建、原生与安装验收全部成功，实际结果以对应 CI 运行为准。尚无附件时按[Tauri 桌面说明](docs/tauri-desktop.md)从源码构建，界面见[设计说明](docs/rust-desktop-design.md)。
 
-开发版支持[多账号热切换与可选流量换号](docs/accounts.md)：界面管理账号，CLI/守护复用账号簿；仅确认门户连续报告零剩余流量时自动尝试备用账号，缺失流量不猜测。
+支持[多账号热切换与可选流量换号](docs/accounts.md)：界面管理账号，CLI/守护复用账号簿；仅确认门户连续报告零剩余流量时自动尝试备用账号，缺失流量不猜测。
 
-原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 发布附件仍是 Qt 旧版，不再维护；替换方式见[桌面客户端](docs/wiki/Desktop-Client.md)。
+本次修复原生门户导航与账户读取失败反馈。Windows 本机只读验收已确认中国联通在线并成功读取账户；门户缺少的余量与余额保持“门户未提供”。这不是本轮四平台 CI 或登录/下线/换号验收，见[独立验收记录](docs/windows-readonly-fix-2026-10-21.md)。
+
+原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 标签和 Qt 发布附件保留供历史复现，不覆盖、不作为新版下载入口；Windows 先关闭旧版自启并卸载旧 Inno 版，再装当前用户 NSIS 版。Linux 从 0.1.0 升级到 0.2.0 无需 `--reinstall`，macOS 13.5+ 按 Apple 芯片 / Intel 分包，安装包未签名。详见[桌面客户端](docs/wiki/Desktop-Client.md)与[迁移说明](docs/migration.md#桌面-v020-升级)。
 
 ## 选择版本与交流入口
 
 - **Linux 命令行版**：以下安装步骤使用默认分支 `main`，适合终端、服务器和 systemd 后台运行。
-- **三平台桌面开发版**：按[Tauri 构建说明](docs/tauri-desktop.md)从源码构建；尚未替换正式发布附件。
+- **三平台桌面版**：选[对应版本 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.0)中与系统、架构对应的附件，源码构建见[Tauri 说明](docs/tauri-desktop.md)。独立 Python CLI 版本同为 0.2.0，不作为桌面运行时。
 - **入门与排障**：[Wiki 源文档](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) · [支持与反馈](SUPPORT.md)。
 - **社区协作**：[Discussions 问答与建议](https://github.com/wide-sky-with-me/ysu_net/discussions) · [Issue 故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [贡献指南](CONTRIBUTING.md) · [安全问题私密报告](SECURITY.md)。
 
@@ -90,7 +92,7 @@ sudo env PATH="$PATH" bash install.sh --system  # 系统级服务
 - [产品入口与项目架构](docs/architecture.md)：命令行与三平台桌面的关系、目录职责和兼容边界。
 - [命令行使用与配置](docs/usage.md)：完整命令、日常操作、配置和故障排查。
 - [更新、卸载与旧版迁移](docs/migration.md)：命令重装、旧服务清理与入口变更。
-- [Tauri 桌面开发版](docs/tauri-desktop.md)：三平台构建、演示与当前验证范围。
+- [Tauri 桌面版](docs/tauri-desktop.md)：三平台构建、演示、发布门槛与验证范围。
 - [开发与验证](docs/development.md)：模块职责、离线测试和 Python 构建。
 
 ## 本地验证

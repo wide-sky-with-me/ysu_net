@@ -1,10 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { accountItems, advanceLogFloor, formatDiagnostics, formatLogTime, parseSnapshot, snapshotEvent, SnapshotSequence, synchronizeSnapshots, validateConfig } from './protocol';
 import type { Snapshot, Transport } from './protocol';
 import { createDemoTransport, demoSnapshot } from './demo';
 
+afterEach(() => vi.useRealTimers());
+
 describe('snapshot contract', () => {
   it('keeps unknown online distinct from offline', () => { expect(parseSnapshot(demoSnapshot('?scenario=unknown')).status?.online).toBeNull(); });
+  it('accepts public account errors and keeps older snapshots compatible', () => {
+    const snapshot = demoSnapshot('?scenario=info-error');
+    expect(parseSnapshot(snapshot).info_error).toBe('账户信息获取失败，请稍后重试');
+    const { info_error: _, ...older } = snapshot;
+    expect(parseSnapshot(older).info_error).toBe('');
+    for (const info_error of [null, false, 7, {}, []]) expect(() => parseSnapshot({ ...snapshot, info_error })).toThrow('账户读取错误');
+  });
   it('rejects malformed sequences and shape', () => {
     for (const sequence of [-1, 1.5, NaN, Infinity, '4']) expect(() => parseSnapshot({ ...demoSnapshot(), sequence })).toThrow();
     expect(() => parseSnapshot({ ...demoSnapshot(), info: { online: true, items: [['bad']], fields: [] } })).toThrow();
@@ -96,6 +105,53 @@ describe('config and explicit demo', () => {
     const result = await transport.request('action', { name: 'login' });
     expect(result).not.toHaveProperty('status');
     expect(receive.mock.lastCall?.[0].status.online).toBe(true); stop();
+  });
+});
+
+describe('read-only demo account queries', () => {
+  it('publishes busy then error without converting an unknown connection to offline', async () => {
+    vi.useFakeTimers();
+    const transport = createDemoTransport('?scenario=unknown');
+    const events: Snapshot[] = [];
+    const stop = await synchronizeSnapshots(transport, (snapshot) => events.push(snapshot), vi.fn());
+    await transport.request('action', { name: 'info' });
+    expect(events.at(-1)?.busy).toBe(true);
+    await expect(transport.request('action', { name: 'info' })).rejects.toThrow('当前任务');
+    await vi.advanceTimersByTimeAsync(300);
+    const snapshot = parseSnapshot(await transport.request('snapshot', {}));
+    expect(snapshot.busy).toBe(false);
+    expect(snapshot.status?.online).toBeNull();
+    expect(snapshot.info).toBeNull();
+    expect(snapshot.info_error).toBe('账户信息获取失败，请稍后重试');
+    expect(snapshot.logs.at(-1)?.level).toBe('error');
+    expect(snapshot.config).toEqual(demoSnapshot('?scenario=unknown').config);
+    expect(snapshot.accounts).toEqual(demoSnapshot('?scenario=unknown').accounts);
+    expect(snapshot.prefs).toEqual(demoSnapshot('?scenario=unknown').prefs);
+    stop();
+  });
+
+  it('clears a previous account error only after successful read completion', async () => {
+    vi.useFakeTimers();
+    const transport = createDemoTransport('?scenario=info-error');
+    const before = parseSnapshot(await transport.request('snapshot', {}));
+    await transport.request('action', { name: 'info' });
+    expect(parseSnapshot(await transport.request('snapshot', {})).info_error).toBe(before.info_error);
+    await vi.advanceTimersByTimeAsync(300);
+    const snapshot = parseSnapshot(await transport.request('snapshot', {}));
+    expect(snapshot.info_error).toBe('');
+    expect(snapshot.info?.online).toBe(true);
+    expect(snapshot.status).toEqual(before.status);
+  });
+
+  it('returns a confirmed offline account response rather than unread data', async () => {
+    vi.useFakeTimers();
+    const transport = createDemoTransport('?scenario=offline');
+    await transport.request('action', { name: 'info' });
+    await vi.advanceTimersByTimeAsync(300);
+    const snapshot = parseSnapshot(await transport.request('snapshot', {}));
+    expect(snapshot.info).toEqual({ online: false, fields: [], items: [] });
+    expect(snapshot.info_error).toBe('');
+    expect(snapshot.status?.online).toBe(false);
   });
 });
 

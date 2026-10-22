@@ -11,7 +11,7 @@
 
 ## 版本与分支
 
-`main` 同时提供 Linux 命令行工具与 Windows / Ubuntu 桌面客户端。发布基线为 [v0.1.0](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.1.0)，旧测试版 `v0.1.0-beta.1` 保留供历史问题复现。新改动以 `main` 为基线创建分支，说明目标版本和验证范围；桌面开发需安装 `gui` 可选依赖。
+自 **v0.2.0** 起，桌面采用 Tauri，覆盖 Windows / Linux / macOS；独立 Python CLI 保留，版本同为 0.2.0。`v0.1.0` 的 Qt 附件和 `v0.1.0-beta.1` 标签仅作历史复现，不覆盖。新改动以 `main` 为基线创建分支，注明目标版本和验证范围；发布流程要求四平台构建、原生和安装验收全部成功，不把流程定义写成本次通过成绩。
 
 ## 本地开发
 
@@ -26,6 +26,8 @@ git diff --check
 ```
 
 连接相关测试使用 mock，不需要真实账号或校园网。默认诊断和查看帮助保持无联网副作用。新增行为补对应回归测试；涉及真实网络的验证独立记录已测范围与未测范围，使用“测试账号”等泛化称呼。更多模块与验证约定见 [开发说明](docs/development.md)。
+
+桌面开发使用 Node、Rust 和平台 SDK，命令以 [Tauri 构建与验证](docs/tauri-desktop.md#构建前提)为准；不存在 Python `gui` 可选依赖。Python 的 `browser` 是 CLI 浏览器认证依赖，`desktop-test` 仅供外部验收工具，不是桌面客户端运行时。
 
 社区文件和 Wiki 源文档可单独检查，无需执行登录、下线或启动服务：
 

@@ -287,10 +287,9 @@ impl AuthClient {
         snapshot.require_target(&self.config.username, &self.config.service)?;
         // Snapshot's display parser ignores unrecognized service labels. Evidence must not.
         for field in ["realServiceName", "service"] {
-            if info
-                .get(field)
-                .is_some_and(|value| value.as_str() != Some(&self.config.service))
-            {
+            if info.get(field).is_some_and(|value| {
+                !value.is_null() && value.as_str() != Some(&self.config.service)
+            }) {
                 return Err(AuthError::query("在线原始服务未知或与当前配置不一致"));
             }
         }
@@ -364,5 +363,7 @@ impl AuthClient {
 
 #[cfg(test)]
 mod quota_tests;
+#[cfg(test)]
+mod service_tests;
 #[cfg(test)]
 mod tests;

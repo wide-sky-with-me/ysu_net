@@ -164,6 +164,7 @@ struct State {
     busy: bool,
     busy_message: String,
     info: Value,
+    info_error: String,
     logs: VecDeque<Value>,
     environment: Value,
     secrets: Vec<String>,
@@ -204,7 +205,8 @@ impl State {
         let mut value = json!({
             "sequence": self.sequence, "config": config, "prefs": self.prefs,
             "status": self.status, "auto": self.auto, "busy": self.busy,
-            "busy_message": self.text(&self.busy_message), "info": self.info, "logs": self.logs,
+            "busy_message": self.text(&self.busy_message), "info": self.info,
+            "info_error": self.text(&self.info_error), "logs": self.logs,
             "environment": self.environment, "accounts": self.accounts,
         });
         // Public identities must round-trip even when they happen to equal a password.
@@ -301,6 +303,7 @@ impl Runtime {
             busy: false,
             busy_message: String::new(),
             info: Value::Null,
+            info_error: String::new(),
             accounts,
             rotation_intent: None,
             logs: VecDeque::new(),
@@ -368,6 +371,10 @@ impl Runtime {
                 return;
             }
             change(&mut state);
+            // All account-data producers, including verified quota reads, clear obsolete read errors.
+            if !state.info.is_null() {
+                state.info_error.clear();
+            }
             state.sequence += 1;
             state.snapshot()
         };
@@ -772,6 +779,9 @@ impl Worker {
     fn config_failed(&self, account_only: bool) {
         self.runtime.update(|state| {
             state.info = Value::Null;
+            if account_only {
+                state.info_error = CONFIG_ERROR.into();
+            }
             if !account_only {
                 state.status = json!({"online":null, "service":null, "user":"", "ip":"", "message":CONFIG_ERROR});
             }
@@ -785,7 +795,12 @@ impl Worker {
             Ok(status) => {
                 state.status = serde_json::to_value(status).unwrap();
                 state.status["message"] = if status.online { "校园网已连接" } else { "校园网未连接" }.into();
-                if !status.online { state.info = json!({"online":false, "fields":[], "items":[]}); }
+                if !status.online {
+                    state.info = json!({"online":false, "fields":[], "items":[]});
+                } else if state.info["online"] == false {
+                    // A previous offline account response is no longer current after an online query.
+                    state.info = Value::Null;
+                }
             }
             Err(error) => {
                 state.status = json!({"online":null, "service":null, "user":"", "ip":"", "message":public_error(error.code)});
@@ -798,6 +813,9 @@ impl Worker {
     fn operation_timed_out(&self, account_only: bool) {
         self.runtime.update(|state| {
             state.info = Value::Null;
+            if account_only {
+                state.info_error = "账户信息读取超时，请稍后重试".into();
+            }
             if !account_only {
                 state.status = json!({"online":null, "service":null, "user":"", "ip":"", "message":"操作超过时限，请重新查询实际状态"});
             }
@@ -859,7 +877,8 @@ impl Worker {
                         .ok()
                         .and_then(normalize_info)
                         .unwrap_or(Value::Null);
-                    if result.is_err() || state.info.is_null() {
+                    if state.info.is_null() {
+                        state.info_error = "账户信息获取失败，请稍后重试".into();
                         state.log("error", "账户信息获取失败，请稍后重试");
                     }
                 });
@@ -1204,7 +1223,7 @@ impl Backend {
                 if demo.info_error {
                     return Err(AuthError {
                         code: 2,
-                        message: "fixture account".into(),
+                        message: "fixture account https://fixture-user:fixture-secret@portal.invalid/?token=fixture-token".into(),
                     });
                 }
                 Ok(
