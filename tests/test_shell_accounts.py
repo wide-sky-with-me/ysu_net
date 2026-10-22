@@ -332,5 +332,3 @@ class RealShellAccountTests(OfflineTestCase):
         self.assertEqual(view["items"][0]["username"], "fixture-shell")
         self.assertNotIn("fixture-shell-secret", result.stdout + result.stderr)
         self.assertTrue(all("password" not in entry for entry in view["items"]))
-
-

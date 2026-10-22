@@ -54,4 +54,3 @@ class SharedQuotaRotationTests(OfflineTestCase):
                 else:
                     self.switcher.assert_not_called()
                     self.assertEqual(self.rotation.quota, case["expected"])
-
