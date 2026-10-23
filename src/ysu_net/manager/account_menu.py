@@ -102,8 +102,9 @@ def run_menu(args, path, command):
     while True:
         view = public_accounts(path)
         show_accounts(view)
-        ui.choices(["1 刷新账号列表", "2 新增账号", "3 编辑账号", "4 热切换账号", "5 删除账号",
-                    "6 启用/停用候选", "7 开启自动换号", "8 关闭自动换号", "9 查询账户与剩余流量", "0 返回"])
+        ui.section("操作选项")
+        ui.choices([" 1  刷新账号列表", " 2  新增账号", " 3  编辑账号", " 4  热切换账号", " 5  删除账号",
+                    " 6  启用/停用候选", " 7  开启自动换号", " 8  关闭自动换号", " 9  查询账户与剩余流量", " 0  返回"])
         try:
             choice = input("  多账号操作 [0 返回]: ").strip()
             if choice in ("0", "q", "exit"):

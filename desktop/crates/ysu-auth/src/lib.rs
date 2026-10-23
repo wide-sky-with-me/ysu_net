@@ -6,17 +6,20 @@ mod browser_process;
 mod cdp_pipe;
 mod cookies;
 mod crypto;
+mod diagnostic;
 mod presentation;
 mod protocol;
 mod quota;
 mod transport;
 
+use diagnostic::{at, operation as diagnose};
 use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
 use transport::{Operation, Transport};
 
 pub use browser::system_chromium as browser_path;
+pub use diagnostic::{AuthDiagnostic, DiagnosticOperation, DiagnosticReason, DiagnosticStage};
 pub use quota::{classify_quota, Quota, QuotaState};
 pub const SERVICES: [&str; 4] = ["校园网", "中国移动", "中国联通", "中国电信"];
 pub const QUERY_ERROR: i32 = 2;
@@ -147,29 +150,48 @@ pub(crate) fn is_loopback(u: &url::Url) -> bool {
 pub struct AuthError {
     pub code: i32,
     pub message: String,
+    pub diagnostic: AuthDiagnostic,
 }
 
 impl AuthError {
-    pub(crate) fn query(message: &str) -> Self {
+    /// Legacy/free-form messages are deliberately not parsed into public diagnostics.
+    pub fn new(code: i32, message: impl Into<String>) -> Self {
         Self {
-            code: QUERY_ERROR,
+            code,
             message: message.into(),
+            diagnostic: AuthDiagnostic::default(),
         }
+    }
+    pub fn diagnostic(&self) -> AuthDiagnostic {
+        self.diagnostic
+    }
+    pub(crate) fn at(mut self, stage: DiagnosticStage) -> Self {
+        if self.diagnostic.stage == DiagnosticStage::Unknown {
+            self.diagnostic.stage = stage;
+        }
+        self
+    }
+    pub(crate) fn because(mut self, reason: DiagnosticReason) -> Self {
+        self.diagnostic.reason = reason;
+        self
+    }
+    pub(crate) fn or_reason(mut self, reason: DiagnosticReason) -> Self {
+        if self.diagnostic.reason == DiagnosticReason::Unknown {
+            self.diagnostic.reason = reason;
+        }
+        self
+    }
+    pub(crate) fn query(message: &str) -> Self {
+        Self::new(QUERY_ERROR, message)
     }
     pub(crate) fn operation(message: &str) -> Self {
-        Self {
-            code: OPERATION_ERROR,
-            message: message.into(),
-        }
+        Self::new(OPERATION_ERROR, message)
     }
     pub(crate) fn interaction(message: &str) -> Self {
-        Self {
-            code: INTERACTION_ERROR,
-            message: message.into(),
-        }
+        Self::new(INTERACTION_ERROR, message).because(DiagnosticReason::InteractionRequired)
     }
     pub(crate) fn timeout() -> Self {
-        Self::query("操作超过时限，请重新查询连接状态")
+        Self::query("操作超过时限，请重新查询连接状态").because(DiagnosticReason::Deadline)
     }
 }
 impl fmt::Display for AuthError {
@@ -203,7 +225,10 @@ pub struct AuthClient {
 
 impl AuthClient {
     pub fn new(config: Config) -> Result<Self, AuthError> {
-        config.validate()?;
+        config.validate().map_err(|e| {
+            e.at(DiagnosticStage::Config)
+                .or_reason(DiagnosticReason::ConfigInvalid)
+        })?;
         Ok(Self {
             config,
             local: false,
@@ -214,7 +239,10 @@ impl AuthClient {
     /// Explicit fixture escape hatch; never enabled by a config field or UI parameter.
     #[cfg(any(test, feature = "local-fixtures"))]
     pub fn new_local_fixture(config: Config) -> Result<Self, AuthError> {
-        config.validate_transport(true)?;
+        config.validate_transport(true).map_err(|e| {
+            e.at(DiagnosticStage::Config)
+                .or_reason(DiagnosticReason::ConfigInvalid)
+        })?;
         Ok(Self {
             config,
             local: true,
@@ -227,54 +255,73 @@ impl AuthClient {
     }
 
     async fn session(&self, op: &Operation) -> Result<protocol::Session, AuthError> {
-        let http = Transport::new(&self.config, self.local)?;
+        let http = Transport::new(&self.config, self.local).map_err(|e| {
+            e.at(DiagnosticStage::Config)
+                .or_reason(DiagnosticReason::ConfigInvalid)
+        })?;
         protocol::Session::open(http, &self.config, op).await
     }
 
     pub async fn status(&self) -> Result<Status, AuthError> {
-        let op = self.operation();
-        let _guard = op.run(self.lock.lock()).await?;
-        self.session(&op)
-            .await?
-            .snapshot(&op)
-            .await
-            .map(|v| v.status)
+        diagnose(DiagnosticOperation::Status, async {
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            self.session(&op)
+                .await?
+                .snapshot(&op)
+                .await
+                .map(|v| v.status)
+        })
+        .await
     }
 
     pub async fn info(&self) -> Result<serde_json::Value, AuthError> {
-        let op = self.operation();
-        let _guard = op.run(self.lock.lock()).await?;
-        let session = self.session(&op).await?;
-        let online = session.snapshot(&op).await?;
-        if !online.status.online {
-            return Ok(serde_json::json!({"online":false,"fields":[],"items":[]}));
-        }
-        let account = session.account(&op).await?;
-        let mut summary = presentation::summary(&online.payload, &account);
-        summary["quota"] = serde_json::to_value(classify_quota(&account))
-            .expect("quota contains only an enum and text");
-        op.remaining()?;
-        Ok(summary)
+        diagnose(DiagnosticOperation::Info, async {
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let session = self.session(&op).await?;
+            let online = session.snapshot(&op).await?;
+            if !online.status.online {
+                return Ok(serde_json::json!({"online":false,"fields":[],"items":[]}));
+            }
+            let account = session.account(&op).await?;
+            let mut summary = presentation::summary(&online.payload, &account);
+            summary["quota"] = serde_json::to_value(classify_quota(&account))
+                .expect("quota contains only an enum and text");
+            op.remaining()
+                .map_err(|e| e.at(DiagnosticStage::AccountInfo))?;
+            Ok(summary)
+        })
+        .await
     }
 
     /// Rotation evidence: only this configured online account/service, checked twice.
     /// One deadline includes lock queueing, navigation, account lookup and verification.
     pub async fn verified_info(&self) -> Result<serde_json::Value, AuthError> {
-        self.config.require_credentials()?;
-        let op = self.operation();
-        let _guard = op.run(self.lock.lock()).await?;
-        let session = self.session(&op).await?;
-        let before = session.snapshot(&op).await?;
-        self.require_current_account(&before)?;
-        let account = session.account(&op).await?;
-        quota::require_account(&account)?;
-        let after = session.snapshot(&op).await?;
-        self.require_current_account(&after)?;
-        let mut summary = presentation::summary(&after.payload, &account);
-        summary["quota"] = serde_json::to_value(classify_quota(&account))
-            .expect("quota contains only an enum and text");
-        op.remaining()?;
-        Ok(summary)
+        diagnose(DiagnosticOperation::VerifiedInfo, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let session = self.session(&op).await?;
+            let before = session.snapshot(&op).await?;
+            self.require_current_account(&before)?;
+            let account = session.account(&op).await?;
+            quota::require_account(&account).map_err(|e| {
+                e.at(DiagnosticStage::AccountInfo)
+                    .or_reason(DiagnosticReason::ResponseInvalid)
+            })?;
+            let after = session.snapshot(&op).await?;
+            self.require_current_account(&after)?;
+            let mut summary = presentation::summary(&after.payload, &account);
+            summary["quota"] = serde_json::to_value(classify_quota(&account))
+                .expect("quota contains only an enum and text");
+            op.remaining()
+                .map_err(|e| e.at(DiagnosticStage::Verification))?;
+            Ok(summary)
+        })
+        .await
     }
 
     fn require_current_account(&self, snapshot: &protocol::Snapshot) -> Result<(), AuthError> {
@@ -297,67 +344,82 @@ impl AuthClient {
     }
 
     pub async fn login(&self) -> Result<Status, AuthError> {
-        self.config.require_credentials()?;
-        let op = self.operation();
-        let _guard = op.run(self.lock.lock()).await?;
-        let mut session = self.session(&op).await?;
-        session.login(&self.config, &self.config.service, &op).await
+        diagnose(DiagnosticOperation::Login, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let mut session = self.session(&op).await?;
+            session.login(&self.config, &self.config.service, &op).await
+        })
+        .await
     }
 
     pub async fn logout(&self) -> Result<Status, AuthError> {
-        self.config.require_credentials()?;
-        let op = self.operation();
-        let _guard = op.run(self.lock.lock()).await?;
-        let mut session = self.session(&op).await?;
-        session.logout(&self.config, &op).await
+        diagnose(DiagnosticOperation::Logout, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let mut session = self.session(&op).await?;
+            session.logout(&self.config, &op).await
+        })
+        .await
     }
 
     pub async fn switch_service(&self, target: &str) -> Result<Status, AuthError> {
-        if !SERVICES.contains(&target) {
-            return Err(AuthError::query("目标服务无效"));
-        }
-        self.config.require_credentials()?;
-        let op = self.operation();
-        let _guard = op.run(self.lock.lock()).await?;
-        let mut session = self.session(&op).await?;
-        let before = session.snapshot(&op).await?;
-        before.require_owner(&self.config.username)?;
-        let previous = before.status.service.clone();
-        if previous.as_deref() == Some(target) {
-            return Ok(before.status);
-        }
+        diagnose(DiagnosticOperation::SwitchService, async {
+            if !SERVICES.contains(&target) {
+                return Err(AuthError::query("目标服务无效"));
+            }
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let mut session = self.session(&op).await?;
+            let before = session.snapshot(&op).await?;
+            before.require_owner(&self.config.username)?;
+            let previous = before.status.service.clone();
+            if previous.as_deref() == Some(target) {
+                return Ok(before.status);
+            }
 
-        // Reserve a third of the total budget for at most one recovery, not an unbounded retry.
-        let primary = if previous.is_some() {
-            op.fraction(2, 3)
-        } else {
-            op.clone()
-        };
-        let changed = previous.is_some();
-        let result: Result<Status, AuthError> = async {
-            if changed {
-                session.logout(&self.config, &primary).await?;
-            }
-            session.login(&self.config, target, &primary).await?;
-            let verified = session.snapshot(&primary).await?;
-            verified.require_target(&self.config.username, target)?;
-            Ok(verified.status)
-        }
-        .await;
-        match result {
-            Ok(value) => Ok(value),
-            Err(mut error) => {
-                if let Some(previous) = previous {
-                    let restored = session.restore(&self.config, &previous, &op).await;
-                    error.message.push_str(if restored {
-                        "；已独立确认恢复原服务"
-                    } else {
-                        "；原连接恢复未确认，请查询状态"
-                    });
+            // Reserve a third of the total budget for at most one recovery, not an unbounded retry.
+            let primary = if previous.is_some() {
+                op.fraction(2, 3)
+            } else {
+                op.clone()
+            };
+            let changed = previous.is_some();
+            let result: Result<Status, AuthError> = async {
+                if changed {
+                    session.logout(&self.config, &primary).await?;
                 }
-                Err(error)
+                session.login(&self.config, target, &primary).await?;
+                let verified = session.snapshot(&primary).await?;
+                verified.require_target(&self.config.username, target)?;
+                Ok(verified.status)
             }
-        }
+            .await;
+            match result {
+                Ok(value) => Ok(value),
+                Err(mut error) => {
+                    if let Some(previous) = previous {
+                        let restored = session.restore(&self.config, &previous, &op).await;
+                        error.message.push_str(if restored {
+                            "；已独立确认恢复原服务"
+                        } else {
+                            "；原连接恢复未确认，请查询状态"
+                        });
+                    }
+                    Err(error)
+                }
+            }
+        })
+        .await
     }
 }
 

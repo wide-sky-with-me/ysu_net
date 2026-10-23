@@ -1,21 +1,59 @@
 @layer base {
-  /* Keep the app chrome neutral; only intentional accents change hue. */
+  /* Blue-gray is the default; the original green surface palette remains opt-in. */
+  :root[data-accent='teal'] {
+    --canvas: #f0f3f1;
+    --surface-alt: #edf1ee;
+    --button: #edf2ee;
+    --field: #f1f5f2;
+    --sidebar-hover: #e6ece8;
+    --sidebar-active: #e1e8e3;
+    --text: #1b2720;
+    --muted: #66736a;
+    --border: #e2e9e4;
+    --control-border-hover: #ced9d1;
+    --scrollbar: #b9c9be;
+    --hover: #e8efea;
+    --toggle-off: #c9d3cc;
+    --accent: #007b6b;
+    --accent-hover: #006b5d;
+    --accent-soft: #def3ed;
+  }
+  :root[data-accent='teal'][data-theme='dark'] {
+    --canvas: #121814;
+    --surface: #1d2620;
+    --surface-raised: #26312a;
+    --surface-alt: #29352d;
+    --button: #2a372e;
+    --field: #27332b;
+    --sidebar-hover: #202c24;
+    --sidebar-active: #2b382e;
+    --text: #e6eee8;
+    --muted: #a2b1a7;
+    --border: #344238;
+    --control-border-hover: #4b6152;
+    --segment-selected: #3a4a3f;
+    --scrollbar: #4d6254;
+    --hover: #324238;
+    --toggle-off: #4b5e51;
+    --accent: #82ddc5;
+    --accent-hover: #b6efdf;
+    --accent-soft: #234a3f;
+    --on-accent: #093a2f;
+  }
   :root[data-accent='blue'] {
-    --accent: #0969c3;
-    --accent-hover: #0759a6;
-    --accent-soft: #e6f4fe;
-    --brand-fill: #0969c3;
+    --accent: #3b6ed4;
+    --accent-hover: #2d5fc1;
+    --accent-soft: #e7efff;
   }
   :root[data-accent='blue'][data-theme='dark'] {
-    --accent: #70b8ff;
-    --accent-hover: #c2e6ff;
-    --accent-soft: #0d2847;
+    --accent: #9bbcff;
+    --accent-hover: #c3d6ff;
+    --accent-soft: #263d66;
   }
   :root[data-accent='indigo'] {
     --accent: #3e63dd;
     --accent-hover: #3358d4;
     --accent-soft: #edf2fe;
-    --brand-fill: #3e63dd;
   }
   :root[data-accent='indigo'][data-theme='dark'] {
     --accent: #9eb1ff;
@@ -26,7 +64,6 @@
     --accent: #6e56cf;
     --accent-hover: #654dc4;
     --accent-soft: #f4f0fe;
-    --brand-fill: #6e56cf;
   }
   :root[data-accent='violet'][data-theme='dark'] {
     --accent: #baa7ff;
@@ -37,7 +74,6 @@
     --accent: #cb1d63;
     --accent-hover: #b71958;
     --accent-soft: #ffe9f0;
-    --brand-fill: #cb1d63;
   }
   :root[data-accent='rose'][data-theme='dark'] {
     --accent: #ff92ad;
@@ -48,7 +84,6 @@
     --accent: #a05c00;
     --accent-hover: #935500;
     --accent-soft: #fff7c2;
-    --brand-fill: #a05c00;
   }
   :root[data-accent='amber'][data-theme='dark'] {
     --accent: #ffca16;
@@ -61,7 +96,7 @@
   .accent-setting { align-items: flex-start; }
   .accent-setting > div:first-child { flex: 0 0 auto; padding-top: 7px; }
   .accent-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-width: 0; width: min(330px, 100%); }
-  .accent-option { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; min-height: 30px; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 12px; }
+  .accent-option { display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; min-height: 34px; padding: 5px 8px; border-radius: 999px; font-size: 12px; }
   .accent-option[aria-pressed='true'], .accent-option[aria-pressed='true']:hover:not(:disabled) { border-color: var(--control-border-hover); background: var(--segment-selected); color: var(--text); font-weight: 650; box-shadow: var(--segment-shadow); }
   .accent-swatch { display: grid; place-items: center; flex: 0 0 14px; width: 14px; height: 14px; border-radius: 50%; background: var(--swatch-light); color: #ffffff; }
   :root[data-theme='dark'] .accent-swatch { background: var(--swatch-dark); color: var(--on-accent); }

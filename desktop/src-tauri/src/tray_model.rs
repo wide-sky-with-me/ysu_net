@@ -190,7 +190,7 @@ impl TrayView {
             &quota
         };
         let mut tooltip = format!(
-            "YSU Net · {title}\n{}\n{}\n{}\n重连：{} · 换号：{}",
+            "燕大校园网 · {title}\n{}\n{}\n{}\n重连：{} · 换号：{}",
             utf16_limit(&identity, 28),
             utf16_limit(&address, 44),
             utf16_limit(detail, 20),
@@ -213,7 +213,7 @@ impl TrayView {
             None => ("查询连接状态", "status"),
         };
         Self {
-            status: format!("YSU Net · {title}"),
+            status: compact(&format!("{title} · {identity}"), 32),
             identity,
             address,
             quota,
@@ -225,7 +225,7 @@ impl TrayView {
             tooltip,
             indicator: if external {
                 Indicator::External
-            } else if busy || online.is_none() || (!verified && auto) {
+            } else if busy || online.is_none() {
                 Indicator::Waiting
             } else if verified {
                 Indicator::Online
@@ -309,7 +309,7 @@ pub fn badged_icon(base: &[u8], width: u32, height: u32, indicator: Indicator) -
     }
     let color = match indicator {
         Indicator::Online => [24, 126, 92, 255],
-        Indicator::Offline => [102, 120, 143, 255],
+        Indicator::Offline => [174, 66, 75, 255],
         Indicator::Waiting => [181, 111, 21, 255],
         Indicator::External => [0, 110, 156, 255],
     };
@@ -333,6 +333,28 @@ pub fn badged_icon(base: &[u8], width: u32, height: u32, indicator: Indicator) -
     pixels
 }
 
+pub const MENU_ICON_SIZE: u32 = 16;
+
+/// Native menu bitmaps have a fixed small extent, regardless of the app icon size.
+pub fn menu_status_icon(base: &[u8], width: u32, height: u32, indicator: Indicator) -> Vec<u8> {
+    let side = MENU_ICON_SIZE as usize;
+    let mut small = vec![0; side * side * 4];
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|count| count.checked_mul(4));
+    if width > 0 && height > 0 && expected == Some(base.len()) {
+        for y in 0..side {
+            for x in 0..side {
+                let source =
+                    ((y * height as usize / side) * width as usize + x * width as usize / side) * 4;
+                let target = (y * side + x) * 4;
+                small[target..target + 4].copy_from_slice(&base[source..source + 4]);
+            }
+        }
+    }
+    badged_icon(&small, MENU_ICON_SIZE, MENU_ICON_SIZE, indicator)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +371,8 @@ mod tests {
         let s = snapshot();
         let view = TrayView::from_snapshot(&s, true, false);
         assert_eq!(view.indicator, Indicator::Online);
+        assert!(view.status.starts_with("已连接 · ") && view.status.contains("student-a"));
+        assert!(view.status.chars().count() <= 32);
         assert!(view.identity.contains("中国移动") && view.identity.contains("student-a"));
         assert!(view.tooltip.contains("192.0.2.10") && view.tooltip.contains("80.00 GB"));
         assert_eq!(
@@ -360,6 +384,21 @@ mod tests {
             Some(("rotation", json!({"enabled":true})))
         );
     }
+
+    #[test]
+    fn confirmed_offline_is_red_even_when_reconnect_is_waiting() {
+        let mut s = snapshot();
+        s["status"]["online"] = false.into();
+        let view = TrayView::from_snapshot(&s, true, false);
+        assert_eq!(view.indicator, Indicator::Offline);
+        assert!(view.auto_checked);
+        s["busy"] = true.into();
+        assert_eq!(
+            TrayView::from_snapshot(&s, true, false).indicator,
+            Indicator::Waiting
+        );
+    }
+
     #[test]
     fn unknown_queries_instead_of_logging_in_and_hides_stale_quota() {
         let mut s = snapshot();
@@ -507,6 +546,22 @@ mod tests {
         assert_eq!(
             badged_icon(&[], 32, 32, Indicator::Online),
             Vec::<u8>::new()
+        );
+    }
+
+    #[test]
+    fn native_menu_icons_keep_a_small_extent_and_semantic_status_colors() {
+        let base = vec![80; 32 * 32 * 4];
+        let online = menu_status_icon(&base, 32, 32, Indicator::Online);
+        let offline = menu_status_icon(&base, 32, 32, Indicator::Offline);
+        assert_eq!(online.len(), 16 * 16 * 4);
+        assert_eq!(&online[..64], &base[..64]);
+        let center = (12 * 16 + 12) * 4;
+        assert_eq!(&online[center..center + 4], &[24, 126, 92, 255]);
+        assert_eq!(&offline[center..center + 4], &[174, 66, 75, 255]);
+        assert_eq!(
+            menu_status_icon(&[], 0, 0, Indicator::Waiting).len(),
+            16 * 16 * 4
         );
     }
 }

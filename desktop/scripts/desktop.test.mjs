@@ -39,3 +39,22 @@ test('rejects contradictory flags and removed Python driver options', () => {
   assert.throws(() => options(['--api-only']));
   assert.throws(() => options(['unrecognized']));
 });
+
+test('signed updates use only the official config override and retain the lockfile', () => {
+  for (const platform of ['win32', 'darwin']) {
+    const args = buildCommands(options(['--signed-update']), platform)[1];
+    assert.deepEqual(JSON.parse(args[args.indexOf('--config') + 1]), { bundle: { createUpdaterArtifacts: true } });
+    assert.deepEqual(args.slice(-2), ['--', '--locked']);
+    assert.doesNotMatch(JSON.stringify(args), /PRIVATE_KEY|password|private-key-path/);
+  }
+});
+
+test('unsigned normal builds do not request updater artifacts or a key', () => {
+  assert.ok(!buildCommands(options([]), 'win32')[1].includes('--config'));
+  assert.throws(() => buildCommands(options(['--signed-update']), 'linux'));
+  assert.ok(buildCommands(options(['--signed-update', '--bundles', 'appimage']), 'linux')[1].includes('--config'));
+});
+
+test('signed updater builds reject non-bundle modes', () => {
+  for (const flag of ['--dev', '--prepare-only', '--no-bundle']) assert.throws(() => options(['--signed-update', flag]));
+});

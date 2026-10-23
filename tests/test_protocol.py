@@ -94,6 +94,22 @@ class ProtocolTests(OfflineTestCase):
         self.assertEqual(exc.exception.code, 1)
         self.assertFalse(json.loads(self.output.getvalue())["is_online"])
 
+    def test_node_business_failure_never_submits_service_actions(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "flow-node.json").read_text())
+        sess = self.context()
+        for case in fixture["cases"]:
+            with self.subTest(case=case["id"]):
+                sess.reset_mock()
+                sess.get.side_effect = [self.response(OFFLINE), self.response(ONLINE)]
+                sess.post.side_effect = [self.response(case["payload"]), self.response({"result": "success"}),
+                                         self.response({"result": "success"}), self.response({"data": {}})]
+                if case["valid"]:
+                    api.cmd_login("校园网", "user", "password", False, 5)
+                else:
+                    with self.assertRaises(QueryError):
+                        api.cmd_login("校园网", "user", "password", False, 5)
+                    self.assertEqual(sess.post.call_count, 1)
+
     def test_login_calls_service_then_online_and_verifies(self):
         sess = self.context()
         sess.get.side_effect = [self.response(OFFLINE), self.response(ONLINE)]
@@ -288,6 +304,18 @@ class BrowserTests(OfflineTestCase):
         with self.assertRaises(RuntimeError):
             self.browser.cmd_status(False, False, False)
         playwright.stop.assert_called_once()
+
+    def test_browser_node_business_failure_mirrors_api(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "flow-node.json").read_text())
+        post = self.mock("ysu_net.auth.browser.api_post_json")
+        for case in fixture["cases"]:
+            with self.subTest(case=case["id"]):
+                post.return_value = (200, case["payload"])
+                if case["valid"]:
+                    self.assertEqual(self.browser.get_current_node(Mock(), "fixture-session", False), "serviceSelection")
+                else:
+                    with self.assertRaises(QueryError):
+                        self.browser.get_current_node(Mock(), "fixture-session", False)
 
     def test_invalid_online_response_is_unknown(self):
         request = Mock()

@@ -6,8 +6,14 @@
   import SettingsTabs from './components/SettingsTabs.svelte';
   import AccentPicker from './components/AccentPicker.svelte';
   import AccountBook from './components/AccountBook.svelte';
+  import OnlineDetails from './components/OnlineDetails.svelte';
+  import QuotaAmbient from './components/QuotaAmbient.svelte';
+  import AnimatedMetric from './components/AnimatedMetric.svelte';
+  import UpdatePanel from './lib/UpdatePanel.svelte';
+  import { pageMotion, stateMotion } from './lib/motion';
+  import { DEFAULT_ACCENT } from './lib/accents';
   import { createTransport } from './lib/bridge';
-  import { accountInfoState, reconnectNotice } from './lib/presentation';
+  import { accountInfoState, canAnimateQuota, reconnectNotice } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
   import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
 
@@ -56,7 +62,7 @@
   const targetAccount = $derived(snapshot?.accounts.items.find((item) => item.id === selectedAccount));
   const quotaTitle = $derived(snapshot ? { unknown: '额度未知', available: '门户已提供额度', zero_reported: '门户报告剩余流量为零', unlimited: '门户报告不限量' }[snapshot.accounts.quota.state] : '额度待确认');
   const theme = $derived(snapshot?.prefs.theme || 'system');
-  const accent = $derived(snapshot?.prefs.accent || 'teal');
+  const accent = $derived(snapshot?.prefs.accent || DEFAULT_ACCENT);
   const actualTheme = $derived(theme === 'system' ? systemDark ? 'dark' : 'light' : theme);
   const selectedService = $derived(snapshot?.config.service);
   const statusTitle = $derived(transport.mode === 'web' ? '等待桌面核心' : starting && !snapshot ? '正在读取状态' : online ? '校园网已连接' : snapshot?.status?.online === false ? '校园网未连接' : '连接状态未知');
@@ -277,14 +283,16 @@
 
 <div class="app-shell">
   <aside class="sidebar" aria-label="主导航">
-    <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4.6 4.8 12 13 19.4 4.8" />
-          <path d="M12 13v6.4" />
+    <div class="brand" role="img" aria-label="YSU Net · 燕山大学校园网">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 36 36" fill="none">
+          <path d="M8 12v11a4 4 0 0 0 4 4h12a4 4 0 0 0 4-4V12M18 7v20" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+          <rect x="4.5" y="8.5" width="7" height="7" rx="2" fill="currentColor" />
+          <rect x="14.5" y="3.5" width="7" height="7" rx="2" fill="currentColor" />
+          <rect x="24.5" y="8.5" width="7" height="7" rx="2" fill="currentColor" />
         </svg>
       </div>
-      <div class="brand-copy"><strong>YSU <em>Net</em></strong><span>燕山大学校园网</span></div>
+      <div class="brand-copy" aria-hidden="true"><strong>燕大校园网</strong><span>YSU Net</span></div>
     </div>
     <nav>
       {#each navigation as item}
@@ -294,14 +302,15 @@
       {/each}
     </nav>
     <div class="sidebar-bottom">
-      <div class="sidebar-status" role="status" aria-label={sidebarStatus.label} title={sidebarStatus.label}><span class={`status-dot ${statusTone}`} aria-hidden="true"></span><span>{sidebarStatus.text}</span></div>
+      <div class="sidebar-status" use:stateMotion={transport.mode === 'web' || !snapshot ? '' : statusTone} data-state={transport.mode === 'web' ? 'pending' : statusTone} role="status" aria-label={sidebarStatus.label} title={sidebarStatus.label}>
+        <span class="sidebar-status-marker" aria-hidden="true"><Icon name={transport.mode === 'web' ? 'network' : online ? 'check' : statusTone === 'offline' ? 'power' : 'warning'} size={12} /></span>
+        <span class="sidebar-status-text">{sidebarStatus.text}</span>
+      </div>
     </div>
   </aside>
 
   <div class="workspace">
-    {#if transport.mode === 'demo' || native?.demo}
-      <div class="mode-banner" role="status"><Icon name="info" size={16} /><strong>离线模拟</strong><span>不访问校园网，不保存真实配置。</span></div>
-    {:else if transport.mode === 'web'}
+    {#if transport.mode === 'web'}
       <div class="mode-banner web-mode" role="status"><Icon name="info" size={16} /><strong>普通网页</strong><span>连接操作仅在桌面客户端启用。</span><a href="?demo=1">打开离线模拟</a></div>
     {/if}
     <header class="page-header">
@@ -318,14 +327,14 @@
       <div class="busy-line" role="status"><span class="busy-mark"></span>{snapshot?.busy_message || (starting ? '正在读取核心状态…' : '正在执行，请稍候…')}</div>
     {/if}
 
-    <main id="main-content" class:connection-page={page === 'connection'} class:log-page={page === 'logs'} class:settings-page={page === 'settings'}>
+    <main id="main-content" use:pageMotion={page === 'settings' ? `${page}:${settingsSection}` : page} class:connection-page={page === 'connection'} class:log-page={page === 'logs'} class:settings-page={page === 'settings'}>
       {#if page === 'connection'}
         <div class={`connection-overview ${statusTone}`}>
           <div class="connection-context">
           <section class={`connection-state ${statusTone}`} aria-label="当前连接状态">
-            <div class="connection-emblem" aria-hidden="true"><Icon name="network" size={28} /><span class={`emblem-status ${statusTone}`}></span></div>
+            <div class="connection-emblem" use:stateMotion={snapshot ? statusTone : ''} aria-hidden="true"><Icon name={online ? 'check' : statusTone === 'unknown' ? 'warning' : 'network'} size={24} /></div>
             <div class="state-copy"><h2>{statusTitle}</h2>{#if statusDescription}<p>{statusDescription}</p>{/if}</div>
-            <button type="button" class={`connection-action ${online ? 'disconnect-button' : 'primary-button'}`} disabled={locked || external} onclick={connect}><Icon name={online ? 'power' : 'connect'} size={18} />{online ? '断开连接' : '连接校园网'}</button>
+            <button type="button" class={`connection-action ${online ? 'disconnect-button' : 'primary-button'}`} disabled={locked || external} onclick={connect}><Icon name={online ? 'power' : 'connect'} size={18} /><span>{online ? '断开连接' : '连接校园网'}</span></button>
           </section>
           {#if external}<p class="external-note">{snapshot?.auto.message || '后台服务正在管理此配置，请先执行 ysu stop'}</p>{/if}
           <dl class="connection-details">
@@ -333,7 +342,7 @@
             <div><dt>{online ? '校园网账号' : '待连接账号'}</dt><dd>{online ? snapshot?.status?.user || '门户未提供' : snapshot?.config.username || '尚未设置'}{#if !snapshot?.config.username}<button type="button" class="text-button" onclick={() => navigate('settings')}>设置账号</button>{/if}</dd></div>
             <div><dt>IP 地址</dt><dd class="numeric">{online ? snapshot?.status?.ip || '门户未提供' : snapshot?.status?.online === false ? '待连接后获取' : '待核心确认'}</dd></div>
           </dl>
-          <div class="connection-footer" class:unverified={Boolean(snapshot && !snapshot.config.verify_tls)}><Icon name={snapshot && !snapshot.config.verify_tls ? 'warning' : 'shield'} size={14} /><span>{!snapshot ? '认证配置待核心提供' : snapshot.config.verify_tls ? 'HTTPS 证书校验已开启' : 'HTTPS 证书校验已关闭'}</span><span class="footer-backend">{!snapshot ? '桌面核心未连接' : snapshot.config.backend === 'browser' ? '浏览器认证' : 'API 认证'}</span></div>
+          {#if snapshot && !snapshot.config.verify_tls}<p class="connection-security-warning" role="status"><Icon name="warning" size={16} />HTTPS 证书校验已关闭</p>{/if}
           </div>
         <div class="connection-automation">
         <section class="auto-section">
@@ -343,7 +352,7 @@
         </section>
         <section class="auto-section rotation-section" aria-label="账号自动轮换">
           <span class="automation-icon" class:active={Boolean(snapshot?.accounts.auto_switch)} aria-hidden="true"><Icon name="rotation" size={18} /></span>
-          <div><h2>自动换号</h2>{#if !external && rotation.reason}<p>{rotation.reason}</p>{/if}<p class="quota-status" role="status" aria-label="流量状态" data-state={snapshot?.accounts.quota.state || 'unknown'}>{#if snapshot?.accounts.quota.state === 'available' && snapshot.accounts.quota.message}{snapshot.accounts.quota.message}{:else}{quotaTitle}{#if snapshot?.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot?.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p></div>
+          <div><h2>自动换号</h2>{#if !external && rotation.reason}<p>{rotation.reason}</p>{/if}<p class="quota-status" role="status" aria-label="流量状态" data-state={snapshot?.accounts.quota.state || 'unknown'}>{#if snapshot?.accounts.quota.state === 'available' && snapshot.accounts.quota.message}<AnimatedMetric value={snapshot.accounts.quota.message} />{:else}{quotaTitle}{#if snapshot?.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot?.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p></div>
           <Toggle checked={snapshot?.accounts.auto_switch || false} disabled={localLocked || (!snapshot?.accounts.auto_switch && (pending || !rotation.canEnable))} label="自动换号" onchange={setRotation} />
         </section>
         </div>
@@ -370,9 +379,16 @@
 
       {:else if page === 'account'}
         {#if accountState === 'ready' && snapshot?.info}
-          <section class="account-summary"><h2>套餐与用量</h2><dl>{#each items as [name, value]}<div><dt>{name}</dt><dd class:metric={/流量|余额|用量|额度/.test(name) && /^[+-]?\d/.test(value)} class:missing={value === '门户未提供'}>{value}</dd></div>{/each}</dl></section>
-          {#if items.some(([, value]) => value === '门户未提供') || snapshot.info.fields.some(([, value]) => !value.trim())}<p class="portal-note"><Icon name="info" size={16} />门户未提供的项目不代表 0 或不限量。</p>{/if}
-          <section class="account-fields"><h2>在线信息</h2>{#if snapshot.info.fields.length}<dl>{#each snapshot.info.fields as [name, value]}<div><dt>{name}</dt><dd>{value.trim() ? value : '门户未提供'}</dd></div>{/each}</dl>{:else}<p class="muted">门户未提供在线信息。</p>{/if}</section>
+          <section class="account-summary">
+            <h2>套餐与用量</h2>
+            <dl>{#each items as [name, value]}
+              <div class:flow-card={/流量|用量|额度/.test(name)}>
+                <dt>{name}</dt>
+                <dd class:metric={/流量|用量|额度/.test(name) && /^[+-]?\d/.test(value.trim())} class:flow-accent={/流量|额度/.test(name) && value !== '门户未提供' && !/^0(?:\.0+)?(?:\s|$|[A-Za-z\u4e00-\u9fa5])/.test(value.trim())} class:zero-warning={/流量|额度/.test(name) && /^0(?:\.0+)?(?:\s|$|[A-Za-z\u4e00-\u9fa5])/.test(value.trim())} class:missing={value === '门户未提供'}>{#if canAnimateQuota(name, value)}<QuotaAmbient />{/if}<AnimatedMetric {value} active={/流量|用量|额度/.test(name) && /^[+-]?\d/.test(value.trim())} /></dd>
+              </div>
+            {/each}</dl>
+          </section>
+          <OnlineDetails fields={snapshot.info.fields} />
         {:else}
           <div class="empty-state"><Icon name={accountState === 'error' ? 'alert' : 'account'} size={32} /><h2 role={accountState === 'error' ? 'alert' : undefined}>{accountState === 'error' ? snapshot?.info_error : accountState === 'offline' ? '连接后查看账户信息' : accountState === 'unknown' ? '连接状态未知' : '尚未读取账户信息'}</h2><button type="button" class="primary-button" disabled={locked} onclick={() => accountState === 'offline' ? navigate('connection') : action('info')}>{accountState === 'error' ? '重试读取账户信息' : accountState === 'offline' ? '前往连接' : '读取账户信息'}</button></div>
         {/if}
@@ -404,6 +420,7 @@
               <div class="setting-row"><div><span>关闭窗口时驻留托盘</span>{#if !native?.tray_available}<p>{!native ? transport.mode === 'web' ? '请在桌面客户端设置。' : '托盘状态待确认。' : '当前环境未提供系统托盘，关闭窗口将退出应用。'}</p>{/if}</div><Toggle checked={snapshot?.prefs.close_to_tray || false} disabled={locked || !native?.tray_available} label="关闭窗口时驻留托盘" onchange={(value) => savePreference({ close_to_tray: value })} /></div>
               <div class="quit-row"><button type="button" disabled={localLocked} onclick={() => { confirmation = { title: '退出 YSU Net', message: '退出后，本客户端的自动重连将停止；当前已建立的校园网连接不会因此自动下线。', confirm: '退出应用', icon: 'exit', run: () => { void execute(() => transport.quit(), undefined, true); } }; }}><Icon name="exit" size={16} />退出应用</button></div>
             </section>
+            <UpdatePanel mode={transport.mode} demo={!!native?.demo} {busy} currentVersion={native?.version || environment?.version || ''} />
           {:else if settingsSection === 'authentication'}
             <form class="authentication-settings" onsubmit={(event) => { event.preventDefault(); saveParameters(); }}>
               <fieldset disabled={locked}>
@@ -433,7 +450,7 @@
             </form>
           {:else}
             <section class="settings-section diagnostics-section">
-              <dl class="environment-list"><div><dt>客户端</dt><dd>YSU Net {native?.version || environment?.version || '0.2.0'}</dd></div><div><dt>认证核心</dt><dd>{environment ? `Rust 原生（${environment.rust}）` : '待核心提供'}</dd></div><div><dt>系统</dt><dd>{environment?.platform || '待核心提供'}</dd></div><div><dt>系统浏览器</dt><dd>{!environment ? '待核心提供' : environment.browser_available ? '已发现 Edge / Chrome' : '未发现 Edge / Chrome'}</dd></div></dl>
+              <dl class="environment-list"><div><dt>客户端</dt><dd>YSU Net {native?.version || environment?.version || '0.2.1'}</dd></div><div><dt>认证核心</dt><dd>{environment ? `Rust 原生（${environment.rust}）` : '待核心提供'}</dd></div><div><dt>系统</dt><dd>{environment?.platform || '待核心提供'}</dd></div><div><dt>系统浏览器</dt><dd>{!environment ? '待核心提供' : environment.browser_available ? '已发现 Edge / Chrome' : '未发现 Edge / Chrome'}</dd></div></dl>
               <div class="form-actions"><button type="button" disabled={locked} onclick={runDiagnostics}><Icon name="doctor" size={16} />运行本地诊断</button></div>
               {#if diagnostic}<details class="diagnostic-result"><summary id="diagnostic-result-heading"><span>详细诊断结果</span><span class="saved-indicator" role="status">诊断已完成{#if diagnosticUpdated}<time datetime={diagnosticUpdated}>{new Date(diagnosticUpdated).toLocaleTimeString('zh-CN', { hour12: false })}</time>{/if}</span></summary><pre class="diagnostic-output" aria-label="诊断结果">{diagnostic}</pre></details>{/if}
             </section>
@@ -441,13 +458,13 @@
         </div>
 
       {:else if page === 'logs'}
-        <div class="log-toolbar"><label class="search-input"><Icon name="search" size={18} /><input aria-label="搜索日志" placeholder="搜索日志内容" bind:value={logSearch} /></label><select aria-label="筛选日志级别" bind:value={logFilter}><option value="all">全部级别</option><option value="info">信息</option><option value="success">成功</option><option value="error">错误</option></select><button type="button" class="icon-button" title="复制筛选日志" aria-label="复制筛选日志" disabled={!logs.length} onclick={() => { void copyLogs(); }}><Icon name="copy" size={18} /></button><button type="button" title="仅清空当前视图，保留核心日志" disabled={!logs.length} onclick={() => { logFloor = snapshot?.logs.length || 0; }}>清空视图</button></div>
+        <div class="log-toolbar"><div class="search-input"><Icon name="search" size={16} /><input aria-label="搜索日志" placeholder="搜索日志内容" bind:value={logSearch} />{#if logSearch}<button type="button" class="quiet-button search-clear" aria-label="清空搜索" onclick={() => { logSearch = ''; }}><Icon name="close" size={14} /></button>{/if}</div><select aria-label="筛选日志级别" bind:value={logFilter}><option value="all">全部级别</option><option value="info">信息</option><option value="success">成功</option><option value="error">错误</option></select><button type="button" class="icon-button" title="复制筛选日志" aria-label="复制筛选日志" disabled={!logs.length} onclick={() => { void copyLogs(); }}><Icon name="copy" size={18} /></button><button type="button" title="仅清空当前视图，保留核心日志" disabled={!logs.length} onclick={() => { logFloor = snapshot?.logs.length || 0; }}>清空视图</button></div>
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable log needs keyboard focus for reading.) -->
         <div class="log-list" role="log" aria-label="本次运行日志" tabindex="0">
           {#each logs as log}<div class={`log-entry ${log.level}`}><time title={log.timestamp}>{formatLogTime(log.timestamp)}</time><span class="log-level">{log.level === 'error' ? '错误' : log.level === 'success' ? '成功' : '信息'}</span><p>{log.message}</p></div>{/each}
           {#if !logs.length}<div class="log-empty"><Icon name="logs" size={28} /><p>{logSearch || logFilter !== 'all' ? '没有匹配的日志' : '当前视图暂无日志'}</p></div>{/if}
         </div>
-        <p class="log-note">{logs.length} 条记录</p>
+        <p class="log-note">{#if logSearch || logFilter !== 'all'}显示 {logs.length} / {Math.max(0, (snapshot?.logs.length || 0) - logFloor)} 条记录{:else}{logs.length} 条记录{/if}</p>
       {/if}
     </main>
   </div>

@@ -488,10 +488,7 @@ impl Backend {
                     || before.service != after.service
                     || !after.online
                 {
-                    return Err(AuthError {
-                        code: 2,
-                        message: "fixture account identity changed".into(),
-                    });
+                    return Err(AuthError::new(2, "fixture account identity changed"));
                 }
                 let mut info = info;
                 #[cfg(test)]

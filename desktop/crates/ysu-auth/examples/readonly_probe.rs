@@ -35,7 +35,7 @@ async fn main() {
         Err(error) => {
             println!(
                 "{}",
-                serde_json::json!({"error_code": error.code, "error": error.message})
+                serde_json::json!({"error_code": error.code, "diagnostic": error.diagnostic()})
             );
             std::process::exit(error.code);
         }

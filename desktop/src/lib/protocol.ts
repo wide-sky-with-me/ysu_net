@@ -181,7 +181,6 @@ export function accountItems(info: Snapshot['info']): Pair[] {
   if (!info?.online) return [];
   const items: Pair[] = info.items.map(([name, value]) => [name, value.trim() ? value : '门户未提供']);
   if (!items.some(([name]) => name.includes('剩余流量'))) items.push(['剩余流量', '门户未提供']);
-  if (!items.some(([name]) => name.includes('余额'))) items.push(['账户余额', '门户未提供']);
   return items;
 }
 

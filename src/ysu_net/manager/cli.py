@@ -48,7 +48,7 @@ def parser():
     ):
         sub.add_parser(command, help=help_text)
     for command in ("status", "info"):
-        p = sub.add_parser(command, help="查询校园网状态" if command == "status" else "查询账户、剩余流量与套餐余额（以门户提供为准）")
+        p = sub.add_parser(command, help="查询校园网状态" if command == "status" else "查询账户、套餐与剩余流量（以门户提供为准）")
         p.add_argument("--raw", action="store_true", help="输出 JSON")
     p = sub.add_parser("config", help="配置账号及运行参数")
     p.add_argument("action", choices=("show", "account", "set", "path"), default="show", nargs="?")
@@ -253,12 +253,12 @@ def menu(args, path):
         ui.row("管理范围", "当前用户" if args.scope == "user" else "系统级")
         ui.row("网络状态", "按 1 查询")
         ui.hint("首次使用或不确定操作影响？输入 15（或 h / ?）查看选项说明。")
-        print("\n  连接管理")
-        ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连"])
-        print("\n  配置与维护")
-        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", " 8  查看日志", "10  开启自启", "11  关闭自启", "12  查看配置", "13  账户与剩余流量", "14  联网诊断 doctor", "16  多账号与自动换号"])
+        ui.section("连接管理")
+        ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连", "13  账户与剩余流量"])
+        ui.section("配置与维护")
+        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", "14  联网诊断 doctor", " 8  查看日志", "12  查看配置", "10  开启自启", "11  关闭自启", "16  多账号与自动换号", "15  选项说明（用途与影响）"])
         print()
-        ui.choices(["15  选项说明（用途与影响）", " 0  退出"])
+        ui.choices([" 0  退出"])
         print()
         choice = input("  请输入编号 [0 退出]: ").strip()
         if choice in ("0", "q", "exit"):

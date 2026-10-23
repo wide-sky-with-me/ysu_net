@@ -97,8 +97,17 @@ jobs:
           esac
           export YSU_AUTH_CHROMIUM_PATH="$chromium"
           cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml -- --ignored --test-threads=1
-      - name: Build native bundles without Python
+      - name: Build ordinary native bundles without signing keys
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') || runner.os == 'Linux' }}
         run: npm --prefix desktop run native:build -- --bundles '${{ matrix.bundles }}'
+      - name: Build signed updater bundles for release tags
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "${TAURI_SIGNING_PRIVATE_KEY:-}" || { echo 'release signing key is missing'; exit 1; }
+          npm --prefix desktop run native:build -- --bundles '${{ matrix.bundles }}' --signed-update
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
@@ -108,6 +117,7 @@ jobs:
           uv sync --locked --group desktop-test
           uv run --no-sync python -m unittest discover -s tests -p test_node_runtime.py -v
           uv run --no-sync python -m unittest discover -s tests -p test_system_browser.py -v
+          uv run --no-sync python -m unittest tests.test_update_manifest -v
       - name: Built frontend browser acceptance
         if: runner.os == 'Linux'
         run: |
@@ -126,6 +136,8 @@ jobs:
             --browser "$(command -v google-chrome)"
           uv run --no-sync python desktop/tests/multi_account_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/multi-account
+          uv run --no-sync python desktop/tests/rounded_desktop_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/rounded
       - name: Native WebView and lifecycle acceptance
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -247,6 +259,9 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.deb
             desktop/src-tauri/target/release/bundle/**/*.exe
             desktop/src-tauri/target/release/bundle/**/*.dmg
+            desktop/src-tauri/target/release/bundle/**/*.exe.sig
+            desktop/src-tauri/target/release/bundle/**/*.app.tar.gz
+            desktop/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
             dist/rust-desktop-smoke/
             dist/rust-desktop-preview/
             dist/rust-desktop-installed/
@@ -259,6 +274,9 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.deb
             desktop/src-tauri/target/release/bundle/**/*.exe
             desktop/src-tauri/target/release/bundle/**/*.dmg
+            desktop/src-tauri/target/release/bundle/**/*.exe.sig
+            desktop/src-tauri/target/release/bundle/**/*.app.tar.gz
+            desktop/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -287,25 +305,19 @@ jobs:
         with:
           pattern: rust-desktop-bundle-*
           path: artifacts
-          merge-multiple: true
-      - name: Generate checksums
+          # macOS architectures produce the same original app.tar.gz basename.
+          # Keep matrix directories separate until the validated mapping renames them.
+          merge-multiple: false
+      - name: Validate release assets and generate updater feed and checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
-          find artifacts -mindepth 2 -type f -exec mv -t artifacts {} +
-          find artifacts -mindepth 1 -type d -empty -delete
-          # Keep the names in SHA256SUMS identical to GitHub's downloadable assets.
-          for file in artifacts/*; do
-            normalized="${file// /-}"
-            if [ "$file" != "$normalized" ]; then
-              [ ! -e "$normalized" ] || { echo 'duplicate normalized asset name'; exit 1; }
-              mv "$file" "$normalized"
-            fi
-          done
-          cp dist/*.whl dist/*.tar.gz artifacts/
-          [ "$(find artifacts -maxdepth 1 -type f -name '*.deb' | wc -l)" -eq 1 ]
-          [ "$(find artifacts -maxdepth 1 -type f -name '*.exe' | wc -l)" -eq 1 ]
-          [ "$(find artifacts -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 2 ]
-          [ "$(find artifacts -maxdepth 1 -type f | wc -l)" -eq 6 ]
-          (cd artifacts && sha256sum * > ../SHA256SUMS)
+          python -m unittest tests.test_update_manifest -v
+          python packaging/tauri_update_manifest.py --artifacts artifacts --dist dist \
+            --output release-assets --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY"
+          [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 13 ]
+          (cd release-assets && sha256sum -c SHA256SUMS)
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -313,6 +325,6 @@ jobs:
         run: |
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" artifacts/* SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
             --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "YSU Net $GITHUB_REF_NAME" --notes-file packaging/release-notes.md "${flags[@]}"

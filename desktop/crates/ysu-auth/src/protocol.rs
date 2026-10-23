@@ -1,9 +1,10 @@
 use crate::{
     browser::Browser,
     crypto::encrypt_password,
+    diagnostic::at,
     presentation::text,
     transport::{Operation, Reply, Transport, REDIRECT_LIMIT},
-    AuthError, Config, Status, SERVICES,
+    AuthError, Config, DiagnosticReason as Reason, DiagnosticStage as Stage, Status, SERVICES,
 };
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE, LOCATION},
@@ -95,9 +96,11 @@ impl Snapshot {
     }
     pub fn require_owner(&self, expected: &str) -> Result<(), AuthError> {
         if self.status.online && self.owner.as_deref() != Some(expected) {
-            Err(AuthError::operation(
-                "在线账号与当前配置不一致或账号缺失，保留现有连接",
-            ))
+            Err(
+                AuthError::operation("在线账号与当前配置不一致或账号缺失，保留现有连接")
+                    .because(Reason::IdentityMismatch)
+                    .at(Stage::Verification),
+            )
         } else {
             Ok(())
         }
@@ -105,9 +108,11 @@ impl Snapshot {
     pub fn require_target(&self, owner: &str, target: &str) -> Result<(), AuthError> {
         self.require_owner(owner)?;
         if !self.status.online || self.status.service.as_deref() != Some(target) {
-            Err(AuthError::operation(
-                "实际在线服务与目标不一致，请显式切换服务",
-            ))
+            Err(
+                AuthError::operation("实际在线服务与目标不一致，请显式切换服务")
+                    .because(Reason::IdentityMismatch)
+                    .at(Stage::Verification),
+            )
         } else {
             Ok(())
         }
@@ -122,94 +127,120 @@ pub(crate) struct Session {
 }
 impl Session {
     pub async fn open(http: Transport, config: &Config, op: &Operation) -> Result<Self, AuthError> {
-        if config.backend == "browser" {
-            let mut browser = Browser::start(http.clone(), op).await?;
-            let (sid, last) = browser.portal(op).await?;
-            return Ok(Self {
-                http,
-                sid,
-                last,
-                browser: Some(browser),
-            });
-        }
-        for path in ["eportal/index.jsp", "eportal/redirect.jsp", ""] {
-            let mut url = http.endpoint(path)?;
-            let mut hops = 0;
-            loop {
-                let r = http.navigation_get(url, op).await?;
-                r.ensure_success()?;
-                hops += r.chain.len();
-                if hops > REDIRECT_LIMIT + 1 {
-                    return Err(AuthError::query("门户导航超过次数限制"));
-                }
-                if let Some(sid) = sid_from_chain(&r.chain) {
-                    return Ok(Self {
-                        http,
-                        sid,
-                        last: r.url,
-                        browser: None,
-                    });
-                }
-                let Some(next) = next_navigation(&r.text(), &r.url) else {
-                    break;
-                };
-                http.allowed(&next)?;
-                url = next;
+        at(Stage::PortalNavigation, async {
+            if config.backend == "browser" {
+                let mut browser = Browser::start(http.clone(), op)
+                    .await
+                    .map_err(|e| e.at(Stage::BrowserInit).or_reason(Reason::BrowserProtocol))?;
+                let (sid, last) = browser.portal(op).await?;
+                return Ok(Self {
+                    http,
+                    sid,
+                    last,
+                    browser: Some(browser),
+                });
             }
-        }
-        Err(AuthError::query("门户未返回有效会话，连接状态未知"))
+            for path in ["eportal/index.jsp", "eportal/redirect.jsp", ""] {
+                let mut url = http.endpoint(path)?;
+                let mut hops = 0;
+                loop {
+                    let r = http.navigation_get(url, op).await?;
+                    r.ensure_success()?;
+                    hops += r.chain.len();
+                    if hops > REDIRECT_LIMIT + 1 {
+                        return Err(
+                            AuthError::query("门户导航超过次数限制").because(Reason::RedirectLimit)
+                        );
+                    }
+                    if let Some(sid) = sid_from_chain(&r.chain) {
+                        return Ok(Self {
+                            http,
+                            sid,
+                            last: r.url,
+                            browser: None,
+                        });
+                    }
+                    let Some(next) = next_navigation(&r.text(), &r.url) else {
+                        break;
+                    };
+                    http.allowed(&next)?;
+                    url = next;
+                }
+            }
+            Err(AuthError::query("门户未返回有效会话，连接状态未知")
+                .because(Reason::SessionMissing))
+        })
+        .await
     }
 
     pub async fn snapshot(&self, op: &Operation) -> Result<Snapshot, AuthError> {
-        let mut url = self.http.endpoint(ONLINE)?;
-        url.query_pairs_mut()
-            .append_pair("sessionId", &self.sid)
-            .append_pair("version", "ysu-rust-0.1")
-            .append_pair("t", &timestamp());
-        let r = self
-            .http
-            .follow(
-                Method::GET,
-                url.clone(),
-                self.http.api_headers(&url, Some(&self.last)),
-                None,
-                op,
-            )
-            .await?;
-        r.ensure_success()?;
-        Snapshot::parse(r.json()?)
+        at(Stage::OnlineState, async {
+            let mut url = self.http.endpoint(ONLINE)?;
+            url.query_pairs_mut()
+                .append_pair("sessionId", &self.sid)
+                .append_pair("version", "ysu-rust-0.1")
+                .append_pair("t", &timestamp());
+            let r = self
+                .http
+                .follow(
+                    Method::GET,
+                    url.clone(),
+                    self.http.api_headers(&url, Some(&self.last)),
+                    None,
+                    op,
+                )
+                .await?;
+            r.ensure_success()?;
+            Snapshot::parse(r.json()?).map_err(|e| e.or_reason(Reason::StateUnrecognized))
+        })
+        .await
     }
     async fn node(&self, op: &Operation) -> Result<String, AuthError> {
-        let r = self
-            .http
-            .json_post(
-                NODE,
-                &json!({"sessionId":self.sid,"flowKey":"portal_auth"}),
-                Some(&self.last),
-                op,
-            )
-            .await?;
-        r.ensure_success()?;
-        let value = r.json()?;
-        value["data"]["currentNodePath"]
-            .as_str()
-            .map(str::to_owned)
-            .ok_or_else(|| AuthError::query("门户流程节点未知，暂不修改连接"))
+        at(Stage::FlowNode, async {
+            let r = self
+                .http
+                .json_post(
+                    NODE,
+                    &json!({"sessionId":self.sid,"flowKey":"portal_auth"}),
+                    Some(&self.last),
+                    op,
+                )
+                .await?;
+            r.ensure_success()?;
+            let value = r.json()?;
+            if !crate::quota::successful_envelope(&value)
+                || !crate::quota::successful_envelope(&value["data"])
+            {
+                return Err(AuthError::query("门户流程节点业务结果未确认，暂不修改连接")
+                    .because(Reason::BusinessRejected));
+            }
+            value["data"]["currentNodePath"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    AuthError::query("门户流程节点未知，暂不修改连接")
+                        .because(Reason::StateUnrecognized)
+                })
+        })
+        .await
     }
     pub async fn account(&self, op: &Operation) -> Result<Value, AuthError> {
-        let r = self
-            .http
-            .json_post(
-                ACCOUNT,
-                &json!({"sessionId":self.sid}),
-                Some(&self.last),
-                op,
-            )
-            .await?;
-        r.ensure_success()?;
-        let v = r.json()?;
-        check_action(&r, &v)?;
-        Ok(v)
+        at(Stage::AccountInfo, async {
+            let r = self
+                .http
+                .json_post(
+                    ACCOUNT,
+                    &json!({"sessionId":self.sid}),
+                    Some(&self.last),
+                    op,
+                )
+                .await?;
+            r.ensure_success()?;
+            let v = r.json()?;
+            check_action(&r, &v)?;
+            Ok(v)
+        })
+        .await
     }
     pub async fn login(
         &mut self,
@@ -225,19 +256,25 @@ impl Session {
         }
         let mut node = self.node(op).await?;
         if node == "authenticate" {
-            let mut seed = self.http.endpoint("cas-sso/login")?;
-            let custom_page = query(&self.last, "customPageId").unwrap_or_default();
-            seed.query_pairs_mut()
-                .append_pair("flowSessionId", &self.sid)
-                .append_pair("customPageId", &custom_page)
-                .append_pair("preview", "false")
-                .append_pair("appType", "normal")
-                .append_pair("language", "zh-CN")
-                .append_pair("timer", &timestamp());
-            self.http.get(seed, op).await?.ensure_success()?;
-            let url = cas_login_url(&self.http, op).await?;
+            let url = at(Stage::CasNavigation, async {
+                let mut seed = self.http.endpoint("cas-sso/login")?;
+                let custom_page = query(&self.last, "customPageId").unwrap_or_default();
+                seed.query_pairs_mut()
+                    .append_pair("flowSessionId", &self.sid)
+                    .append_pair("customPageId", &custom_page)
+                    .append_pair("preview", "false")
+                    .append_pair("appType", "normal")
+                    .append_pair("language", "zh-CN")
+                    .append_pair("timer", &timestamp());
+                self.http.get(seed, op).await?.ensure_success()?;
+                cas_login_url(&self.http, op).await
+            })
+            .await?;
             if let Some(browser) = self.browser.as_mut() {
-                browser.cas_login(url, config, op).await?;
+                browser.cas_login(url, config, op).await.map_err(|e| {
+                    e.at(Stage::CasNavigation)
+                        .or_reason(Reason::BrowserProtocol)
+                })?;
             } else {
                 api_cas_login(&self.http, url, config, op).await?;
             }
@@ -245,7 +282,8 @@ impl Session {
             if node == "authenticate" {
                 return Err(AuthError::interaction(
                     "统一认证后仍要求登录，请检查账号密码、验证码或风控状态",
-                ));
+                )
+                .at(Stage::FlowNode));
             }
         }
         if node == "serviceSelection" {
@@ -256,17 +294,20 @@ impl Session {
                 before_select.require_target(&config.username, target)?;
                 return Ok(before_select.status);
             }
-            let r = self
-                .http
-                .json_post(
-                    SELECT,
-                    &json!({"sessionId":self.sid,"service":target}),
-                    Some(&self.last),
-                    op,
-                )
-                .await?;
-            r.ensure_success()?;
-            check_action(&r, &r.json()?)?;
+            at(Stage::ServiceSelect, async {
+                let r = self
+                    .http
+                    .json_post(
+                        SELECT,
+                        &json!({"sessionId":self.sid,"service":target}),
+                        Some(&self.last),
+                        op,
+                    )
+                    .await?;
+                r.ensure_success()?;
+                check_action(&r, &r.json()?)
+            })
+            .await?;
             // A concurrent login must not be overwritten between selection and activation.
             let before_online = self.snapshot(op).await?;
             before_online.require_owner(&config.username)?;
@@ -274,19 +315,24 @@ impl Session {
                 before_online.require_target(&config.username, target)?;
                 return Ok(before_online.status);
             }
-            let r = self
-                .http
-                .json_post(
-                    USER_ONLINE,
-                    &json!({"sessionId":self.sid}),
-                    Some(&self.last),
-                    op,
-                )
-                .await?;
-            r.ensure_success()?;
-            check_action(&r, &r.json()?)?;
+            at(Stage::UserOnline, async {
+                let r = self
+                    .http
+                    .json_post(
+                        USER_ONLINE,
+                        &json!({"sessionId":self.sid}),
+                        Some(&self.last),
+                        op,
+                    )
+                    .await?;
+                r.ensure_success()?;
+                check_action(&r, &r.json()?)
+            })
+            .await?;
         } else if !matches!(node.as_str(), "finish" | "online" | "userOnline") {
-            return Err(AuthError::query("门户流程节点未知，暂不修改连接"));
+            return Err(AuthError::query("门户流程节点未知，暂不修改连接")
+                .at(Stage::FlowNode)
+                .because(Reason::StateUnrecognized));
         }
         self.wait_online(config, target, op).await
     }
@@ -296,20 +342,24 @@ impl Session {
         target: &str,
         op: &Operation,
     ) -> Result<Status, AuthError> {
-        loop {
-            let current = self.snapshot(op).await?;
-            current.require_owner(&config.username)?;
-            if current.status.online {
-                current.require_target(&config.username, target)?;
-                return Ok(current.status);
+        at(Stage::Verification, async {
+            loop {
+                let current = self.snapshot(op).await?;
+                current.require_owner(&config.username)?;
+                if current.status.online {
+                    current.require_target(&config.username, target)?;
+                    return Ok(current.status);
+                }
+                if op.remaining()?.as_millis() <= 200 {
+                    return Err(
+                        AuthError::operation("登录超时，尚未独立确认目标账号与服务在线")
+                            .because(Reason::Deadline),
+                    );
+                }
+                op.pause().await?;
             }
-            if op.remaining()?.as_millis() <= 200 {
-                return Err(AuthError::operation(
-                    "登录超时，尚未独立确认目标账号与服务在线",
-                ));
-            }
-            op.pause().await?;
-        }
+        })
+        .await
     }
     pub async fn logout(&mut self, config: &Config, op: &Operation) -> Result<Status, AuthError> {
         let initial = self.snapshot(op).await?;
@@ -323,47 +373,57 @@ impl Session {
         if !checked.status.online {
             return Ok(checked.status);
         }
-        let url = self.http.endpoint(OFFLINE)?;
-        let mut headers = self.http.offline_headers(&url, &self.last);
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/json;charset=UTF-8"),
-        );
-        let body = serde_json::to_vec(&json!({"sessionId":self.sid}))
-            .map_err(|_| AuthError::query("请求编码失败"))?;
-        let r = self
-            .http
-            .once(Method::POST, url, headers, Some(body), op)
-            .await?;
-        r.ensure_success()?;
-        check_action(&r, &r.json()?)?;
-        loop {
-            let current = self.snapshot(op).await?;
-            current.require_owner(&config.username)?;
-            if !current.status.online {
-                return Ok(current.status);
+        at(Stage::OfflineSubmit, async {
+            let url = self.http.endpoint(OFFLINE)?;
+            let mut headers = self.http.offline_headers(&url, &self.last);
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/json;charset=UTF-8"),
+            );
+            let body = serde_json::to_vec(&json!({"sessionId":self.sid}))
+                .map_err(|_| AuthError::query("请求编码失败").because(Reason::ResponseInvalid))?;
+            let r = self
+                .http
+                .once(Method::POST, url, headers, Some(body), op)
+                .await?;
+            r.ensure_success()?;
+            check_action(&r, &r.json()?)
+        })
+        .await?;
+        at(Stage::Verification, async {
+            loop {
+                let current = self.snapshot(op).await?;
+                current.require_owner(&config.username)?;
+                if !current.status.online {
+                    return Ok(current.status);
+                }
+                if op.remaining()?.as_millis() <= 200 {
+                    return Err(AuthError::operation("下线超时，独立查询仍显示在线")
+                        .because(Reason::Deadline));
+                }
+                op.pause().await?;
             }
-            if op.remaining()?.as_millis() <= 200 {
-                return Err(AuthError::operation("下线超时，独立查询仍显示在线"));
-            }
-            op.pause().await?;
-        }
+        })
+        .await
     }
     async fn prepare_logout(&mut self, online: &Value, op: &Operation) -> Result<(), AuthError> {
-        let tl = terminal_url(&self.http, &self.last, online)?;
-        self.http.get(tl, op).await?.ensure_success()?;
-        let finish = self
-            .http
-            .endpoint("portal/entry/pc/finish;flowParams=undefined;from=")?;
-        let r = self.http.get(finish, op).await?;
-        r.ensure_success()?;
-        self.last = r.url;
-        let mut seed = self.http.endpoint(SAM)?;
-        seed.query_pairs_mut()
-            .append_pair("t", &timestamp())
-            .append_pair("version", "ysu-rust-0.1");
-        self.http.get(seed, op).await?.ensure_success()?;
-        Ok(())
+        at(Stage::LogoutPrepare, async {
+            let tl = terminal_url(&self.http, &self.last, online)?;
+            self.http.get(tl, op).await?.ensure_success()?;
+            let finish = self
+                .http
+                .endpoint("portal/entry/pc/finish;flowParams=undefined;from=")?;
+            let r = self.http.get(finish, op).await?;
+            r.ensure_success()?;
+            self.last = r.url;
+            let mut seed = self.http.endpoint(SAM)?;
+            seed.query_pairs_mut()
+                .append_pair("t", &timestamp())
+                .append_pair("version", "ysu-rust-0.1");
+            self.http.get(seed, op).await?.ensure_success()?;
+            Ok(())
+        })
+        .await
     }
     pub async fn restore(&mut self, config: &Config, previous: &str, op: &Operation) -> bool {
         async {
@@ -597,30 +657,33 @@ pub(crate) async fn captcha_required(
     dom: bool,
     op: &Operation,
 ) -> Result<bool, AuthError> {
-    let mut u = http.cas_endpoint("authserver/checkNeedCaptcha.htl")?;
-    u.query_pairs_mut()
-        .append_pair("username", username)
-        .append_pair("_", &timestamp());
-    let r = http
-        .follow(
-            Method::GET,
-            u.clone(),
-            http.api_headers(&u, Some(page)),
-            None,
-            op,
-        )
-        .await?;
-    r.ensure_success()?;
-    let v = r.json().ok();
-    let api = v.as_ref().and_then(|v| {
-        bool_value(v).or_else(|| {
-            ["isNeed", "needCaptcha", "isNeedCaptcha", "data", "result"]
-                .iter()
-                .find_map(|key| bool_value(&v[key]))
-        })
-    });
-    // A visible challenge takes precedence over a stale false response.
-    Ok(dom || api.unwrap_or(false))
+    at(Stage::Captcha, async {
+        let mut u = http.cas_endpoint("authserver/checkNeedCaptcha.htl")?;
+        u.query_pairs_mut()
+            .append_pair("username", username)
+            .append_pair("_", &timestamp());
+        let r = http
+            .follow(
+                Method::GET,
+                u.clone(),
+                http.api_headers(&u, Some(page)),
+                None,
+                op,
+            )
+            .await?;
+        r.ensure_success()?;
+        let v = r.json().ok();
+        let api = v.as_ref().and_then(|v| {
+            bool_value(v).or_else(|| {
+                ["isNeed", "needCaptcha", "isNeedCaptcha", "data", "result"]
+                    .iter()
+                    .find_map(|key| bool_value(&v[key]))
+            })
+        });
+        // A visible challenge takes precedence over a stale false response.
+        Ok(dom || api.unwrap_or(false))
+    })
+    .await
 }
 async fn api_cas_login(
     http: &Transport,
@@ -628,19 +691,22 @@ async fn api_cas_login(
     config: &Config,
     op: &Operation,
 ) -> Result<(), AuthError> {
-    let page = http.get(url, op).await?;
-    page.ensure_success()?;
-    let mut form = LoginForm::parse(&page.text(), &page.url, http)?;
+    let page = at(Stage::CasNavigation, http.get(url, op)).await?;
+    page.ensure_success()
+        .map_err(|e| e.at(Stage::CasNavigation))?;
+    let mut form = LoginForm::parse(&page.text(), &page.url, http)
+        .map_err(|e| e.at(Stage::CasForm).or_reason(Reason::ResponseInvalid))?;
     if captcha_required(http, &page.url, &config.username, form.captcha, op).await? {
-        return Err(AuthError::interaction(
-            "统一认证需要验证码，请人工处理后重试",
-        ));
+        return Err(
+            AuthError::interaction("统一认证需要验证码，请人工处理后重试").at(Stage::Captcha),
+        );
     }
     form.fields
         .insert("username".into(), config.username.clone());
     form.fields.insert(
         "password".into(),
-        encrypt_password(&config.password, &form.salt)?,
+        encrypt_password(&config.password, &form.salt)
+            .map_err(|e| e.at(Stage::CasForm).or_reason(Reason::ResponseInvalid))?,
     );
     form.fields
         .entry("_eventId".into())
@@ -665,36 +731,47 @@ async fn api_cas_login(
         CONTENT_TYPE,
         HeaderValue::from_static("application/x-www-form-urlencoded"),
     );
-    let r = http
-        .once(Method::POST, form.action, headers, Some(body), op)
-        .await?;
-    if matches!(r.status, 429 | 500..=599) {
-        return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试"));
-    }
-    if !matches!(r.status, 301 | 302 | 303) {
-        return Err(AuthError::interaction(
-            "统一认证未确认登录，请检查账号密码、验证码或风控状态",
-        ));
-    }
-    let next = r
-        .headers
-        .get(LOCATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| r.url.join(v).ok())
-        .ok_or_else(|| AuthError::query("统一认证返回缺少有效跳转地址"))?;
-    let after = http.get(next, op).await?;
-    after.ensure_success()?;
-    if after.url.origin() != http.base.origin() || risk_page(&after.text()) {
-        return Err(AuthError::interaction(
-            "统一认证未完成门户回跳，请人工处理后重试",
-        ));
-    }
-    Ok(())
+    let r = at(Stage::CasSubmit, async {
+        let r = http
+            .once(Method::POST, form.action, headers, Some(body), op)
+            .await?;
+        if matches!(r.status, 429 | 500..=599) {
+            return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试")
+                .because(Reason::HttpRejected));
+        }
+        if !matches!(r.status, 301 | 302 | 303) {
+            return Err(AuthError::interaction(
+                "统一认证未确认登录，请检查账号密码、验证码或风控状态",
+            )
+            .because(Reason::BusinessRejected));
+        }
+        Ok(r)
+    })
+    .await?;
+    at(Stage::CasCallback, async {
+        let next = r
+            .headers
+            .get(LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| r.url.join(v).ok())
+            .ok_or_else(|| {
+                AuthError::query("统一认证返回缺少有效跳转地址").because(Reason::ResponseInvalid)
+            })?;
+        let after = http.get(next, op).await?;
+        after.ensure_success()?;
+        if after.url.origin() != http.base.origin() || risk_page(&after.text()) {
+            return Err(AuthError::interaction(
+                "统一认证未完成门户回跳，请人工处理后重试",
+            ));
+        }
+        Ok(())
+    })
+    .await
 }
 
 pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
     if !v.is_object() {
-        return Err(AuthError::operation("门户操作响应格式异常"));
+        return Err(AuthError::operation("门户操作响应格式异常").because(Reason::ResponseInvalid));
     }
     for item in [v, &v["data"]] {
         if !item.is_object() {
@@ -726,11 +803,11 @@ pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
         ) || (item["online"] == false && msg.contains("认证失败"))
             || item["code"].as_i64().is_some_and(|c| c != 0 && c != 200)
         {
-            return Err(AuthError::operation("门户操作未被确认"));
+            return Err(AuthError::operation("门户操作未被确认").because(Reason::BusinessRejected));
         }
     }
     if r.status != 200 {
-        return Err(AuthError::operation("门户操作请求未被确认"));
+        return Err(AuthError::operation("门户操作请求未被确认").because(Reason::HttpRejected));
     }
     Ok(())
 }

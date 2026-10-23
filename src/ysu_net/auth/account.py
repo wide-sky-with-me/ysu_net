@@ -91,7 +91,6 @@ def format_account_info(online_info, account_payload):
             lines.append(f'{title}：{text}')
     items = account['items_map']
     remaining = False
-    balance = False
     for title, item in items.items():
         content = _text(item.get('content'))
         if not content:
@@ -99,14 +98,10 @@ def format_account_info(online_info, account_payload):
         # Display portal-authored account items without exposing their signed links.
         lines.append(f'{title.replace("套餐&余额", "套餐与余额")}：{content}')
         remaining |= '剩余流量' in title
-        balance |= '余额' in title
     if not remaining:
         lines.append('剩余流量：门户未提供（不代表 0 或不限量）')
-    if not balance:
-        lines.append('套餐与余额：门户未提供')
-    if not remaining or not balance:
         lines.append('提示：可在校园网门户的业务明细或运营商自助服务中进一步查询。')
-    lines.append('说明：流量和余额按门户原文展示，不推算额度或换算未知单位。')
+    lines.append('说明：流量按门户原文展示，不推算额度或换算未知单位。')
     return '\n'.join(lines)
 
 

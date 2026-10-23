@@ -174,12 +174,27 @@ async fn verify(app: &tauri::AppHandle) -> Result<Value, String> {
     }
     let tray_initial = wait_for_tray(app, |menu| {
         menu["auto"] == true
+            && menu["status"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("已连接 · "))
             && menu["rotation"] == true
             && menu["identity"]
                 .as_str()
                 .is_some_and(|text| text.contains("native-fixture-b"))
     })
     .await?;
+    if tray_initial["root_items"][0] != "open"
+        || tray_initial["header_enabled"] != true
+        || tray_initial["header"] != "打开燕大校园网"
+        || tray_initial["detail_items"] != json!(["address", "activity"])
+        || tray_initial["root_items"].as_array().is_none_or(|items| {
+            items
+                .iter()
+                .any(|item| item == "address" || item == "activity")
+        })
+    {
+        return Err("原生托盘菜单分组或打开窗口入口不正确".to_owned());
+    }
     #[cfg(target_os = "linux")]
     if std::env::var("YSU_DESKTOP_SMOKE_TRAY_CAPTURE")
         .ok()
@@ -327,7 +342,7 @@ pub fn start(app: &tauri::AppHandle) {
                 eprintln!("保存原生自检结果失败");
             }
         }
-        quit(&app, code);
+        let _ = quit(&app, code);
     });
 }
 

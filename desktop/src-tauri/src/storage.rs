@@ -38,7 +38,7 @@ pub fn valid_accent(value: &str) -> bool {
 }
 
 fn default_accent() -> String {
-    "teal".into()
+    "blue".into()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -438,24 +438,41 @@ mod tests {
     #[test]
     fn legacy_preferences_default_accent_and_keep_existing_fields() {
         let store = Store::open(None, true).unwrap();
-        assert_eq!(store.load_prefs().accent, "teal");
+        assert_eq!(store.load_prefs().accent, "blue");
         let legacy = json!({"theme":"light","close_to_tray":false,"auto_reconnect":true});
         write_json(&store.prefs_path(), &legacy).unwrap();
         let before = fs::read(store.prefs_path()).unwrap();
         let prefs = store.load_prefs();
-        assert_eq!(prefs.accent, "teal");
+        assert_eq!(prefs.accent, "blue");
         assert_eq!(prefs.theme, "light");
         assert!(!prefs.close_to_tray);
         assert!(prefs.auto_reconnect);
         assert_eq!(fs::read(store.prefs_path()).unwrap(), before);
         assert_eq!(
             serde_json::from_value::<Prefs>(legacy).unwrap().accent,
-            "teal"
+            "blue"
         );
         store
             .update_prefs(changes(json!({"close_to_tray":true})))
             .unwrap();
+        assert_eq!(store.load_prefs().accent, "blue");
+    }
+
+    #[test]
+    fn explicit_green_preference_is_preserved_with_blue_as_default() {
+        let store = Store::open(None, true).unwrap();
+        assert_eq!(Prefs::default().accent, "blue");
+        store
+            .update_prefs(changes(json!({"accent":"teal","theme":"dark"})))
+            .unwrap();
+        let before = fs::read(store.prefs_path()).unwrap();
         assert_eq!(store.load_prefs().accent, "teal");
+        assert_eq!(fs::read(store.prefs_path()).unwrap(), before);
+        store
+            .update_prefs(changes(json!({"close_to_tray":false})))
+            .unwrap();
+        assert_eq!(store.load_prefs().accent, "teal");
+        assert_eq!(store.load_prefs().theme, "dark");
     }
 
     #[test]
@@ -480,7 +497,7 @@ mod tests {
             .unwrap();
             let before = fs::read(store.prefs_path()).unwrap();
             let prefs = store.load_prefs();
-            assert_eq!(prefs.accent, "teal");
+            assert_eq!(prefs.accent, "blue");
             assert_eq!(prefs.theme, "dark");
             assert!(!prefs.close_to_tray);
             assert!(prefs.auto_reconnect);
@@ -488,7 +505,7 @@ mod tests {
         }
         for bytes in [b"not-json".as_slice(), b"[]", b"null"] {
             fs::write(store.prefs_path(), bytes).unwrap();
-            assert_eq!(store.load_prefs().accent, "teal");
+            assert_eq!(store.load_prefs().accent, "blue");
             assert_eq!(fs::read(store.prefs_path()).unwrap(), bytes);
         }
     }

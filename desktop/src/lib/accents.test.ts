@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { ACCENT_OPTIONS, normalizeAccent } from './accents';
+import { ACCENT_OPTIONS, DEFAULT_ACCENT, normalizeAccent } from './accents';
 import { createDemoTransport, demoSnapshot } from './demo';
 import { parseSnapshot } from './protocol';
 import type { CoreCommands } from './protocol';
 
 describe('accent preferences', () => {
   it('keeps the default and six distinct named choices', () => {
-    expect(ACCENT_OPTIONS.map((option) => option.value)).toEqual(['teal', 'blue', 'indigo', 'violet', 'rose', 'amber']);
+    expect(DEFAULT_ACCENT).toBe('blue');
+    expect(ACCENT_OPTIONS.map((option) => option.value)).toEqual(['blue', 'teal', 'indigo', 'violet', 'rose', 'amber']);
     expect(new Set(ACCENT_OPTIONS.map((option) => option.label)).size).toBe(6);
-    expect(demoSnapshot().prefs.accent).toBe('teal');
+    expect(demoSnapshot().prefs.accent).toBe('blue');
   });
 
   it.each(ACCENT_OPTIONS)('accepts $value through demo and public snapshots', ({ value }) => {
@@ -19,14 +20,22 @@ describe('accent preferences', () => {
   it.each([undefined, null, false, 42, {}, [], 'future', 'BLUE', ' blue ', ''])('falls back without losing valid preferences: %j', (accent) => {
     const original = demoSnapshot('?theme=dark&scenario=no-auto');
     const prefs = { ...original.prefs, accent, close_to_tray: false };
-    expect(parseSnapshot({ ...original, prefs }).prefs).toEqual({ theme: 'dark', accent: 'teal', close_to_tray: false, auto_reconnect: false });
+    expect(parseSnapshot({ ...original, prefs }).prefs).toEqual({ theme: 'dark', accent: 'blue', close_to_tray: false, auto_reconnect: false });
     expect(prefs.accent).toBe(accent);
   });
 
   it('accepts an old snapshot with the field absent', () => {
     const original = demoSnapshot();
     const { accent: _accent, ...prefs } = original.prefs;
-    expect(parseSnapshot({ ...original, prefs }).prefs.accent).toBe('teal');
+    expect(parseSnapshot({ ...original, prefs }).prefs.accent).toBe('blue');
+  });
+
+  it('preserves an explicitly selected green theme after changing unrelated preferences', async () => {
+    const transport = createDemoTransport('?accent=teal&theme=dark');
+    await transport.request('save_prefs', { close_to_tray: false });
+    expect(parseSnapshot(await transport.request('snapshot', {})).prefs).toEqual({
+      theme: 'dark', accent: 'teal', close_to_tray: false, auto_reconnect: true,
+    });
   });
 
   it.each(ACCENT_OPTIONS)('saves $value without changing theme, connection or automation', async ({ value }) => {

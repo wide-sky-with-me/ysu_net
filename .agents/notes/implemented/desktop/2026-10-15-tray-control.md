@@ -28,3 +28,7 @@
 ## 实现与验证
 
 [原生适配](../../../../desktop/src-tauri/src/tray.rs)、[纯状态模型及单元测试](../../../../desktop/src-tauri/src/tray_model.rs)、[原生集成自检](../../../../desktop/src-tauri/src/smoke.rs)、[无宿主生命周期](../../../../packaging/tauri_linux_lifecycle.py)。实际结果、失败修复和未覆盖平台见本轮验收，当前产品语义见[桌面文档](../../../../docs/tauri-desktop.md)。
+
+后续局部替代（2026-10-22）：Info 的连接状态同步由[固定诊断与更新生命周期决策](2026-10-22-diagnostics-and-update-lifecycle.md)改为复合独立核验；原始记录与其余托盘选择保留。
+
+显示层调整（2026-10-23）：固定品牌标题合并状态角标与打开窗口操作，真实状态和长账号使用普通菜单项的紧凑摘要，IP 与最近结果移入原生子菜单；确认离线改用红色角标。固定图标项标题避免 GTK 组合标签刷新与 getter 缓存不一致，仍不新建 WebView 或认证执行器。本页的锁、窗口生命周期与权威快照选择不变；现行布局集中见[设计说明](../../../../docs/rust-desktop-design.md)。

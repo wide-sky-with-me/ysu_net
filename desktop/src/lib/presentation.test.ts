@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountInfoState, reconnectNotice } from './presentation';
+import { accountInfoState, canAnimateQuota, reconnectNotice } from './presentation';
 import { demoSnapshot } from './demo';
 
 describe('reconnect presentation', () => {
@@ -56,5 +56,16 @@ describe('account information presentation', () => {
     expect(offline.status.online).toBe(false);
     expect(accountInfoState({ ...state, status: { ...state.status!, online: null } })).toBe('ready');
     expect(accountInfoState({ ...state, info: { online: false, fields: [], items: [] }, status: null })).toBe('offline');
+  });
+});
+
+describe('quota decoration is not quota evidence', () => {
+  it.each([
+    ['剩余流量', '80.00 GB', true], ['已用流量', '0.25 GiB', true],
+    ['剩余流量', '门户未提供', false], ['剩余流量', '0 GB', false],
+    ['剩余流量', '0.00 GB', false], ['剩余流量', '不限量', false],
+    ['剩余流量', '-1 GB', false], ['账户余额', '80.00 元', false],
+  ])('keeps decoration separate from the original value: %s / %s', (name, value, expected) => {
+    expect(canAnimateQuota(name as string, value as string)).toBe(expected);
   });
 });

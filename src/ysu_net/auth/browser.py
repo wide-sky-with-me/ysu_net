@@ -49,6 +49,7 @@ from ysu_net.auth.common import (
     online_state,
     require_online_service,
     track_resource,
+    flow_node,
 )
 
 from playwright.sync_api import sync_playwright
@@ -314,8 +315,8 @@ def get_current_node(ctx_request, session_id: str, debug: bool) -> Optional[str]
         debug=debug,
     )
     if st != 200 or not isinstance(data, dict):
-        return None
-    return (data.get("data") or {}).get("currentNodePath")
+        raise QueryError("门户流程节点查询失败，暂不修改连接")
+    return flow_node(data)
 
 
 def get_online_info(ctx_request, session_id: str, debug: bool) -> Optional[dict]:

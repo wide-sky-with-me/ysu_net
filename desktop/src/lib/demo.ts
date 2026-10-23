@@ -28,14 +28,14 @@ export function demoSnapshot(search = ''): Snapshot {
       message: '',
     },
     busy: scenario === 'busy', busy_message: scenario === 'busy' ? '模拟：正在独立确认在线状态…' : '',
-    info: online && !['info-error', 'info-failure', 'info-unread'].includes(scenario || '') ? { online: true, fields: [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']], items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB'], ['账户余额', '23.50 元']] } : null,
+    info: online && !['info-error', 'info-failure', 'info-unread'].includes(scenario || '') ? { online: true, fields: [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']], items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB']] } : null,
     info_error: scenario === 'info-error' ? '账户信息获取失败，请稍后重试' : '',
     logs: [
       { timestamp: '08:42:03', level: 'info', message: '离线模拟已启动；所有数据和操作均为演示' },
       { timestamp: '08:42:04', level: 'success', message: '模拟：校园网状态查询完成' },
       { timestamp: '08:42:05', level: 'info', message: '模拟：自动重连监测已开启' },
     ],
-    environment: { version: '0.2.0-demo', rust: '离线演示', runtime: 'rust', platform: '离线演示', browser_available: true, browser_component_available: true },
+    environment: { version: '0.2.1-demo', rust: '离线演示', runtime: 'rust', platform: '离线演示', browser_available: true, browser_component_available: true },
   };
 }
 
@@ -43,7 +43,7 @@ export function createDemoTransport(search = ''): Transport {
   const scenario = new URLSearchParams(search).get('scenario');
   let state = demoSnapshot(search);
   const handlers = new Set<(event: unknown) => void>();
-  let settings: DesktopSettings = { autostart: false, tray_available: true, version: '0.2.0-demo' };
+  let settings: DesktopSettings = { autostart: false, tray_available: true, version: '0.2.1-demo' };
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
   let infoTimer: ReturnType<typeof setTimeout> | undefined;
   let nextId = 1;

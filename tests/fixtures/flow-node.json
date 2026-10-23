@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "cases": [
+    {"id":"plain-success","payload":{"data":{"currentNodePath":"serviceSelection"}},"valid":true},
+    {"id":"explicit-success","payload":{"code":200,"result":"success","data":{"code":0,"currentNodePath":"serviceSelection"}},"valid":true},
+    {"id":"outer-result-failure","payload":{"result":"fail","data":{"currentNodePath":"serviceSelection"}},"valid":false},
+    {"id":"outer-code-failure","payload":{"code":500,"data":{"currentNodePath":"serviceSelection"}},"valid":false},
+    {"id":"outer-success-false","payload":{"success":false,"data":{"currentNodePath":"serviceSelection"}},"valid":false},
+    {"id":"inner-result-failure","payload":{"data":{"result":"fail","currentNodePath":"serviceSelection"}},"valid":false},
+    {"id":"inner-code-failure","payload":{"data":{"code":500,"currentNodePath":"serviceSelection"}},"valid":false},
+    {"id":"inner-success-false","payload":{"data":{"success":false,"currentNodePath":"serviceSelection"}},"valid":false}
+  ]
+}

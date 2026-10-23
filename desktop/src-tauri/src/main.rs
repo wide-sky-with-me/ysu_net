@@ -6,6 +6,7 @@ mod smoke;
 mod storage;
 mod tray;
 mod tray_model;
+mod updater;
 
 use bridge::CoreBridge;
 use serde_json::{json, Value};
@@ -114,16 +115,17 @@ fn ensure_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn quit(app: &tauri::AppHandle, code: i32) {
+fn quit(app: &tauri::AppHandle, code: i32) -> Result<(), String> {
     let bridge = app.state::<Arc<CoreBridge>>().inner().clone();
-    if bridge.quitting.swap(true, Ordering::AcqRel) {
-        return;
+    if !bridge.try_begin_quit()? {
+        return Ok(());
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         bridge.shutdown().await;
         app.exit(code);
     });
+    Ok(())
 }
 
 #[tauri::command]
@@ -170,6 +172,9 @@ fn set_autostart(
     if bridge.demo {
         return Err("模拟模式不修改系统自启配置".to_owned());
     }
+    if bridge.update_busy() {
+        return Err("后台忙碌或正在更新，请稍后修改自启".to_owned());
+    }
     let manager = app.autolaunch();
     let result = if enabled {
         manager.enable()
@@ -180,8 +185,8 @@ fn set_autostart(
 }
 
 #[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
-    quit(&app, 0);
+fn quit_app(app: tauri::AppHandle) -> Result<(), String> {
+    quit(&app, 0)
 }
 
 fn tray_host_available() -> bool {
@@ -222,16 +227,27 @@ fn main() {
         autostart_args.extend(["--config".to_owned(), path.clone()]);
     }
     let app = tauri::Builder::default()
+        .manage(updater::normalized_restart_env(
+            options.config.as_deref(),
+            options.minimized,
+            options.demo,
+            options.smoke,
+        ))
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if !args.iter().any(|arg| arg == "--minimized") {
                 let _ = ensure_window(app);
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .args(autostart_args)
                 .build(),
         )
+        .manage(updater::UpdateManager::new(
+            env!("CARGO_PKG_VERSION").into(),
+            bridge.demo,
+        ))
         .manage(bridge.clone())
         .manage(Mutex::new(WindowGeometry::default()))
         .manage(smoke::SmokeState::default())
@@ -240,7 +256,13 @@ fn main() {
             get_desktop_settings,
             set_autostart,
             quit_app,
-            smoke::smoke_rendered
+            smoke::smoke_rendered,
+            updater::updater_status,
+            updater::updater_open_releases,
+            updater::updater_check,
+            updater::updater_install,
+            updater::updater_resume,
+            updater::updater_restart
         ])
         .setup(move |app| {
             let handle = app.handle();
@@ -282,7 +304,7 @@ fn main() {
                     // Destroy the WebView; the core and tray have independent lifetimes.
                     let _ = window.destroy();
                 } else {
-                    quit(app, 0);
+                    let _ = quit(app, 0);
                 }
             }
         })
@@ -298,7 +320,7 @@ fn main() {
                         || (bridge.close_to_tray.load(Ordering::Acquire)
                             && bridge.tray_available.load(Ordering::Acquire)));
                 if !background {
-                    quit(app, code.unwrap_or(0));
+                    let _ = quit(app, code.unwrap_or(0));
                 }
             }
         }

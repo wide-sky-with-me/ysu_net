@@ -84,6 +84,15 @@ class AccountInfoTests(OfflineTestCase):
         result = format_account_info(ONLINE, payload)
         self.assertIn('在线设备：1 台', result)
         self.assertIn('剩余流量：门户未提供', result)
+        self.assertNotIn('余额', result)
+
+    def test_known_quota_does_not_invent_balance_or_lookup_guidance(self):
+        payload = {'data': {'accountInfo': [{'title': '套餐', 'content': '校园套餐'},
+                                          {'title': '剩余流量', 'content': '80 GB'}]}}
+        result = format_account_info(ONLINE, payload)
+        self.assertIn('剩余流量：80 GB', result)
+        self.assertNotIn('余额', result)
+        self.assertNotIn('进一步查询', result)
 
 
 class AccountDoctorCliTests(OfflineTestCase):
@@ -170,7 +179,7 @@ class AccountDoctorCliTests(OfflineTestCase):
         self.assertEqual(command.call_args.args[0][-2:], ['doctor', '--network'])
 
     def test_raw_info_remains_unchanged(self):
-        raw = {'online': ONLINE, 'account': {'data': {'accountInfo': []}}}
+        raw = {'online': ONLINE, 'account': {'data': {'accountInfo': [{'title': 'unknown-balance', 'content': 0}]}}}
         self.runner.return_value = Result(0, json.dumps(raw))
         self.assertEqual(cli.main(['info', '--raw']), 0)
         self.assertEqual(json.loads(self.output.getvalue()), raw)

@@ -2,22 +2,23 @@
 //! Decision: .agents/notes/implemented/desktop/2026-10-15-tray-control.md
 use crate::{
     bridge::CoreBridge,
-    tray_model::{badged_icon, TrayView, Updates},
+    tray_model::{badged_icon, compact, menu_status_icon, TrayView, Updates, MENU_ICON_SIZE},
 };
 use serde_json::Value;
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use tauri::{
     image::Image,
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
 
 pub struct TrayState {
-    status: MenuItem<tauri::Wry>,
+    status: IconMenuItem<tauri::Wry>,
     identity: MenuItem<tauri::Wry>,
     address: MenuItem<tauri::Wry>,
     quota: MenuItem<tauri::Wry>,
+    details: Submenu<tauri::Wry>,
     activity: MenuItem<tauri::Wry>,
     connection: MenuItem<tauri::Wry>,
     refresh: MenuItem<tauri::Wry>,
@@ -38,14 +39,30 @@ fn menu_text(value: &str) -> String {
 }
 
 pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let status = MenuItem::with_id(app, "status", "YSU Net · 正在读取状态", false, None::<&str>)?;
-    let identity = MenuItem::with_id(app, "identity", "账号：待确认", false, None::<&str>)?;
+    // GTK icon items have a composite label that muda 0.20 set_text does not update.
+    // Keep branding static; real status uses the plain summary item below.
+    let status = IconMenuItem::with_id(
+        app,
+        "open",
+        "打开燕大校园网",
+        true,
+        None::<Image<'_>>,
+        None::<&str>,
+    )?;
+    let identity = MenuItem::with_id(app, "identity", "正在读取状态", false, None::<&str>)?;
     let address = MenuItem::with_id(app, "address", "IP：待确认", false, None::<&str>)?;
     let quota = MenuItem::with_id(app, "quota", "剩余流量：待核验", false, None::<&str>)?;
-    let activity = MenuItem::with_id(app, "activity", "等待后台状态", false, None::<&str>)?;
-    let open = MenuItem::with_id(app, "open", "打开主窗口", true, None::<&str>)?;
+    let activity = MenuItem::with_id(
+        app,
+        "activity",
+        "最近结果：等待后台状态",
+        false,
+        None::<&str>,
+    )?;
+    let details = Submenu::with_id(app, "details", "连接详情", true)?;
+    details.append_items(&[&address, &activity])?;
     let connection = MenuItem::with_id(app, "connection", "查询连接状态", false, None::<&str>)?;
-    let refresh = MenuItem::with_id(app, "refresh", "刷新连接与账户", false, None::<&str>)?;
+    let refresh = MenuItem::with_id(app, "refresh", "刷新状态与账户", false, None::<&str>)?;
     let auto = CheckMenuItem::with_id(app, "auto", "自动重连", false, false, None::<&str>)?;
     let rotation = CheckMenuItem::with_id(
         app,
@@ -64,11 +81,9 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
         &[
             &status,
             &identity,
-            &address,
             &quota,
-            &activity,
+            &details,
             &divider,
-            &open,
             &connection,
             &refresh,
             &controls_divider,
@@ -80,7 +95,7 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
     )?;
     let mut builder = TrayIconBuilder::with_id("network")
         .menu(&menu)
-        .tooltip("YSU Net · 正在读取状态")
+        .tooltip("燕大校园网 · 正在读取状态")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             dispatch(app, event.id.as_ref());
@@ -106,6 +121,7 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
         identity,
         address,
         quota,
+        details,
         activity,
         connection,
         refresh,
@@ -127,7 +143,7 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 pub fn dispatch(app: &tauri::AppHandle, id: &str) {
     if id == "quit" {
-        crate::quit(app, 0);
+        let _ = crate::quit(app, 0);
         return;
     }
     if id == "open" {
@@ -229,13 +245,13 @@ fn apply(
     view: &TrayView,
     previous: Option<&TrayView>,
 ) -> tauri::Result<()> {
-    state.status.set_text(menu_text(&view.status))?;
-    state.identity.set_text(menu_text(&view.identity))?;
+    state.identity.set_text(menu_text(&view.status))?;
     state.address.set_text(menu_text(&view.address))?;
     state.quota.set_text(menu_text(&view.quota))?;
-    state
-        .activity
-        .set_text(menu_text(&format!("最近：{}", view.activity)))?;
+    state.activity.set_text(menu_text(&format!(
+        "最近结果：{}",
+        compact(&view.activity, 36)
+    )))?;
     state.connection.set_text(&view.connection_label)?;
     state.connection.set_enabled(view.connection_enabled)?;
     state.refresh.set_enabled(view.refresh_enabled)?;
@@ -249,6 +265,11 @@ fn apply(
         icon.set_tooltip(Some(&view.tooltip))?;
         if previous.is_none_or(|previous| previous.indicator != view.indicator) {
             if let Some(base) = app.default_window_icon() {
+                state.status.set_icon(Some(Image::new_owned(
+                    menu_status_icon(base.rgba(), base.width(), base.height(), view.indicator),
+                    MENU_ICON_SIZE,
+                    MENU_ICON_SIZE,
+                )))?;
                 icon.set_icon(Some(Image::new_owned(
                     badged_icon(base.rgba(), base.width(), base.height(), view.indicator),
                     base.width(),
@@ -263,14 +284,34 @@ fn apply(
 pub fn inspect(app: &tauri::AppHandle) -> tauri::Result<Value> {
     let state = app.state::<TrayState>();
     let view = state.updates.lock().unwrap().applied.clone();
+    let root_items: Vec<String> = state
+        .menu
+        .items()?
+        .into_iter()
+        .map(|item| {
+            let id: &str = item.id().as_ref();
+            id.to_owned()
+        })
+        .collect();
+    let detail_items: Vec<String> = state
+        .details
+        .items()?
+        .into_iter()
+        .map(|item| {
+            let id: &str = item.id().as_ref();
+            id.to_owned()
+        })
+        .collect();
     Ok(serde_json::json!({
-        "status": state.status.text()?, "identity": state.identity.text()?,
+        "status": state.identity.text()?, "identity": view.as_ref().map(|view| view.identity.clone()),
         "address": state.address.text()?, "quota": state.quota.text()?,
         "connection": state.connection.text()?, "connection_enabled":state.connection.is_enabled()?,
         "refresh_enabled":state.refresh.is_enabled()?, "auto":state.auto.is_checked()?,
         "auto_enabled":state.auto.is_enabled()?, "rotation":state.rotation.is_checked()?,
         "rotation_enabled":state.rotation.is_enabled()?,
         "quit_enabled": state.quit.is_enabled()?,
+        "header_enabled": state.status.is_enabled()?, "header": state.status.text()?,
+        "root_items": root_items, "detail_items": detail_items,
         "tooltip":view.map(|view|view.tooltip), "tooltip_supported":!cfg!(target_os="linux")
     }))
 }

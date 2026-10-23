@@ -19,7 +19,10 @@ use tokio::{
     sync::{mpsc, watch, Mutex as AsyncMutex},
     time::Instant,
 };
-use ysu_auth::{AuthClient, AuthError, Config, Status, SERVICES};
+use ysu_auth::{
+    AuthClient, AuthDiagnostic, AuthError, Config, DiagnosticOperation, DiagnosticReason,
+    DiagnosticStage, Status, SERVICES,
+};
 
 const MAX_REQUEST: usize = 32 * 1024;
 const QUEUE_SIZE: usize = 64;
@@ -48,6 +51,20 @@ pub(crate) enum Action {
     Switch(String),
     SwitchAccount(String),
     SetService(String),
+}
+
+impl Action {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Status => "status",
+            Self::Info => "info",
+            Self::Login => "login",
+            Self::Logout => "logout",
+            Self::Switch(_) => "switch_service",
+            Self::SwitchAccount(_) => "switch_account",
+            Self::SetService(_) => "set_service",
+        }
+    }
 }
 
 pub fn valid_request(command: &str, args: &Value) -> bool {
@@ -151,6 +168,35 @@ fn public_error(code: i32) -> &'static str {
         3 => "操作未确认成功或在线账号不一致，请查询当前实际状态",
         _ => "查询未确认连接状态，请检查配置或稍后重试",
     }
+}
+
+fn local_auth_error(
+    code: i32,
+    operation: DiagnosticOperation,
+    stage: DiagnosticStage,
+    reason: DiagnosticReason,
+) -> AuthError {
+    let mut error = AuthError::new(code, "");
+    error.diagnostic = AuthDiagnostic {
+        operation,
+        stage,
+        reason,
+    };
+    error
+}
+
+fn diagnostic_detail(action: &str, phase: DiagnosticStage, error: &AuthError) -> String {
+    // Serialize only closed enums. AuthError.message may contain server text or credentials.
+    let diagnostic = serde_json::to_value(error.diagnostic()).expect("fixed diagnostic enums");
+    let phase = serde_json::to_value(phase).expect("fixed diagnostic phase");
+    format!(
+        "action={action} phase={} code={} operation={} stage={} reason={}",
+        phase.as_str().unwrap_or("unknown"),
+        error.code,
+        diagnostic["operation"].as_str().unwrap_or("unknown"),
+        diagnostic["stage"].as_str().unwrap_or("unknown"),
+        diagnostic["reason"].as_str().unwrap_or("unknown"),
+    )
 }
 
 struct State {
@@ -257,10 +303,27 @@ impl State {
     }
 }
 
+#[derive(Default)]
+struct AuthGate {
+    active: bool,
+    updating: bool,
+}
+
+struct AuthWork {
+    gate: Arc<Mutex<AuthGate>>,
+}
+
+impl Drop for AuthWork {
+    fn drop(&mut self) {
+        self.gate.lock().unwrap().active = false;
+    }
+}
+
 pub struct Runtime {
     store: Arc<Store>,
     state: Mutex<State>,
     publication: Mutex<()>,
+    auth_gate: Arc<Mutex<AuthGate>>,
     sink: Sink,
     backend: Backend,
     sender: mpsc::Sender<Action>,
@@ -318,6 +381,7 @@ impl Runtime {
             store,
             state: Mutex::new(state),
             publication: Mutex::new(()),
+            auth_gate: Arc::new(Mutex::new(AuthGate::default())),
             sink,
             backend,
             sender,
@@ -333,6 +397,40 @@ impl Runtime {
             stopped: AtomicBool::new(false),
         });
         Ok((runtime, receiver))
+    }
+
+    fn begin_auth(&self) -> Result<AuthWork, String> {
+        let mut gate = self.auth_gate.lock().unwrap();
+        if gate.updating || self.stopped.load(Ordering::Acquire) || *self.stop.borrow() {
+            return Err(STOPPED.into());
+        }
+        if gate.active {
+            return Err("已有认证任务正在执行".into());
+        }
+        gate.active = true;
+        Ok(AuthWork {
+            gate: self.auth_gate.clone(),
+        })
+    }
+
+    pub(crate) fn pause_for_update(&self) -> Result<(), String> {
+        // This is the same short gate used before authentication config reads and network work.
+        let mut gate = self.auth_gate.lock().unwrap();
+        if gate.updating || self.stopped.load(Ordering::Acquire) || *self.stop.borrow() {
+            return Err(STOPPED.into());
+        }
+        if gate.active || self.state.lock().unwrap().busy {
+            return Err("认证任务进行中，请完成后再安装更新".into());
+        }
+        gate.updating = true;
+        self.stop.send_replace(true);
+        Ok(())
+    }
+
+    /// Called only on a newly created runtime before launch; does not publish an event.
+    pub(crate) fn set_sequence_floor(&self, floor: u64) {
+        let mut state = self.state.lock().unwrap();
+        state.sequence = state.sequence.max(floor);
     }
 
     pub(crate) fn launch(self: &Arc<Self>, receiver: mpsc::Receiver<Action>) {
@@ -648,6 +746,8 @@ struct Worker {
     next_check: Instant,
     reconnect: Reconnect,
     rotation: Rotation,
+    action: &'static str,
+    phase: DiagnosticStage,
 }
 
 impl Worker {
@@ -661,6 +761,8 @@ impl Worker {
             next_check: Instant::now(),
             reconnect: Reconnect::default(),
             rotation: Rotation::default(),
+            action: "status",
+            phase: DiagnosticStage::Unknown,
         }
     }
 
@@ -670,13 +772,16 @@ impl Worker {
     }
 
     async fn run(mut self) {
+        if *self.stop.borrow() {
+            return;
+        }
         let runtime = self.runtime.clone();
         let mut stop = self.stop.clone();
         tokio::select! {
             biased;
             _ = stop.changed() => return,
             result = self.execute(Action::Status) => {
-                if result.is_err() { runtime.update(|state| state.log("error", CONFIG_ERROR)); }
+                if result.is_err() && !*stop.borrow() { runtime.update(|state| state.log("error", CONFIG_ERROR)); }
             }
         }
         runtime.update(|state| {
@@ -771,21 +876,52 @@ impl Worker {
             state.busy_message = message.into();
         });
     }
-    fn error(&self, code: i32) {
-        self.runtime
-            .update(|state| state.log("error", public_error(code)));
+    fn error_message(&self, error: &AuthError) -> String {
+        format!(
+            "{} [{}]",
+            public_error(error.code),
+            diagnostic_detail(self.action, self.phase, error)
+        )
+    }
+
+    fn error(&self, error: &AuthError) {
+        let message = self.error_message(error);
+        self.runtime.update(|state| state.log("error", &message));
+    }
+
+    fn local_error(
+        &self,
+        code: i32,
+        stage: DiagnosticStage,
+        reason: DiagnosticReason,
+    ) -> AuthError {
+        let operation = match self.action {
+            "status" => DiagnosticOperation::Status,
+            "info" => DiagnosticOperation::Info,
+            "login" => DiagnosticOperation::Login,
+            "logout" => DiagnosticOperation::Logout,
+            "switch_service" => DiagnosticOperation::SwitchService,
+            _ => DiagnosticOperation::Unknown,
+        };
+        local_auth_error(code, operation, stage, reason)
     }
 
     fn config_failed(&self, account_only: bool) {
+        let error = self.local_error(2, DiagnosticStage::Config, DiagnosticReason::ConfigInvalid);
+        let message = format!(
+            "{CONFIG_ERROR} [{}]",
+            diagnostic_detail(self.action, DiagnosticStage::Config, &error)
+        );
         self.runtime.update(|state| {
             state.info = Value::Null;
             if account_only {
-                state.info_error = CONFIG_ERROR.into();
+                state.info_error = message.clone();
             }
             if !account_only {
-                state.status = json!({"online":null, "service":null, "user":"", "ip":"", "message":CONFIG_ERROR});
+                state.status =
+                    json!({"online":null, "service":null, "user":"", "ip":"", "message":message});
             }
-            state.log("error", CONFIG_ERROR);
+            state.log("error", &message);
         });
     }
 
@@ -794,7 +930,12 @@ impl Worker {
         self.runtime.update(|state| match &result {
             Ok(status) => {
                 state.status = serde_json::to_value(status).unwrap();
-                state.status["message"] = if status.online { "校园网已连接" } else { "校园网未连接" }.into();
+                state.status["message"] = if status.online {
+                    "校园网已连接"
+                } else {
+                    "校园网未连接"
+                }
+                .into();
                 if !status.online {
                     state.info = json!({"online":false, "fields":[], "items":[]});
                 } else if state.info["online"] == false {
@@ -803,27 +944,41 @@ impl Worker {
                 }
             }
             Err(error) => {
-                state.status = json!({"online":null, "service":null, "user":"", "ip":"", "message":public_error(error.code)});
+                let message = self.error_message(error);
+                state.status =
+                    json!({"online":null, "service":null, "user":"", "ip":"", "message":message});
                 state.info = Value::Null;
+                state.log("error", &message);
             }
         });
         result
     }
 
     fn operation_timed_out(&self, account_only: bool) {
+        let error = self.local_error(2, self.phase, DiagnosticReason::Deadline);
+        let message = format!(
+            "操作超过时限，请重新查询实际状态 [{}]",
+            diagnostic_detail(self.action, self.phase, &error)
+        );
         self.runtime.update(|state| {
             state.info = Value::Null;
             if account_only {
-                state.info_error = "账户信息读取超时，请稍后重试".into();
+                state.info_error = format!(
+                    "账户信息和连接状态刷新超时，请稍后重试 [{}]",
+                    diagnostic_detail(self.action, self.phase, &error)
+                );
             }
-            if !account_only {
-                state.status = json!({"online":null, "service":null, "user":"", "ip":"", "message":"操作超过时限，请重新查询实际状态"});
-            }
-            state.log("error", "操作超过时限，请重新查询实际状态");
+            // Info now includes an independent status query; a whole-operation timeout leaves it unconfirmed.
+            state.status =
+                json!({"online":null, "service":null, "user":"", "ip":"", "message":message});
+            state.log("error", &message);
         });
     }
 
     async fn execute(&mut self, action: Action) -> Result<(), String> {
+        let _work = self.runtime.begin_auth()?;
+        self.action = action.name();
+        self.phase = DiagnosticStage::Queue;
         let account_only = matches!(action, Action::Info);
         let config = match self.runtime.config().await {
             Ok(config) => config,
@@ -863,23 +1018,73 @@ impl Worker {
                     .await?;
             }
             Action::Status => {
+                self.phase = DiagnosticStage::OnlineState;
                 self.busy("正在查询连接状态");
-                if let Err(error) = self.status(&config).await {
-                    self.error(error.code);
-                }
+                let _ = self.status(&config).await;
             }
             Action::Info => {
+                self.phase = DiagnosticStage::AccountInfo;
                 self.busy("正在读取账户信息");
                 let result = self.runtime.backend.info(&config).await;
+                let info = result.as_ref().ok().and_then(normalize_info);
+                let info_error = match &result {
+                    Err(error) => Some(format!(
+                        "账户信息获取失败，请稍后重试 [{}]",
+                        diagnostic_detail(self.action, self.phase, error)
+                    )),
+                    Ok(_) if info.is_none() => Some(format!(
+                        "账户信息格式未确认，请稍后重试 [{}]",
+                        diagnostic_detail(
+                            self.action,
+                            self.phase,
+                            &self.local_error(
+                                2,
+                                DiagnosticStage::AccountInfo,
+                                DiagnosticReason::ResponseInvalid,
+                            )
+                        )
+                    )),
+                    _ => None,
+                };
+                if let Some(message) = &info_error {
+                    self.runtime.update(|state| state.log("error", message));
+                }
+                self.phase = DiagnosticStage::Verification;
+                self.busy("正在复查连接状态");
+                let observed = self.status(&config).await;
                 self.runtime.update(|state| {
-                    state.info = result
-                        .as_ref()
-                        .ok()
-                        .and_then(normalize_info)
-                        .unwrap_or(Value::Null);
-                    if state.info.is_null() {
-                        state.info_error = "账户信息获取失败，请稍后重试".into();
-                        state.log("error", "账户信息获取失败，请稍后重试");
+                    if observed.as_ref().is_ok_and(|status| !status.online) {
+                        // Only the independent status observation can confirm an offline connection.
+                        state.info = json!({"online":false, "fields":[], "items":[]});
+                    } else if observed.is_err() {
+                        state.info = Value::Null;
+                        state.info_error = info_error.clone().unwrap_or_else(|| {
+                            format!(
+                                "账户信息连接状态复查失败，请稍后重试 [{}]",
+                                diagnostic_detail(
+                                    self.action,
+                                    self.phase,
+                                    observed.as_ref().unwrap_err()
+                                ),
+                            )
+                        });
+                    } else if let Some(message) = &info_error {
+                        state.info = Value::Null;
+                        state.info_error = message.clone();
+                    } else if info.as_ref().is_some_and(|info| info["online"] == true) {
+                        state.info = info.clone().unwrap();
+                    } else {
+                        state.info = Value::Null;
+                        let error = self.local_error(
+                            2,
+                            DiagnosticStage::Verification,
+                            DiagnosticReason::StateUnrecognized,
+                        );
+                        state.info_error = format!(
+                            "账户信息与连接状态不一致，请重新读取 [{}]",
+                            diagnostic_detail(self.action, self.phase, &error)
+                        );
+                        state.log("error", &state.info_error.clone());
                     }
                 });
             }
@@ -920,7 +1125,15 @@ impl Worker {
                         return Ok(());
                     }
                 };
+                self.phase = match action {
+                    Action::Logout => DiagnosticStage::OfflineSubmit,
+                    Action::Switch(_) => DiagnosticStage::ServiceSelect,
+                    _ => DiagnosticStage::UserOnline,
+                };
                 let result = self.runtime.backend.mutate(&config, &action).await;
+                if let Err(error) = &result {
+                    self.error(error);
+                }
                 if result.as_ref().is_err_and(|error| error.code == 4) {
                     self.reconnect.blocked = Some(Reconnect::identity(&config));
                 }
@@ -932,6 +1145,7 @@ impl Worker {
                         return Ok(());
                     }
                 };
+                self.phase = DiagnosticStage::Verification;
                 let observed = self.status(&latest).await;
                 let confirmed = match (&action, &observed) {
                     (Action::Login, Ok(status)) => {
@@ -964,11 +1178,13 @@ impl Worker {
                         )
                     });
                 } else {
-                    let code = result.as_ref().err().map(|v| v.code).unwrap_or(2);
-                    if code == 4 {
-                        self.reconnect.blocked = Some(Reconnect::identity(&config));
+                    if result.is_ok() && observed.is_ok() {
+                        self.error(&self.local_error(
+                            3,
+                            DiagnosticStage::Verification,
+                            DiagnosticReason::IdentityMismatch,
+                        ));
                     }
-                    self.error(code);
                 }
                 self.next_check = Instant::now() + Duration::from_secs(config.check_interval);
             }
@@ -977,6 +1193,11 @@ impl Worker {
     }
 
     async fn tick(&mut self) {
+        let Ok(_work) = self.runtime.begin_auth() else {
+            return;
+        };
+        self.action = "auto";
+        self.phase = DiagnosticStage::Config;
         let config = match self.runtime.config().await {
             Ok(config) => config,
             Err(_) => {
@@ -1007,6 +1228,7 @@ impl Worker {
                 return;
             }
         };
+        self.phase = DiagnosticStage::OnlineState;
         self.busy("自动重连：正在检查连接");
         let observed = self.status(&config).await;
         let latest = match self.runtime.config().await {
@@ -1055,7 +1277,11 @@ impl Worker {
                 if !self.runtime.desired.load(Ordering::Acquire) {
                     return;
                 }
+                self.phase = DiagnosticStage::UserOnline;
                 let result = self.runtime.backend.mutate(&config, &Action::Login).await;
+                if let Err(error) = &result {
+                    self.error(error);
+                }
                 if result.as_ref().is_err_and(|error| error.code == 4) {
                     self.reconnect.blocked = Some(Reconnect::identity(&config));
                 }
@@ -1067,6 +1293,7 @@ impl Worker {
                         return;
                     }
                 };
+                self.phase = DiagnosticStage::Verification;
                 let verified = self.status(&latest).await;
                 if result.is_ok()
                     && verified.as_ref().is_ok_and(|v| {
@@ -1147,6 +1374,8 @@ struct Demo {
     #[cfg(test)]
     status_error: Option<i32>,
     #[cfg(test)]
+    status_diagnostic: Option<AuthDiagnostic>,
+    #[cfg(test)]
     status_delay: Duration,
     #[cfg(test)]
     status_calls: u32,
@@ -1154,6 +1383,12 @@ struct Demo {
     operation_error: Option<i32>,
     #[cfg(test)]
     info_error: bool,
+    #[cfg(test)]
+    info_delay: Duration,
+    #[cfg(test)]
+    info_online: Option<bool>,
+    #[cfg(test)]
+    info_calls: u32,
     #[cfg(test)]
     delay: Duration,
     #[cfg(test)]
@@ -1204,11 +1439,20 @@ impl Backend {
                     tokio::time::sleep(delay).await;
                 }
                 #[cfg(test)]
-                if let Some(code) = demo.lock().unwrap().status_error {
-                    return Err(AuthError {
-                        code,
-                        message: "fixture query".into(),
-                    });
+                {
+                    let failure = {
+                        let state = demo.lock().unwrap();
+                        state
+                            .status_error
+                            .map(|code| (code, state.status_diagnostic))
+                    };
+                    if let Some((code, diagnostic)) = failure {
+                        let mut error = AuthError::new(code, "fixture query https://fixture-user:fixture-secret@portal.invalid/?token=fixture-token");
+                        if let Some(diagnostic) = diagnostic {
+                            error.diagnostic = diagnostic;
+                        }
+                        return Err(error);
+                    }
                 }
                 Ok(demo.lock().unwrap().status())
             }
@@ -1218,17 +1462,29 @@ impl Backend {
         match self {
             Self::Native => AuthClient::new(config.clone())?.info().await,
             Self::Demo(demo) => {
+                #[cfg(test)]
+                {
+                    let delay = {
+                        let mut state = demo.lock().unwrap();
+                        state.info_calls += 1;
+                        state.info_delay
+                    };
+                    tokio::time::sleep(delay).await;
+                }
                 let demo = demo.lock().unwrap();
                 #[cfg(test)]
                 if demo.info_error {
-                    return Err(AuthError {
-                        code: 2,
-                        message: "fixture account https://fixture-user:fixture-secret@portal.invalid/?token=fixture-token".into(),
-                    });
+                    return Err(AuthError::new(2,
+                        "fixture account https://fixture-user:fixture-secret@portal.invalid/?token=fixture-token",
+                    ));
                 }
+                #[cfg(test)]
+                let online = demo.info_online.unwrap_or(demo.online);
+                #[cfg(not(test))]
+                let online = demo.online;
                 Ok(
-                    json!({"online":demo.online, "fields":if demo.online { vec![["账号", demo.user.as_str()]] } else { vec![] },
-                    "items":if demo.online { vec![["剩余流量", "12.5 GB"], ["余额", "20.00 元"]] } else { vec![] }}),
+                    json!({"online":online, "fields":if online { vec![["账号", demo.user.as_str()]] } else { vec![] },
+                    "items":if online { vec![["剩余流量", "12.5 GB"]] } else { vec![] }}),
                 )
             }
         }
@@ -1268,24 +1524,15 @@ impl Backend {
                 if matches!(action, Action::Login) {
                     #[cfg(test)]
                     if let Some(code) = demo.login_failures.get(&config.username) {
-                        return Err(AuthError {
-                            code: *code,
-                            message: "fixture candidate login failure".into(),
-                        });
+                        return Err(AuthError::new(*code, "fixture candidate login failure"));
                     }
                 }
                 #[cfg(test)]
                 if let Some(code) = demo.operation_error {
-                    return Err(AuthError {
-                        code,
-                        message: "fixture mutation".into(),
-                    });
+                    return Err(AuthError::new(code, "fixture mutation"));
                 }
                 if config.username.is_empty() || config.password.is_empty() {
-                    return Err(AuthError {
-                        code: 4,
-                        message: "fixture credentials".into(),
-                    });
+                    return Err(AuthError::new(4, "fixture credentials"));
                 }
                 match action {
                     Action::Logout => {

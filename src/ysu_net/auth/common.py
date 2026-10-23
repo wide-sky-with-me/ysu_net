@@ -18,6 +18,17 @@ class InteractionRequired(RuntimeError):
     exit_code = 4
 
 
+def flow_node(payload):
+    """A failed workflow envelope never grants permission to change a connection."""
+    inner = payload.get("data") if isinstance(payload, dict) else None
+    if not successful_envelope(payload) or not successful_envelope(inner):
+        raise QueryError("门户流程节点业务结果未确认，暂不修改连接")
+    node = inner.get("currentNodePath")
+    if not isinstance(node, str) or not node:
+        raise QueryError("门户流程节点未知，暂不修改连接")
+    return node
+
+
 def online_state(payload):
     """Only a recognized offline response permits automatic authentication."""
     try:

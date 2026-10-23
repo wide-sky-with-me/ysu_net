@@ -1,4 +1,4 @@
-use crate::{cookies::Jar, is_loopback, AuthError, Config};
+use crate::{cookies::Jar, is_loopback, AuthError, Config, DiagnosticReason as Reason};
 use reqwest::{
     cookie::CookieStore,
     header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
@@ -60,18 +60,20 @@ impl Reply {
         String::from_utf8_lossy(&self.body).into_owned()
     }
     pub fn json(&self) -> Result<serde_json::Value, AuthError> {
-        serde_json::from_slice(&self.body)
-            .map_err(|_| AuthError::query("门户响应格式异常，连接状态未知"))
+        serde_json::from_slice(&self.body).map_err(|_| {
+            AuthError::query("门户响应格式异常，连接状态未知").because(Reason::ResponseInvalid)
+        })
     }
     pub fn ensure_success(&self) -> Result<(), AuthError> {
-        match self.status {
+        let result = match self.status {
             200..=299 => Ok(()),
             401 | 403 => Err(AuthError::interaction(
                 "认证会话失效或需要人工处理，请重新登录",
             )),
             429 | 500..=599 => Err(AuthError::query("认证服务暂时不可用，请稍后重试")),
             _ => Err(AuthError::query("门户请求失败，连接状态未知")),
-        }
+        };
+        result.map_err(|e| e.because(Reason::HttpRejected))
     }
 }
 
@@ -124,7 +126,8 @@ impl Transport {
             || u.password().is_some()
             || (u.scheme() != "https" && !(self.local && u.scheme() == "http" && is_loopback(u)))
         {
-            return Err(AuthError::query("认证跳转使用了不支持的地址或协议"));
+            return Err(AuthError::query("认证跳转使用了不支持的地址或协议")
+                .because(Reason::RedirectBlocked));
         }
         if u.origin() != self.base.origin() && u.origin() != self.cas.origin() {
             // Captive navigation only; this host never receives credentials or session API calls.
@@ -135,7 +138,9 @@ impl Transport {
             {
                 return Ok(());
             }
-            return Err(AuthError::query("认证跳转超出门户与统一认证地址"));
+            return Err(
+                AuthError::query("认证跳转超出门户与统一认证地址").because(Reason::RedirectBlocked)
+            );
         }
         Ok(())
     }
@@ -341,14 +346,18 @@ impl Transport {
                 return Ok(r);
             }
             if hop == REDIRECT_LIMIT {
-                return Err(AuthError::query("认证重定向超过次数限制"));
+                return Err(
+                    AuthError::query("认证重定向超过次数限制").because(Reason::RedirectLimit)
+                );
             }
             let next = r
                 .headers
                 .get(LOCATION)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| url.join(v).ok())
-                .ok_or_else(|| AuthError::query("认证重定向缺少有效地址"))?;
+                .ok_or_else(|| {
+                    AuthError::query("认证重定向缺少有效地址").because(Reason::ResponseInvalid)
+                })?;
             let next = if portal_navigation {
                 self.portal_navigation_target(&url, next, &method, body.is_some())
             } else {
@@ -357,7 +366,9 @@ impl Transport {
             self.allowed(&next)?;
             let origin_changed = next.origin() != url.origin();
             if origin_changed && body.is_some() && matches!(r.status, 307 | 308) {
-                return Err(AuthError::query("认证表单跨站重复提交已停止"));
+                return Err(
+                    AuthError::query("认证表单跨站重复提交已停止").because(Reason::RedirectBlocked)
+                );
             }
             if r.status == 303 || (matches!(r.status, 301 | 302) && method == Method::POST) {
                 method = Method::GET;
@@ -379,7 +390,7 @@ impl Transport {
             }
             url = next;
         }
-        Err(AuthError::query("认证重定向超过次数限制"))
+        Err(AuthError::query("认证重定向超过次数限制").because(Reason::RedirectLimit))
     }
     pub async fn get(&self, url: Url, op: &Operation) -> Result<Reply, AuthError> {
         self.follow(Method::GET, url, HeaderMap::new(), None, op)
@@ -411,9 +422,9 @@ fn network_error(e: reqwest::Error) -> AuthError {
     if e.is_timeout() {
         AuthError::timeout()
     } else if e.is_connect() {
-        AuthError::query("连接认证服务失败，请检查网络和证书")
+        AuthError::query("连接认证服务失败，请检查网络和证书").because(Reason::Network)
     } else {
-        AuthError::query("读取认证响应失败，连接状态未知")
+        AuthError::query("读取认证响应失败，连接状态未知").because(Reason::Network)
     }
 }
 fn decode_cookie(s: &str) -> String {

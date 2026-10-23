@@ -71,8 +71,8 @@ describe('snapshot contract', () => {
 });
 
 describe('portal original values', () => {
-  it('adds missing flow and balance without manufacturing zeros', () => {
-    expect(accountItems({ online: true, fields: [], items: [['套餐', '原文套餐']] })).toEqual([['套餐', '原文套餐'], ['剩余流量', '门户未提供'], ['账户余额', '门户未提供']]);
+  it('adds only missing flow and never invents a balance item', () => {
+    expect(accountItems({ online: true, fields: [], items: [['套餐', '原文套餐']] })).toEqual([['套餐', '原文套餐'], ['剩余流量', '门户未提供']]);
     const portal: [string, string][] = [['套餐与余额', '校园套餐；余额 0.00 元'], ['剩余流量', ' 80.000 GiB ']];
     expect(accountItems({ online: true, fields: [], items: portal })).toEqual(portal);
   });

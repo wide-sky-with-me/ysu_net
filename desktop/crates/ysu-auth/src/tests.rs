@@ -202,6 +202,7 @@ struct State {
     cas_reject: u16,
     state_http: u16,
     state_override: Option<Value>,
+    node_override: Option<Value>,
     state_failure_at: Option<usize>,
     offline_ack_only: bool,
     rejected_service: Option<String>,
@@ -233,6 +234,7 @@ impl Default for State {
             cas_reject: 0,
             state_http: 200,
             state_override: None,
+            node_override: None,
             state_failure_at: None,
             offline_ack_only: false,
             rejected_service: None,
@@ -415,9 +417,9 @@ fn respond(s: &mut State, r: Request) -> Response {
             out.status = s.state_http;
             out
         }
-        "/eportal/workFlow/getCurrentNode" => Response::json(
-            json!({"data":{"currentNodePath":if s.cas_required&&!s.authenticated {"authenticate"} else {"serviceSelection"}}}),
-        ),
+        "/eportal/workFlow/getCurrentNode" => Response::json(s.node_override.clone().unwrap_or_else(||
+            json!({"data":{"currentNodePath":if s.cas_required&&!s.authenticated {"authenticate"} else {"serviceSelection"}}})
+        )),
         "/cas-sso/login" => Response::html("seed"),
         "/cas-sso/clientredirect" => Response::redirect(&format!(
             "{}/authserver/login?service={}",
@@ -759,6 +761,24 @@ async fn same_service_switch_and_missing_credentials_are_non_destructive() {
     );
     assert_eq!(f.state.lock().unwrap().requests.len(), before);
 }
+#[tokio::test]
+async fn node_business_failure_never_submits_service_actions() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../../tests/fixtures/flow-node.json")).unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let f = Fixture::new();
+        f.mutate(|state| state.node_override = Some(case["payload"].clone()));
+        if case["valid"] == true {
+            assert!(f.client().login().await.unwrap().online);
+        } else {
+            let error = f.client().login().await.unwrap_err();
+            assert_eq!(error.code, QUERY_ERROR, "{}", case["id"]);
+            assert_eq!(f.count("/eportal/network/"), 0, "{}", case["id"]);
+            assert_eq!(f.count("/cas-sso/"), 0, "{}", case["id"]);
+        }
+    }
+}
+
 #[tokio::test]
 async fn outer_business_failure_during_each_logout_preflight_never_posts_offline() {
     for at in [1, 2] {
@@ -1118,5 +1138,7 @@ async fn chromium_cdp_captcha_and_no_fallback_fixture() {
     assert_eq!(f.selections().len(), 0);
 }
 
+#[path = "diagnostic_tests.rs"]
+mod diagnostics;
 #[path = "regression_tests.rs"]
 mod regression;

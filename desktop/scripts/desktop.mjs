@@ -16,10 +16,12 @@ export function options(args) {
     dev: { type: 'boolean' },
     'prepare-only': { type: 'boolean' },
     'no-bundle': { type: 'boolean' },
+    'signed-update': { type: 'boolean' },
     bundles: { type: 'string' },
   } });
   if (values.dev && (values.bundles || values['no-bundle'])) throw new Error('开发启动不接受安装包参数');
   if (values.bundles && values['no-bundle']) throw new Error('bundles 与 no-bundle 只能选择一个');
+  if (values['signed-update'] && (values.dev || values['prepare-only'] || values['no-bundle'])) throw new Error('signed-update 仅用于安装包构建');
   return values;
 }
 
@@ -36,7 +38,10 @@ export function buildCommands(values, platform = process.platform) {
   const cli = join(desktop, 'node_modules/@tauri-apps/cli/tauri.js');
   const commands = [[process.execPath, cli, 'icon', join(root, 'packaging/tauri-icon.svg'), '--output', join(native, 'icons')]];
   if (!values['prepare-only']) {
-    const args = values.dev ? ['dev'] : ['build', ...(values['no-bundle'] ? ['--no-bundle'] : ['--bundles', values.bundles || defaults[platform]]), '--', '--locked'];
+    const bundles = values.bundles || defaults[platform];
+    if (values['signed-update'] && platform === 'linux' && !bundles.split(',').includes('appimage')) throw new Error('Linux 在线更新需要 AppImage，deb 使用手动更新');
+    const signing = values['signed-update'] ? ['--config', JSON.stringify({ bundle: { createUpdaterArtifacts: true } })] : [];
+    const args = values.dev ? ['dev'] : ['build', ...(values['no-bundle'] ? ['--no-bundle'] : ['--bundles', bundles]), ...signing, '--', '--locked'];
     commands.push([process.execPath, cli, ...args]);
   }
   return commands;
@@ -51,7 +56,7 @@ function run(command) {
 export function main(args = process.argv.slice(2)) {
   const values = options(args);
   if (values.help) {
-    console.log('原生 Rust 桌面构建\n--dev              启动 Tauri 开发应用\n--prepare-only     仅校验桌面版本并生成图标\n--bundles KIND     deb / nsis / app,dmg（在对应系统运行）\n--no-bundle        仅构建原生程序\n构建需要 Node 与 Rust；安装后的客户端不依赖它们的命令行运行时。');
+    console.log('原生 Rust 桌面构建\n--dev              启动 Tauri 开发应用\n--prepare-only     仅校验桌面版本并生成图标\n--bundles KIND     deb / nsis / app,dmg（在对应系统运行）\n--signed-update    为安装包生成带版本绑定的更新签名，需要签名环境变量\n--no-bundle        仅构建原生程序\n构建需要 Node 与 Rust；安装后的客户端不依赖它们的命令行运行时。');
     return;
   }
   const [major, minor] = process.versions.node.split('.').map(Number);
@@ -61,6 +66,7 @@ export function main(args = process.argv.slice(2)) {
   const config = JSON.parse(readFileSync(join(native, 'tauri.conf.json'), 'utf8'));
   const cargo = readFileSync(join(native, 'Cargo.toml'), 'utf8');
   validateSources(pkg, config, cargo);
+  if (values['signed-update'] && !process.env.TAURI_SIGNING_PRIVATE_KEY) throw new Error('signed-update 需要 TAURI_SIGNING_PRIVATE_KEY');
   run(['rustc', '-vV']);
   for (const command of buildCommands(values)) run(command);
 }

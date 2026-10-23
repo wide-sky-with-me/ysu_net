@@ -20,3 +20,8 @@ export function accountInfoState(snapshot: Snapshot | null): 'error' | 'ready' |
   if (snapshot?.status?.online === false || snapshot?.info?.online === false) return 'offline';
   return snapshot?.status?.online === true ? 'unread' : 'unknown';
 }
+
+/** Decoration gating only; never use this as quota or rotation evidence. */
+export function canAnimateQuota(name: string, value: string): boolean {
+  return /流量|用量|额度/.test(name) && /^[+]?\d/.test(value.trim()) && Number.parseFloat(value) > 0;
+}

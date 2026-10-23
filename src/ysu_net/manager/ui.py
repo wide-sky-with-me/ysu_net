@@ -6,7 +6,7 @@ import sys
 import unicodedata
 
 
-COLORS = {"success": "32", "warning": "33", "error": "31", "info": "36", "title": "1;36"}
+COLORS = {"success": "32", "warning": "33", "error": "31", "info": "36", "title": "1;36", "section": "1"}
 LABELS = {"success": "完成", "warning": "注意", "error": "失败", "info": "提示"}
 BACKENDS = {"api": "API 认证", "browser": "浏览器认证"}
 SERVICE_STATES = {
@@ -23,6 +23,10 @@ def clean(value):
     # Do not interpret terminal controls contained in paths or server responses.
     value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", str(value))
     return "".join(c for c in value if c in "\n\t" or (ord(c) >= 32 and ord(c) != 127))
+
+
+def display_width(text):
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in text)
 
 
 def styled(text, kind, stream=None):
@@ -48,20 +52,31 @@ def heading(title):
     print("─" * min(52, max(12, shutil.get_terminal_size((80, 24)).columns - 1)))
 
 
+def section(title):
+    print("\n  " + styled(title, "section"))
+
+
 def row(label, value):
     print(f"  {clean(label)}：{clean(value)}")
 
 
 def choices(items):
-    if shutil.get_terminal_size((80, 24)).columns < 64:
-        for item in items:
-            print("  " + clean(item))
+    cleaned = [clean(item) for item in items]
+    if not cleaned:
         return
-    for index in range(0, len(items), 2):
-        left = clean(items[index])
-        width = sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in left)
-        right = clean(items[index + 1]) if index + 1 < len(items) else ""
-        print("  " + left + (" " * max(2, 30 - width) + right if right else ""))
+    columns = shutil.get_terminal_size((80, 24)).columns
+    left_widths = [display_width(cleaned[i]) for i in range(0, len(cleaned), 2)]
+    right_widths = [display_width(cleaned[i]) for i in range(1, len(cleaned), 2)]
+    col_width = max(28, max(left_widths) + 4)
+    if columns < 64 or (right_widths and col_width + max(right_widths) + 2 > columns):
+        for item in cleaned:
+            print("  " + item)
+        return
+    for index in range(0, len(cleaned), 2):
+        left = cleaned[index]
+        width = display_width(left)
+        right = cleaned[index + 1] if index + 1 < len(cleaned) else ""
+        print("  " + left + (" " * max(2, col_width - width) + right if right else ""))
 
 
 def progress(text, *, raw=False):
