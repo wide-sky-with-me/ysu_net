@@ -25,11 +25,11 @@
 
 ### 验证与发布边界
 
-[2026-10-22 候选验收记录](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/windows-api-candidate-2026-10-22.md)记载当时的离线单测、浏览器夹具 / Mock、Windows 原生窗口自检和候选安装包验签；这些只对应记录中的源码与环境，不替代当前完整工作树、后续界面 / 原生改动或四平台 CI 的重新验证。本节不把测试定义或历史通过数作为本轮构建成绩。
+[2026-10-22 候选记录](https://github.com/wide-sky-with-me/ysu_net/blob/678cb1dba32576f9b86086afc9d963c8b17aac31/docs/windows-api-candidate-2026-10-22.md)与[2026-10-23 Linux 本地验收](https://github.com/wide-sky-with-me/ysu_net/blob/678cb1dba32576f9b86086afc9d963c8b17aac31/docs/desktop-candidate-2026-10-23.md)只对应各自源码、环境和实际执行范围。候选提交 `678cb1d` 的[远端 CI](https://github.com/wide-sky-with-me/ysu_net/actions/runs/39959320193)最终为 Windows x64、macOS arm64 / x64 成功，Linux 在浏览器验收失败，不能宣称四平台全部通过；本地成绩不替代该远端结果。
 
-现有候选记录未完成真实校园网登录、下线、换号、轮换、物理断网或长稳验收；macOS 新候选构建、真实更新 feed、Windows / macOS 原位升级与失败回滚，以及真实 Bridge 完整工厂重建 / AppHandle 清理的专门集成覆盖仍有缺口。浏览器演示与已有在线会话读取不等于新登录或实际升级成功。
+现有候选记录未完成真实校园网登录、下线、换号、轮换、物理断网或长稳验收；真实更新 feed、Windows / macOS 原位升级与失败回滚，以及真实 Bridge 完整工厂重建 / AppHandle 清理的专门集成覆盖仍有缺口。浏览器演示、普通安装器验收与已有在线会话读取不等于新登录或实际升级成功。
 
-正式发布仍须当前源码的 Linux x64、Windows x64、macOS arm64 / x64 构建、原生及安装 / 卸载验收全部成功，并准备签名更新包、对应 `.sig`、`latest.json` 和 `SHA256SUMS`。按候选记录，远端签名 Secret 与公开更新源尚未就绪；本轮不执行发布标签、真实更新安装、公开发布或签名 / 密钥变更。更新信任与平台限制见[签名在线更新](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)，界面验证范围见[设计说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/rust-desktop-design.md)。
+正式发布仍须当前源码的 Linux x64、Windows x64、macOS arm64 / x64 构建、原生及安装 / 卸载验收全部成功，并准备签名更新包、对应 `.sig`、`latest.json` 和 `SHA256SUMS`。远端签名 Secret 是否配置及生产密钥是否匹配须另行核对，不能从候选代码或缺少公开清单直接推断；候选说明不构成正式发布或真实更新验收。更新信任与平台限制见[签名在线更新](https://github.com/wide-sky-with-me/ysu_net/blob/678cb1dba32576f9b86086afc9d963c8b17aac31/docs/updates.md)，界面验证范围见[设计说明](https://github.com/wide-sky-with-me/ysu_net/blob/678cb1dba32576f9b86086afc9d963c8b17aac31/docs/rust-desktop-design.md)。
 
 ## YSU Net v0.2.0
 

@@ -2,7 +2,7 @@
 
 [返回首页](../README.md) · [两个产品与架构](architecture.md) · [Rust 迁移决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)
 
-自 **v0.2.0** 起，桌面采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI 与 systemd 独立保留，版本同步为 0.2.0；原 Qt 客户端与 Python 旁车源码已移除，新桌面不启动或打包 Python、Node、Playwright 认证运行时，也没有 Python `gui` 可选依赖。[对应 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.0)附件由四平台构建、原生与安装验收全部成功后发布，旧 `v0.1.0` Qt 附件保留历史。安装及旧自启迁移见[迁移说明](migration.md#桌面-v020-升级)。
+自 **v0.2.0** 起，桌面采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI 与 systemd 独立保留，不是桌面运行时；源码版本与正式发行的区别统一见[首页发行状态](../README.md#发行与候选状态)。原 Qt 客户端与 Python 旁车源码已移除，新桌面不启动或打包 Python、Node、Playwright 认证运行时，也没有 Python `gui` 可选依赖。正式附件从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载，发布仍要求四平台构建、原生与安装验收成功，旧 `v0.1.0` Qt 附件保留历史。安装及旧自启迁移见[迁移说明](migration.md#桌面-v020-升级)。
 
 ## 运行语义
 
@@ -99,5 +99,9 @@ dbus-run-session -- xvfb-run -a uv run --no-sync python packaging/tauri_linux_li
 截图只用于专用测试显示。Windows 传 `.exe`，macOS 传 `.app/Contents/MacOS/ysu-net`。脚本测量程序拥有的完整进程树，检查旧旁车及 Python/Node 认证进程缺席、退出清理。RSS 求和会重复共享页；PSS 可用时另记；短样本不作为稳态、认证峰值或跨机器性能比较。最小化 API 自检不代替带真实窗口管理器的桌面点击验证。
 
 [Tauri CI](../.github/workflows/tauri.yml)要求 Linux x64、Windows x64、macOS arm64 / x64 四个平台完成上述构建、原生与实际安装/卸载验收，上传构建和测试附件；推送 `v*` 标签时仅在全部平台成功后发布 Release。流程定义不是本轮通过声明，结果以对应标签的实际运行为准。
+
+## 验收记录
+
+[2026-10-23 候选本地验收](desktop-candidate-2026-10-23.md)记录该次 Linux 构建、离线界面、原生与隔离安装 / 卸载的实际成绩及失败复测；[2026-10-24 远端 CI 终结核对](desktop-ci-2026-10-24.md)单独记录同一源码的远端最终结果，不以本地通过覆盖 Linux CI 失败。最新正式发行与源码候选的区别统一见[首页发行状态](../README.md#发行与候选状态)。
 
 [2026-10-21 Windows 本机只读验收](windows-readonly-fix-2026-10-21.md)确认当时的 0.1.0 开发快照可查询中国联通在线并读取账户，门户缺少剩余流量和余额，页面保持“门户未提供”。该次没有实际登录、下线、切换账号/服务、自动重连或轮换，不代替 v0.2.0 四平台 CI、浏览器认证、物理断网或长稳验收；原记录保持历史版本。视觉规则见[设计说明](rust-desktop-design.md)。

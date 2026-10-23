@@ -75,7 +75,7 @@ Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#�
 **默认 API 后端的校园网认证闭环已通过真实校内网络验收。** 覆盖 CAS 登录、独立在线查询、账户查询、下线、自动重连及单轮守护入口，详见[真实网络验收记录](live-test.md)。离线识别以实测协议中的
 `portalOnlineUserInfo.message == "dx.failed.user.offline"` 为准，未知响应仍按查询失败处理。
 中国移动已由增强版 `switch` 真实切换成功，独立查询服务与外网 HTTPS 均通过；用户级 systemd 安装、真实重连、崩溃恢复及重装保留配置也已[实测验收](deployment-test.md)。此前会话上限错误及新版切换失败恢复由分离的真实记录与模拟测试说明。可选浏览器后端、验证码/风控、其他运营商、服务器重启及长稳运行仍未实测。
-当前开发快照另见 [2026-10-20 Shell 真实复测](shell-live-2026-10-20.md)与 [2026-10-21 Windows 原生只读修复及复装验收](windows-readonly-fix-2026-10-21.md)；历史运营商上线成绩不代表当前账号的可用会话。
+独立历史验收另见 [2026-10-20 Shell 真实复测](shell-live-2026-10-20.md)与 [2026-10-21 Windows 原生只读修复及复装验收](windows-readonly-fix-2026-10-21.md)；较新的桌面本地与远端结果集中见[桌面验收记录](tauri-desktop.md#验收记录)。历史运营商上线成绩不代表当前账号的可用会话。
 `manager/switching.py` 不持久化凭据；CLI 在成功后通过独立写锁合并服务字段。配置写锁与守护运行锁分开，避免破坏热更新或覆盖并发修改。
 
 ## 构建与依赖
@@ -93,6 +93,14 @@ Python 分发使用 Hatchling，`pyproject.toml` 声明 Python 依赖和 `ysu` �
 ### 桌面构建
 
 Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令见[Tauri 开发说明](tauri-desktop.md#构建前提)。`desktop-test` 依赖组仅供外部浏览器/进程验收，不是 GUI 构建或运行依赖。推送 `v*` 标签时，Tauri 工作流在各平台构建与验收通过后，连同 `uv build` 生成的 wheel 与源码包一起发布，并生成 `SHA256SUMS`；发行边界见[项目架构](architecture.md#构建与发行边界)。
+
+### 本地构建产物清理
+
+可重建输出包括 Cargo 的 `desktop/src-tauri/target/`、`desktop/crates/ysu-auth/target/` 和自定义 `CARGO_TARGET_DIR`（本机构建使用 `build/tauri-target/`），Vite 输出 `desktop/dist/`，以及依赖目录内的 `.vite/`、`.vitest-cache/` 和 `.vite-temp/`。清理前逐项核对实际绝对路径、无符号链接、Git 忽略且不含跟踪文件，并确认没有构建或预览进程使用它们。
+
+先保留安装包、校验和、原始 JSON 与关键验收截图，再清理编译中间产物；本地历史证据和交付物不因被 Git 忽略就自动视为垃圾。不要整目录删除 `build/` 或 `dist/`，也不要使用无差别的 `git clean -fdX`：忽略规则同时覆盖配置、环境文件、私钥、Cookie 和运行环境。
+
+保留项目 `.venv/`、`desktop/node_modules/` 的依赖主体、SDK / 编译工具链及各依赖锁文件；已安装的 Linux CLI / 服务仍引用项目目录与 `.venv`。删除前端或原生输出后需要重新构建，清理不等于卸载系统中的客户端或服务。
 
 敏感资料与发布前检查流程见[敏感信息与发布检查](security.md)。忽略规则只防止误提交，不能替代内容检查；构建后还要检查 wheel 和源码包的文件清单与内容。
 
