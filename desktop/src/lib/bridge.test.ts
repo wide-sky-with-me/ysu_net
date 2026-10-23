@@ -32,11 +32,43 @@ describe('native bridge', () => {
     expect(selectMode(false, '')).toBe('web'); expect(selectMode(false, '?demo=true')).toBe('web');
     expect(selectMode(false, '?demo=1')).toBe('demo'); expect(selectMode(true, '?demo=1')).toBe('desktop');
   });
-  it('ordinary browser never simulates a real connection', async () => {
+  it('ordinary browser blocks every core and system entry without native IPC', async () => {
     mocks.isTauri.mockReturnValue(false);
     const transport = createTransport(''); expect(transport.mode).toBe('web');
-    await expect(transport.request('snapshot', {})).rejects.toThrow('普通网页');
+    for (const operation of [
+      () => transport.request('snapshot', {}),
+      () => transport.request('action', { name: 'login' }),
+      () => transport.request('save_config', { username: 'fixture-only', password: 'fixture-only' }),
+      () => transport.request('rotation', { enabled: true }),
+      () => transport.getDesktopSettings(),
+      () => transport.setAutostart(true),
+      () => transport.quit(),
+      () => transport.subscribe(() => {}),
+    ]) await expect(operation()).rejects.toThrow('普通网页');
     expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.listen).not.toHaveBeenCalled();
+  });
+  it('explicit Demo keeps authentication and system changes in memory without native IPC', async () => {
+    mocks.isTauri.mockReturnValue(false);
+    const transport = createTransport('?demo=1');
+    expect(transport.mode).toBe('demo');
+    const handler = vi.fn();
+    const stop = await transport.subscribe(handler);
+    await transport.request('save_config', { username: 'fixture-only', password: 'fixture-only' });
+    await transport.request('action', { name: 'login' });
+    await transport.request('action', { name: 'logout' });
+    await transport.setAutostart(true);
+    expect((await transport.getDesktopSettings()).autostart).toBe(true);
+    await transport.quit();
+    expect(handler).toHaveBeenCalled();
+    stop();
+    const fresh = createTransport('?demo=1');
+    expect((await fresh.getDesktopSettings()).autostart).toBe(false);
+    expect(await fresh.request('snapshot', {})).toMatchObject({
+      config: { username: '20260001' }, prefs: { auto_reconnect: true },
+    });
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.listen).not.toHaveBeenCalled();
   });
   it('forwards account and rotation commands unchanged through native IPC', async () => {
     mocks.invoke.mockResolvedValue({ accepted: true });
