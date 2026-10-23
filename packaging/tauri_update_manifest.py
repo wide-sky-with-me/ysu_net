@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Assemble fixed-repository Tauri release assets and a static updater feed.
 
-Signature checks here validate the official file structure and version metadata only.
-They are not cryptographic verification; the official updater verifies signatures
-and their signed version against its pinned public key before installation.
+prepare_release() validates structure/version metadata for assembly and synthetic tests.
+The CLI additionally requires the maintained Minisign verifier to authenticate all three
+updater payloads and their signed versions against the client's pinned PUBLIC key.
 """
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import subprocess
+import tempfile
 import tomllib
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -168,6 +170,64 @@ def prepare_release(artifacts: Path, distributions: Path, output: Path, tag: str
     return manifest
 
 
+def verify_release_signatures(output: Path, source_root: Path, version: str,
+                              verifier: str = "minisign") -> None:
+    """Verify the actual update payloads against the client's pinned PUBLIC key.
+
+    minisign verifies both payload and trusted-comment signatures. Version/URL checks
+    remain mandatory too; a valid signature for a different release is not enough.
+    No private key or installer execution is involved.
+    """
+    updater = json.loads((source_root / "desktop/src-tauri/tauri.conf.json").read_text())["plugins"]["updater"]
+    if updater.get("requireSignedVersion") is not True:
+        raise ValueError("release requires signed-version verification")
+    try:
+        encoded_key = updater["pubkey"]
+        if not isinstance(encoded_key, str) or len(encoded_key) > 16 * 1024:
+            raise ValueError("invalid updater public key")
+        key_lines = base64.b64decode(encoded_key, validate=True).decode("utf-8").splitlines()
+        if len(key_lines) != 2 or not key_lines[0].startswith("untrusted comment: "):
+            raise ValueError("invalid updater public key")
+        public_packet = base64.b64decode(key_lines[1], validate=True)
+        if len(public_packet) != 42 or public_packet[:2] != b"Ed":
+            raise ValueError("invalid updater public key")
+    except (KeyError, TypeError, UnicodeError, binascii.Error) as error:
+        raise ValueError("invalid updater public key") from error
+    executable = shutil.which(verifier)
+    if executable is None:
+        raise ValueError("minisign verifier is required before publication")
+    feed = json.loads(regular_file(output / "latest.json", output).read_text())
+    if feed.get("version") != version or set(feed.get("platforms", {})) != set(TARGETS.values()):
+        raise ValueError("release feed version or targets differ")
+    for matrix, target in TARGETS.items():
+        name = f"YSU-Net_{version}_{matrix}{'-setup.exe' if matrix == 'windows-x64' else '.app.tar.gz'}"
+        payload = regular_file(output / name, output)
+        signature = output / (name + ".sig")
+        regular_file(signature, output)
+        if signature.stat().st_size > 16 * 1024:
+            raise ValueError("signature exceeds size limit")
+        encoded = signature.read_text(encoding="ascii").strip()
+        expected = {"url": f"https://github.com/{REPOSITORY}/releases/download/v{quote(version, safe='')}/{quote(name, safe='')}",
+                    "signature": encoded}
+        if feed["platforms"][target] != expected:
+            raise ValueError("release feed URL or inline signature differs")
+        with tempfile.TemporaryDirectory(prefix="ysu-public-verify-") as temporary:
+            detached = Path(temporary) / "payload.minisig"
+            detached.write_bytes(base64.b64decode(encoded, validate=True))
+            try:
+                result = subprocess.run([executable, "-V", "-m", str(payload), "-x", str(detached),
+                                         "-P", key_lines[1]], capture_output=True, timeout=60, check=False)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise ValueError("public signature verifier failed") from error
+            if result.returncode != 0:
+                raise ValueError("update payload does not verify against the pinned public key")
+            # Only interpret the authenticated trusted comment after cryptographic success.
+            # Parse the exact captured envelope, not a second read of a mutable input file.
+            captured = Path(temporary) / "verified.tauri.sig"
+            captured.write_text(encoded, encoding="ascii")
+            signature_text(captured, Path(temporary), version)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", type=Path, required=True)
@@ -177,11 +237,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repository", default=REPOSITORY)
     args = parser.parse_args(argv)
     try:
-        prepare_release(args.artifacts, args.dist, args.output, args.tag, Path(__file__).resolve().parents[1], args.repository)
+        source_root = Path(__file__).resolve().parents[1]
+        version = release_version(args.tag)
+        prepare_release(args.artifacts, args.dist, args.output, args.tag, source_root, args.repository)
+        verify_release_signatures(args.output, source_root, version)
     except (ValueError, KeyError, OSError) as error:
         print(f"release asset validation failed: {error if isinstance(error, ValueError) else 'metadata or artifact I/O failure'}", file=sys.stderr)
         return 1
-    print("Prepared 13 release assets with 3 signed-update targets; metadata checks are not cryptographic verification.")
+    print("Prepared 13 assets; all 3 updater payload signatures and signed versions verified against the pinned public key.")
     return 0
 
 

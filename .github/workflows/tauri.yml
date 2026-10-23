@@ -308,12 +308,16 @@ jobs:
           # macOS architectures produce the same original app.tar.gz basename.
           # Keep matrix directories separate until the validated mapping renames them.
           merge-multiple: false
-      - name: Validate release assets and generate updater feed and checksums
+      - name: Install maintained public-signature verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign
+      - name: Validate release assets, public signatures, feed and checksums
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
-          python -m unittest tests.test_update_manifest -v
+          python -m unittest tests.test_update_manifest tests.test_update_signature -v
           python packaging/tauri_update_manifest.py --artifacts artifacts --dist dist \
             --output release-assets --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY"
           [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 13 ]
