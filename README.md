@@ -20,7 +20,7 @@
 
 当前桌面与独立 Python CLI 源码版本为 **0.2.1**。是否已经正式发行，以 [GitHub Releases 的 Latest / 对应版本条目](https://github.com/wide-sky-with-me/ysu_net/releases/latest)为准；开发分支推送和 CI 安装包不自动成为正式发行。
 
-正式发行使用 `v*` 标签，要求四平台构建、原生及安装验收通过，并对三个更新载荷执行内嵌公钥与签名版本的严格验证。本轮修复与验证见[0.2.1 发布准备](docs/desktop-release-0.2.1.md)，当前运行见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)。[历史候选 CI](docs/desktop-ci-2026-10-24.md)与[前次本地验收](docs/desktop-candidate-2026-10-23.md)只代表各自提交；软件内更新的实现与信任边界归属[软件更新](docs/updates.md)。
+正式发行使用 `v*` 标签，要求四平台构建、原生及安装验收通过，并对三个更新载荷执行内嵌公钥与签名版本的严格验证。本轮结果见[0.2.1 发布验收](docs/desktop-release-0.2.1.md)，当前运行见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)。[历史候选 CI](docs/desktop-ci-2026-10-24.md)与[前次本地验收](docs/desktop-candidate-2026-10-23.md)只代表各自提交；软件内更新的实现与信任边界归属[软件更新](docs/updates.md)。
 
 原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 标签和 Qt 发布附件保留供历史复现，不覆盖、不作为新版下载入口；Windows 先关闭旧版自启并卸载旧 Inno 版，再装当前用户 NSIS 版。Linux 从 0.1.0 升级到 0.2.0 无需 `--reinstall`，macOS 13.5+ 按 Apple 芯片 / Intel 分包，安装包未签名。详见[桌面客户端](docs/wiki/Desktop-Client.md)与[迁移说明](docs/migration.md#桌面-v020-升级)。
 

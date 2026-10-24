@@ -1,4 +1,4 @@
-# 0.2.1 验收修复与发布准备（2026-10-24）
+# 0.2.1 验收与正式发布（2026-10-24）
 
 本记录分别说明验收修复、本地公开签名夹具和开发分支 CI 的实际成绩，不将其中任何一项代作生产签名或软件内真实升级成绩。[旧 CI 失败记录](desktop-ci-2026-10-24.md)与[前次本地验收](desktop-candidate-2026-10-23.md)保持原貌；实际发行统一见[首页](../README.md#发行与候选状态)。
 
@@ -30,6 +30,14 @@
 `91233ef` 的[运行 40042116339](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40042116339)中，Linux、Windows、macOS arm64 通过；macOS x64 初次在真实 Chromium 的 DOM 验证码 / 风控夹具返回 code 2 而非预期 4，约耗尽该测试的 10 秒预算。同一源码仅重跑失败作业后，7 项 Chromium 夹具全部通过，随后在 `bundle_dmg.sh` 返回通用打包错误；该日志不足以确定 DMG 子命令的具体原因，不能记为最终通过。
 
 真实 Chromium 夹具预算随后与相邻的完整 CAS / 验证码场景统一为 20 秒，保留 code 4 和禁止提交凭据的全部断言；业务默认值、短时限专门测试不变，失败时仅补充固定诊断枚举。普通 Mac 构建额外启用 Tauri 详细输出，签名密钥所在步骤不启用该诊断；不跳过 DMG 或安装门槛。
+
+## 正式发布与公开下载复核
+
+最终源码 `467a0764381a179add8bc1d295b843eab03c4a02` 的[开发 CI 40048061662](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40048061662)四平台全部成功后创建 `v0.2.1` 标签；[签名标签运行 40048904776](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40048904776)再次完成四平台构建、原生与安装验收，三个更新包签名及统一发布前门槛全部通过。Linux SDK 配置较慢，未跳过该平台或用旧包替代。
+
+[正式 v0.2.1 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.1)于 **2026-10-24 09:50:57（Asia/Shanghai）**公开，非草稿、非预发行，已成为 Latest。公开复核实际下载全部 13 个附件：`SHA256SUMS` 的 12 项覆盖与摘要全部匹配；三个真实更新载荷由维护中的 Minisign 使用标签客户端的固定公钥验证通过，受保护版本均为 0.2.1，清单内联签名与独立 `.sig` 一致。
+
+另外不携带凭据访问固定 `releases/latest/download/latest.json`，得到与该正式版相同的清单；清单中三个下载 URL 均可匿名获得与正式附件摘要相同的字节。独立复核只用公钥，不启动安装器、解压安装或执行真实升级；Python wheel / sdist 的 233 个成员完成路径与密钥容器文件名检查，不把该检查冒充内容级全面秘密扫描。原始公开附件与 JSON 证据保留于本地 `dist/release-0.2.1-20261024/` 与 `build/release-0.2.1-ci/`，不含私钥。
 
 ## 发布门槛与未覆盖范围
 
