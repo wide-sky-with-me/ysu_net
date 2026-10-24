@@ -20,7 +20,7 @@
 
 ## 信任与发布
 
-使用[官方 Tauri updater](https://v2.tauri.app/plugin/updater/)，不自实现密码学验证。公钥内嵌于 [Tauri 配置](../desktop/src-tauri/tauri.conf.json)，私钥保存在仓库外受保护目录，不进入客户端、源码、日志或构建附件。`requireSignedVersion=true` 同时绑定已签载荷和公告版本，禁止用更高公告版本重放旧签名载荷。需要维护原签名密钥；更换公钥须设计迁移，不能让已安装客户端直接信任新的任意公钥。
+使用[官方 Tauri updater](https://v2.tauri.app/plugin/updater/)，不自实现密码学验证。公钥内嵌于 [Tauri 配置](../desktop/src-tauri/tauri.conf.json)，私钥保存在仓库外受保护目录，不进入客户端、源码、日志或构建附件。`requireSignedVersion=true` 同时绑定已签载荷和公告版本，禁止用更高公告版本重放旧签名载荷。0.2.1 首次正式更新发行按[信任锚决策](../.agents/notes/implemented/desktop/2026-10-24-first-signed-release-trust-anchor.md)建立签名基线，旧 0.2.1 候选包需[手动安装正式版](migration.md#桌面-v021-及旧候选包)。正式发行后必须维护本密钥；未来更换公钥须另行设计迁移，不能让已安装客户端直接信任新的任意公钥。
 
 静态源固定为 `https://github.com/wide-sky-with-me/ysu_net/releases/latest/download/latest.json`。下载只接受本仓库的 HTTPS Release 附件，再由官方插件验证签名与版本；客户端不会根据前端参数改源或关闭验证。清单内联 `.sig` 内容，分别声明 Windows x64、macOS x64 / arm64 目标；当前 Linux deb 不伪造自动更新目标。
 

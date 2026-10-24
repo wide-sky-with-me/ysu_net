@@ -4,6 +4,7 @@
 prepare_release() validates structure/version metadata for assembly and synthetic tests.
 The CLI additionally requires the maintained Minisign verifier to authenticate all three
 updater payloads and their signed versions against the client's pinned PUBLIC key.
+Decision: .agents/notes/implemented/desktop/2026-10-24-first-signed-release-trust-anchor.md
 """
 from __future__ import annotations
 

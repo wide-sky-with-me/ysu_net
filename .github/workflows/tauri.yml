@@ -99,7 +99,11 @@ jobs:
           cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml -- --ignored --test-threads=1
       - name: Build ordinary native bundles without signing keys
         if: ${{ !startsWith(github.ref, 'refs/tags/v') || runner.os == 'Linux' }}
-        run: npm --prefix desktop run native:build -- --bundles '${{ matrix.bundles }}'
+        run: |
+          args=(--bundles '${{ matrix.bundles }}')
+          # Diagnostic verbosity only in the unsigned step; signing secrets are absent here.
+          [[ "$RUNNER_OS" != macOS ]] || args+=(--verbose)
+          npm --prefix desktop run native:build -- "${args[@]}"
       - name: Build signed updater bundles for release tags
         if: startsWith(github.ref, 'refs/tags/v') && runner.os != 'Linux'
         env:

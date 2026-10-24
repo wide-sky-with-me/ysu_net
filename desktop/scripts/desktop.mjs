@@ -13,6 +13,7 @@ const defaults = { linux: 'deb', win32: 'nsis', darwin: 'app,dmg' };
 export function options(args) {
   const { values } = parseArgs({ args, allowPositionals: false, options: {
     help: { type: 'boolean', short: 'h' },
+    verbose: { type: 'boolean', short: 'v' },
     dev: { type: 'boolean' },
     'prepare-only': { type: 'boolean' },
     'no-bundle': { type: 'boolean' },
@@ -41,7 +42,8 @@ export function buildCommands(values, platform = process.platform) {
     const bundles = values.bundles || defaults[platform];
     if (values['signed-update'] && platform === 'linux' && !bundles.split(',').includes('appimage')) throw new Error('Linux 在线更新需要 AppImage，deb 使用手动更新');
     const signing = values['signed-update'] ? ['--config', JSON.stringify({ bundle: { createUpdaterArtifacts: true } })] : [];
-    const args = values.dev ? ['dev'] : ['build', ...(values['no-bundle'] ? ['--no-bundle'] : ['--bundles', bundles]), ...signing, '--', '--locked'];
+    const verbosity = values.verbose ? ['--verbose'] : [];
+    const args = values.dev ? ['dev', ...verbosity] : ['build', ...verbosity, ...(values['no-bundle'] ? ['--no-bundle'] : ['--bundles', bundles]), ...signing, '--', '--locked'];
     commands.push([process.execPath, cli, ...args]);
   }
   return commands;
@@ -56,7 +58,7 @@ function run(command) {
 export function main(args = process.argv.slice(2)) {
   const values = options(args);
   if (values.help) {
-    console.log('原生 Rust 桌面构建\n--dev              启动 Tauri 开发应用\n--prepare-only     仅校验桌面版本并生成图标\n--bundles KIND     deb / nsis / app,dmg（在对应系统运行）\n--signed-update    为安装包生成带版本绑定的更新签名，需要签名环境变量\n--no-bundle        仅构建原生程序\n构建需要 Node 与 Rust；安装后的客户端不依赖它们的命令行运行时。');
+    console.log('原生 Rust 桌面构建\n--dev              启动 Tauri 开发应用\n--prepare-only     仅校验桌面版本并生成图标\n--bundles KIND     deb / nsis / app,dmg（在对应系统运行）\n--signed-update    为安装包生成带版本绑定的更新签名，需要签名环境变量\n--verbose          显示原生构建诊断\n--no-bundle        仅构建原生程序\n构建需要 Node 与 Rust；安装后的客户端不依赖它们的命令行运行时。');
     return;
   }
   const [major, minor] = process.versions.node.split('.').map(Number);

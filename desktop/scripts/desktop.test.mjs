@@ -55,6 +55,16 @@ test('unsigned normal builds do not request updater artifacts or a key', () => {
   assert.ok(buildCommands(options(['--signed-update', '--bundles', 'appimage']), 'linux')[1].includes('--config'));
 });
 
+test('verbose diagnostics stay in Tauri arguments without changing locked build semantics', () => {
+  for (const platform of ['linux', 'win32', 'darwin']) {
+    const args = buildCommands(options(['--verbose']), platform)[1];
+    assert.deepEqual(args.slice(2, 4), ['build', '--verbose']);
+    assert.deepEqual(args.slice(-2), ['--', '--locked']);
+    assert.ok(!args.includes('--config'));
+  }
+  assert.deepEqual(buildCommands(options(['--dev', '-v']), 'darwin')[1].slice(-2), ['dev', '--verbose']);
+});
+
 test('signed updater builds reject non-bundle modes', () => {
   for (const flag of ['--dev', '--prepare-only', '--no-bundle']) assert.throws(() => options(['--signed-update', flag]));
 });

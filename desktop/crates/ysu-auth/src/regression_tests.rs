@@ -419,15 +419,20 @@ async fn chromium_cdp_dom_challenge_and_risk_do_not_submit_credentials() {
     for risk in [false, true] {
         let mut f = Fixture::new();
         f.config.backend = "browser".into();
-        f.config.operation_timeout = 10;
+        // Include host Chromium cold start, as in the other real-browser fixtures.
+        // Protocol deadline tests keep their independent short budgets.
+        f.config.operation_timeout = 20;
         f.mutate(|s| {
             s.cas_required = true;
             s.dom_captcha = !risk;
             s.risk = risk;
         });
+        let error = f.client().login().await.unwrap_err();
         assert_eq!(
-            f.client().login().await.unwrap_err().code,
-            INTERACTION_ERROR
+            error.code,
+            INTERACTION_ERROR,
+            "risk={risk}; diagnostic={:?}",
+            error.diagnostic()
         );
         assert_eq!(f.count("/eportal/network/serviceLogin"), 0);
         assert_eq!(

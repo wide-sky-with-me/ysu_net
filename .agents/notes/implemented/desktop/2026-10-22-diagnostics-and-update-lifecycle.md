@@ -34,3 +34,5 @@
 ## 实现与验证
 
 [诊断](../../../../desktop/crates/ysu-auth/src/diagnostic.rs)、[协议回归](../../../../desktop/crates/ysu-auth/src/diagnostic_tests.rs)、[运行器与门闩](../../../../desktop/src-tauri/src/runtime.rs)、[Bridge 恢复](../../../../desktop/src-tauri/src/bridge.rs)、[更新状态机](../../../../desktop/src-tauri/src/updater.rs)、[官方验签测试](../../../../desktop/src-tauri/src/updater_tests.rs)。当前用户与发行语义归 [更新指南](../../../../docs/updates.md)；具体命令、平台、签名摘要及未执行项由当次验收记录维护，源码单测或流程定义不是实机已通过的声明。
+
+后续首次正式发行的密钥保管、公钥基线与发布前验签由 [2026-10-24 信任锚决策](2026-10-24-first-signed-release-trust-anchor.md)补充；本页其余生命周期与授权约束仍有效。

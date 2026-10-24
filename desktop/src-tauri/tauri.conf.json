@@ -37,7 +37,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdFMDVCMTgwNEVDQzRFMzkKUldRNVRzeE9nTEVGZmpzZWdsM3Z3RWRiUzJERnNvQVZPeWdWQ2w0U29LRjdtZTh1K090OENtWU4K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1ODI5QjUyNDEzQkVGQTkKUldTcDd6dEJVcHVDVlJtUDR1b3hVNFAxZ0hLTzhEZ3Zvb2NpaWNPc3FoREM1UWpQV250d2FVYnUK",
       "endpoints": ["https://github.com/wide-sky-with-me/ysu_net/releases/latest/download/latest.json"],
       "requireSignedVersion": true,
       "windows": { "installMode": "passive" }
