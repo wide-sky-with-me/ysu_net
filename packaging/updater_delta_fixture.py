@@ -42,13 +42,26 @@ def prepare_dependencies() -> None:
         assert anchor in text
         text = text.replace(anchor, '\n' + '\n'.join(additions) + '\n' + anchor, 1)
     parsed = tomllib.loads(text)
-    unix = parsed.get('target', {}).get('cfg(unix)', {}).get('dependencies', {})
-    if unix.get('libc', '0.2') != '0.2':
-        raise ValueError('unexpected libc declaration')
-    if 'libc' not in unix:
-        anchor = '\n[dev-dependencies]'
-        assert anchor in text
-        text = text.replace(anchor, '\n[target.\'cfg(unix)\'.dependencies]\nlibc = "0.2"\n' + anchor, 1)
+    parsed = tomllib.loads(text)
+    targets = {
+        'cfg(unix)': 'rustix = { version = "=1.1.5", features = ["fs", "process"] }',
+        'cfg(windows)': 'windows-sys = { version = "=0.61.2", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Foundation"] }',
+    }
+    for target, declaration in targets.items():
+        values = tomllib.loads(declaration)
+        existing = parsed.get('target', {}).get(target, {}).get('dependencies', {})
+        for name, expected in values.items():
+            if name in existing and existing[name] != expected:
+                raise ValueError('target dependency already differs: ' + name)
+        if all(name in existing for name in values):
+            continue
+        header = "[target.'" + target + "'.dependencies]"
+        if header in text:
+            text = text.replace(header, header + '\n' + declaration, 1)
+        else:
+            anchor = '\n[dev-dependencies]'
+            assert anchor in text
+            text = text.replace(anchor, '\n' + header + '\n' + declaration + '\n' + anchor, 1)
     path.write_text(text, encoding='utf-8')
 
 
@@ -63,8 +76,20 @@ def make_public_fixture(output: Path) -> None:
     if os.environ.get('GITHUB_ACTIONS') != 'true' or not os.environ.get('RUNNER_TEMP'):
         raise ValueError('test signing is permitted only on an Actions runner')
     output = output.resolve()
-    if output != ROOT / 'desktop/src-tauri/fixtures/delta' or output.exists():
-        raise ValueError('fixture output must be the fresh fixed public fixture directory')
+    if output != ROOT / 'desktop/src-tauri/fixtures/delta':
+        raise ValueError('fixture output must be the fixed public fixture directory')
+    if output.exists():
+        # Keep the reviewed public test key/signatures stable on later lock refreshes.
+        info = json.loads((output / 'fixture.json').read_text(encoding='utf-8'))
+        assert info['base_version'] == '1.0.0' and info['target_version'] == '2.0.0'
+        assert set(info['files']) == set(PUBLIC_FILES) - {'fixture.json'}
+        for name, record in info['files'].items():
+            path = output / name
+            assert not path.is_symlink() and path.is_file() and path.stat().st_size < 1024 * 1024
+            content = path.read_bytes()
+            assert len(content) == record['bytes'] and hashlib.sha256(content).hexdigest() == record['sha256']
+        print('Reused the reviewed public fixture; no signing key was created.')
+        return
     cli = ROOT / 'desktop/node_modules/@tauri-apps/cli/tauri.js'
     if not cli.is_file() or not shutil.which('qbsdiff') or not shutil.which('qbspatch'):
         raise ValueError('locked Tauri CLI and qbsdiff/qbspatch are required')
