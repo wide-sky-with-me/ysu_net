@@ -102,6 +102,24 @@ jobs:
       - run: npm ci --prefix desktop
       - name: Frontend and native build entry checks
         run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const root = 'desktop/src-tauri/fixtures/delta/';
+          const manifest = JSON.parse(fs.readFileSync(root + 'fixture.json', 'utf8'));
+          const names = ['base.bin', 'base.sig', 'target.bin', 'target.sig', 'patch.bsdiff', 'patch.sig', 'public.key'];
+          if (Object.keys(manifest.files).sort().join() !== [...names].sort().join()) throw Error('Unexpected public fixture files');
+          for (const name of names) {
+            const stat = fs.lstatSync(root + name);
+            if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1048576) throw Error('Invalid public fixture file');
+            const bytes = fs.readFileSync(root + name);
+            const expected = manifest.files[name];
+            if (bytes.length !== expected.bytes || crypto.createHash('sha256').update(bytes).digest('hex') !== expected.sha256) {
+              throw Error('Signed fixture bytes changed during checkout: ' + name);
+            }
+          }
+          console.log('Public signed fixture bytes match the cloud-generated identity.');
+          JS
           npm --prefix desktop run check
           npm --prefix desktop test
           npm --prefix desktop run test:build
