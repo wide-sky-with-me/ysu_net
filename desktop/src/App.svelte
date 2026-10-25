@@ -9,18 +9,20 @@
   import OnlineDetails from './components/OnlineDetails.svelte';
   import QuotaAmbient from './components/QuotaAmbient.svelte';
   import AnimatedMetric from './components/AnimatedMetric.svelte';
-  import UpdatePanel from './lib/UpdatePanel.svelte';
-  import { pageMotion, stateMotion } from './lib/motion';
+  import AboutPage from './components/AboutPage.svelte';
+  import FeedbackDock from './components/FeedbackDock.svelte';
+  import { ambientMotion, pageMotion, stateMotion } from './lib/motion';
   import { DEFAULT_ACCENT } from './lib/accents';
   import { createTransport } from './lib/bridge';
-  import { accountInfoState, canAnimateQuota, reconnectNotice } from './lib/presentation';
+  import { accountInfoState, accountSwitchNotice, canAnimateQuota, reconnectNotice } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
   import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
 
-  type Page = 'connection' | 'account' | 'settings' | 'logs';
+  type Page = 'connection' | 'account' | 'settings' | 'logs' | 'about';
   const navigation: { id: Page; label: string; icon: string }[] = [
     { id: 'connection', label: '连接', icon: 'network' }, { id: 'account', label: '账户', icon: 'account' },
     { id: 'settings', label: '设置', icon: 'settings' }, { id: 'logs', label: '日志', icon: 'logs' },
+    { id: 'about', label: '关于', icon: 'info' },
   ];
   const transport = createTransport();
   let page = $state<Page>('connection');
@@ -59,6 +61,7 @@
   const accountBlocked = $derived(external || !!snapshot?.accounts.environment_override || !!snapshot?.accounts.error);
   const rotation = $derived(rotationControl(snapshot));
   const reconnectMessage = $derived(reconnectNotice(snapshot?.auto));
+  const switchMessage = $derived(accountSwitchNotice(snapshot?.accounts.message));
   const targetAccount = $derived(snapshot?.accounts.items.find((item) => item.id === selectedAccount));
   const quotaTitle = $derived(snapshot ? { unknown: '额度未知', available: '门户已提供额度', zero_reported: '门户报告剩余流量为零', unlimited: '门户报告不限量' }[snapshot.accounts.quota.state] : '额度待确认');
   const theme = $derived(snapshot?.prefs.theme || 'system');
@@ -244,7 +247,7 @@
     // Parameter-only saves do not require the account to have been configured yet.
     const error = validateConfig(changes, { ...snapshot.config, username: snapshot.config.username || 'pending', password_set: true });
     if (error) { notice = { message: error, error: true }; return; }
-    const save = () => { void execute(async () => { await transport.request('save_config', changes); parametersDirty = false; if (snapshot) parameters = { ...snapshot.config }; }, '连接参数已保存，在下一轮核心操作时生效。'); };
+    const save = () => { void execute(async () => { await transport.request('save_config', changes); parametersDirty = false; if (snapshot) parameters = { ...snapshot.config }; }, '参数已保存。'); };
     if (!changes.verify_tls && snapshot.config.verify_tls) confirmation = { title: '关闭 HTTPS 证书校验', message: '关闭校验后，认证时将不再验证服务器身份，账号密码可能被中间人截获。确认仅在确有必要的网络环境下使用。', confirm: '仍然关闭并保存', danger: true, run: save };
     else save();
   }
@@ -270,7 +273,8 @@
   function shortcut(event: KeyboardEvent) {
     if (confirmation) return;
     if (event.key === 'F5') { event.preventDefault(); if (available) void action(page === 'account' ? 'info' : 'status'); else if (!starting) void initialize(); }
-    if ((event.ctrlKey || event.metaKey) && /^[1-4]$/.test(event.key)) { event.preventDefault(); navigate(navigation[Number(event.key) - 1].id); }
+    const navigationIndex = /^[1-9]$/.test(event.key) ? Number(event.key) - 1 : -1;
+    if ((event.ctrlKey || event.metaKey) && navigationIndex >= 0 && navigationIndex < navigation.length) { event.preventDefault(); navigate(navigation[navigationIndex].id); }
   }
 
   async function copyLogs() {
@@ -317,22 +321,17 @@
       <h1>{pageTitle}</h1>
       {#if page === 'account'}<button type="button" class="text-button header-account-action" onclick={() => navigate('settings')}>管理账号</button>{/if}
       {#if page === 'connection' || page === 'account'}
-        <button type="button" class="icon-button header-action" aria-label={page === 'account' ? '刷新账户' : '刷新状态'} title="刷新（F5）" disabled={busy || transport.mode === 'web'} onclick={() => available ? action(page === 'account' ? 'info' : 'status') : initialize()}><Icon name="refresh" size={18} /></button>
+        <button type="button" class="icon-button header-action" aria-label={page === 'account' ? '刷新账户' : '刷新状态'} aria-busy={busy} title="刷新（F5）" disabled={busy || transport.mode === 'web'} onclick={() => available ? action(page === 'account' ? 'info' : 'status') : initialize()}><Icon name="refresh" size={18} /></button>
       {/if}
     </header>
-    {#if notice}
-      <div class:error={notice.error} class="notice" role={notice.error ? 'alert' : 'status'}><Icon name={notice.error ? 'alert' : 'check'} size={18} /><span>{notice.message}</span><button type="button" class="quiet-button" aria-label="关闭提示" onclick={() => { notice = null; }}><Icon name="close" size={16} /></button></div>
-    {/if}
-    {#if busy}
-      <div class="busy-line" role="status"><span class="busy-mark"></span>{snapshot?.busy_message || (starting ? '正在读取核心状态…' : '正在执行，请稍候…')}</div>
-    {/if}
+    <FeedbackDock {busy} busyMessage={snapshot?.busy_message || (starting ? '正在读取核心状态…' : '正在执行，请稍候…')} {notice} ondismiss={() => { notice = null; }} />
 
     <main id="main-content" use:pageMotion={page === 'settings' ? `${page}:${settingsSection}` : page} class:connection-page={page === 'connection'} class:log-page={page === 'logs'} class:settings-page={page === 'settings'}>
       {#if page === 'connection'}
         <div class={`connection-overview ${statusTone}`}>
           <div class="connection-context">
           <section class={`connection-state ${statusTone}`} aria-label="当前连接状态">
-            <div class="connection-emblem" use:stateMotion={snapshot ? statusTone : ''} aria-hidden="true"><Icon name={online ? 'check' : statusTone === 'unknown' ? 'warning' : 'network'} size={24} /></div>
+            <div class="connection-emblem" use:ambientMotion use:stateMotion={snapshot ? statusTone : ''} aria-hidden="true"><Icon name={online ? 'check' : statusTone === 'unknown' ? 'warning' : 'network'} size={24} /></div>
             <div class="state-copy"><h2>{statusTitle}</h2>{#if statusDescription}<p>{statusDescription}</p>{/if}</div>
             <button type="button" class={`connection-action ${online ? 'disconnect-button' : 'primary-button'}`} disabled={locked || external} onclick={connect}><Icon name={online ? 'power' : 'connect'} size={18} /><span>{online ? '断开连接' : '连接校园网'}</span></button>
           </section>
@@ -347,12 +346,15 @@
         <div class="connection-automation">
         <section class="auto-section">
           <span class="automation-icon" class:active={snapshot?.auto.state === 'on'} aria-hidden="true"><Icon name="reconnect" size={18} /></span>
-          <div><h2>自动重连</h2>{#if reconnectMessage}<p>{reconnectMessage}{#if snapshot?.auto.delay !== undefined && snapshot.auto.delay > 0}<span> 本轮等待 {snapshot.auto.delay} 秒。</span>{/if}</p>{/if}</div>
+          <div class="automation-copy"><h2>自动重连</h2>{#if reconnectMessage}<p>{reconnectMessage}{#if snapshot?.auto.delay !== undefined && snapshot.auto.delay > 0}<span> 本轮等待 {snapshot.auto.delay} 秒。</span>{/if}</p>{/if}</div>
           <Toggle checked={snapshot?.auto.state === 'on'} disabled={localLocked || external || (busy && snapshot?.auto.state !== 'on')} label="自动重连" onchange={(value) => { void action('set_auto', value); }} />
         </section>
         <section class="auto-section rotation-section" aria-label="账号自动轮换">
           <span class="automation-icon" class:active={Boolean(snapshot?.accounts.auto_switch)} aria-hidden="true"><Icon name="rotation" size={18} /></span>
-          <div><h2>自动换号</h2>{#if !external && rotation.reason}<p>{rotation.reason}</p>{/if}<p class="quota-status" role="status" aria-label="流量状态" data-state={snapshot?.accounts.quota.state || 'unknown'}>{#if snapshot?.accounts.quota.state === 'available' && snapshot.accounts.quota.message}<AnimatedMetric value={snapshot.accounts.quota.message} />{:else}{quotaTitle}{#if snapshot?.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot?.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p></div>
+          <div class="automation-copy">
+            <div class="automation-heading"><h2>自动换号</h2>{#if !external && rotation.reason}<details class="rotation-help"><summary aria-label="自动换号条件" title={rotation.reason}><Icon name="info" size={15} /></summary><p>{rotation.reason}</p></details>{/if}</div>
+            {#if snapshot?.accounts.auto_switch}<p class="quota-status" role="status" aria-label="流量状态" data-state={snapshot.accounts.quota.state}>{#if snapshot.accounts.quota.state === 'available' && snapshot.accounts.quota.message}<AnimatedMetric value={snapshot.accounts.quota.message} />{:else}{quotaTitle}{#if snapshot.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p>{/if}
+          </div>
           <Toggle checked={snapshot?.accounts.auto_switch || false} disabled={localLocked || (!snapshot?.accounts.auto_switch && (pending || !rotation.canEnable))} label="自动换号" onchange={setRotation} />
         </section>
         </div>
@@ -364,7 +366,7 @@
               {#each snapshot?.accounts.items || [] as item (item.id)}<option value={item.id} disabled={!item.current && (!item.enabled || !item.password_set)}>{item.label ? `${item.label}（${item.username}）` : item.username}{item.current ? ' · 当前' : !item.enabled ? ' · 已停用' : !item.password_set ? ' · 待设置密码' : ''}</option>{/each}
             </select>{#if targetAccount && !targetAccount.current}<button type="button" {@attach keepFocus} disabled={locked || accountBlocked || !targetAccount.enabled || !targetAccount.password_set} onclick={chooseAccount}>切换账号</button>{/if}</div>
             {#if snapshot?.accounts.error}<p class="account-error" role="alert">{snapshot.accounts.error}</p>{:else if snapshot?.accounts.environment_override}<p class="account-hint section-note">环境变量覆盖中，账号切换已停用。</p>{/if}
-            {#if snapshot?.accounts.message}<p class="account-hint section-note" role="status">{snapshot.accounts.message}</p>{/if}
+            {#if switchMessage}<p class="account-hint section-note" role="status">{switchMessage}</p>{/if}
           </section>
         <section class="service-section">
           <div class="section-heading"><h2>运营商</h2></div>
@@ -420,7 +422,6 @@
               <div class="setting-row"><div><span>关闭窗口时驻留托盘</span>{#if !native?.tray_available}<p>{!native ? transport.mode === 'web' ? '请在桌面客户端设置。' : '托盘状态待确认。' : '当前环境未提供系统托盘，关闭窗口将退出应用。'}</p>{/if}</div><Toggle checked={snapshot?.prefs.close_to_tray || false} disabled={locked || !native?.tray_available} label="关闭窗口时驻留托盘" onchange={(value) => savePreference({ close_to_tray: value })} /></div>
               <div class="quit-row"><button type="button" disabled={localLocked} onclick={() => { confirmation = { title: '退出 YSU Net', message: '退出后，本客户端的自动重连将停止；当前已建立的校园网连接不会因此自动下线。', confirm: '退出应用', icon: 'exit', run: () => { void execute(() => transport.quit(), undefined, true); } }; }}><Icon name="exit" size={16} />退出应用</button></div>
             </section>
-            <UpdatePanel mode={transport.mode} demo={!!native?.demo} {busy} currentVersion={native?.version || environment?.version || ''} />
           {:else if settingsSection === 'authentication'}
             <form class="authentication-settings" onsubmit={(event) => { event.preventDefault(); saveParameters(); }}>
               <fieldset disabled={locked}>
@@ -445,7 +446,7 @@
                     {#each parameterFields as field}<label class="setting-row"><div><span>{field.label}</span></div><div class="number-input"><input type="number" min="1" max="86400" step="1" bind:value={parameters[field.key]} oninput={() => { parametersDirty = true; }} /><span>秒</span></div></label>{/each}
                   </div>
                 </section>
-                <div class="form-actions parameter-actions"><span class="muted">{hasParameterChanges ? '有未保存的修改；' : ''}保存后下次操作生效。</span><button type="submit" class="primary-button">保存参数</button></div>
+                <div class="form-actions parameter-actions">{#if hasParameterChanges}<span class="muted">有未保存的修改</span>{/if}<button type="submit" class="primary-button">保存参数</button></div>
               </fieldset>
             </form>
           {:else}
@@ -457,6 +458,8 @@
           {/if}
         </div>
 
+      {:else if page === 'about'}
+        <AboutPage mode={transport.mode} demo={!!native?.demo} {busy} currentVersion={native?.version || environment?.version || ''} />
       {:else if page === 'logs'}
         <div class="log-toolbar"><div class="search-input"><Icon name="search" size={16} /><input aria-label="搜索日志" placeholder="搜索日志内容" bind:value={logSearch} />{#if logSearch}<button type="button" class="quiet-button search-clear" aria-label="清空搜索" onclick={() => { logSearch = ''; }}><Icon name="close" size={14} /></button>{/if}</div><select aria-label="筛选日志级别" bind:value={logFilter}><option value="all">全部级别</option><option value="info">信息</option><option value="success">成功</option><option value="error">错误</option></select><button type="button" class="icon-button" title="复制筛选日志" aria-label="复制筛选日志" disabled={!logs.length} onclick={() => { void copyLogs(); }}><Icon name="copy" size={18} /></button><button type="button" title="仅清空当前视图，保留核心日志" disabled={!logs.length} onclick={() => { logFloor = snapshot?.logs.length || 0; }}>清空视图</button></div>
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable log needs keyboard focus for reading.) -->

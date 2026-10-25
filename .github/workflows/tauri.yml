@@ -142,6 +142,14 @@ jobs:
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/multi-account
           uv run --no-sync python desktop/tests/rounded_desktop_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/rounded
+          uv run --no-sync python desktop/tests/theme_palette_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/palettes
+          uv run --no-sync python desktop/tests/about_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/about
+          uv run --no-sync python desktop/tests/feedback_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/feedback
+          uv run --no-sync python desktop/tests/connection_motion_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/connection-motion
       - name: Native WebView and lifecycle acceptance
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -260,6 +268,8 @@ jobs:
           name: rust-desktop-${{ matrix.name }}
           if-no-files-found: error
           path: |
+            desktop/dist/
+            desktop/src-tauri/target/release/ysu-net.exe
             desktop/src-tauri/target/release/bundle/**/*.deb
             desktop/src-tauri/target/release/bundle/**/*.exe
             desktop/src-tauri/target/release/bundle/**/*.dmg

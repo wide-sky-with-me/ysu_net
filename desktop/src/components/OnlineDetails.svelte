@@ -12,7 +12,7 @@
     <div class="online-info-card" class:has-identity={!!grouped.identity && grouped.details.length > 0}>
       {#if grouped.identity}
         <div class="online-identity">
-          <span class="online-identity-symbol" aria-hidden="true"><Icon name="account" size={24} /></span>
+          <span class="online-identity-symbol" aria-hidden="true"><Icon name="account" size={20} /></span>
           <dl><div><dt>{grouped.identity.name}</dt><dd class:missing={!grouped.identity.value.trim()}>{grouped.identity.value.trim() ? grouped.identity.value : '门户未提供'}</dd></div></dl>
         </div>
       {/if}

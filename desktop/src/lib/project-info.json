@@ -1,0 +1,17 @@
+{
+  "repository_url": "https://github.com/wide-sky-with-me/ysu_net",
+  "contributor_snapshot": {
+    "source_url": "https://api.github.com/repos/wide-sky-with-me/ysu_net/contributors?per_page=100&anon=false",
+    "verified_at": "2026-10-25T02:21:11Z",
+    "http_status": 200,
+    "link_header": null,
+    "pagination_complete": true,
+    "contributors": [
+      {
+        "login": "wide-sky-with-me",
+        "profile_url": "https://github.com/wide-sky-with-me",
+        "type": "User"
+      }
+    ]
+  }
+}

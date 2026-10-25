@@ -36,24 +36,36 @@ def main():
         def button(name):
             return page.get_by_role('button', name=name, exact=True)
 
-        def visit(theme='light', accent=None):
-            query = f'?demo=1&theme={theme}' + (f'&accent={accent}' if accent else '')
+        def visit(theme='light', accent=None, scenario=None):
+            query = f'?demo=1&theme={theme}' + (f'&accent={accent}' if accent else '') + (f'&scenario={scenario}' if scenario else '')
             page.goto(args.url + query)
             page.wait_for_load_state('networkidle')
 
         def settle():
-            page.wait_for_function("document.getAnimations().every(a => (a.effect?.target?.matches?.('.quota-wave-layer') && a.effect.getComputedTiming().iterations === Infinity) || (a.playState !== 'running' && a.playState !== 'pending'))")
+            page.wait_for_function("document.getAnimations().every(a => (a.effect.getComputedTiming().iterations === Infinity && (a.effect?.target?.matches?.('.quota-wave-layer') || (a.animationName === 'connection-ripple' && a.effect?.target?.matches?.('.connection-emblem')))) || (a.playState !== 'running' && a.playState !== 'pending'))")
 
         def layout(name):
             result = page.evaluate('''() => {
                 const main = document.querySelector('main');
+                const detailAlignment = [...document.querySelectorAll('.online-detail')].map((field, index) => {
+                    const icon = field.querySelector('.online-field-symbol').getBoundingClientRect();
+                    const heading = field.querySelector('dt').getBoundingClientRect();
+                    const label = field.querySelector('dt > span:last-child').getBoundingClientRect();
+                    const value = field.querySelector('dd').getBoundingClientRect();
+                    return {index, labelValueOffset: Math.abs(label.left - value.left),
+                        iconCenterOffset: Math.abs((icon.top + icon.bottom) / 2 - (heading.top + value.bottom) / 2),
+                        iconTextGap: label.left - icon.right};
+                });
                 return {overflow: document.documentElement.scrollWidth > innerWidth,
                     mainOverflow: main.scrollWidth > main.clientWidth + 1,
+                    detailAlignment,
                     radius: parseFloat(getComputedStyle(document.querySelector('.connection-context') || document.querySelector('.settings-section') || document.querySelector('.online-info-card')).borderRadius)};
             }''')
             assert not result['overflow'] and not result['mainOverflow'], result
             assert result['radius'] >= 24, result
             layouts.append(dict(name=name, **result))
+            assert all(field['labelValueOffset'] <= 1 and field['iconCenterOffset'] <= 1 and field['iconTextGap'] >= 10
+                       for field in result['detailAlignment']), result
 
         def status_colors(state):
             expect(page.locator('.sidebar-status')).to_have_attribute('data-state', state)
@@ -80,6 +92,11 @@ def main():
         expect(page.locator('.online-detail-list .online-detail')).to_have_count(2)
         expect(page.locator('.online-detail[data-kind="service"] dd')).to_have_text('中国移动')
         expect(page.locator('.online-detail[data-kind="address"] dd')).to_have_text('10.24.16.82')
+        identity = page.locator('.online-identity').bounding_box()
+        detail = page.locator('.online-detail-list').bounding_box()
+        card = page.locator('.online-info-card').bounding_box()
+        assert identity['y'] + identity['height'] <= detail['y'], (identity, detail)
+        assert identity['height'] < 100 and identity['width'] >= card['width'] - 60, (identity, card)
         flow = page.locator('.account-summary dd.flow-accent')
         expect(flow).to_have_text('80.00 GB')
         assert flow.inner_text() == '80.00 GB'
@@ -183,6 +200,9 @@ def main():
         button('连接').click()
         assert page.evaluate('window.__motionCalls.length') == before
         assert page.locator('.toggle-knob').first.evaluate('el => getComputedStyle(el).transitionDuration') == '0s'
+        expect(page.locator('.quota-status')).to_have_count(0)
+        reconnect.click()
+        page.get_by_role('switch', name='自动换号', exact=True).click()
         expect(page.locator('.quota-status')).to_contain_text('80.00 GB')
         button('断开连接').click()
         page.get_by_role('dialog').get_by_role('button', name='断开连接', exact=True).click()
@@ -192,21 +212,25 @@ def main():
         assert page.evaluate('window.__motionCalls.length') == before
         checks.append('live-reduced-motion-cancels-and-prevents-page-state-and-digit-animation')
 
-        # Green remains an explicit, reversible choice rather than the default surface.
+        # Changing a saved accent is reversible and must never recolor common surfaces.
         visit()
         button('设置').click()
         page.get_by_role('tab', name='外观与启动', exact=True).click()
+        neutral = lambda: page.evaluate("['--canvas','--surface','--field','--text','--muted'].map(name => getComputedStyle(document.documentElement).getPropertyValue(name))")
+        original_neutral = neutral()
         button('松石青').click()
         expect(page.locator('html')).to_have_attribute('data-accent', 'teal')
-        assert page.locator('body').evaluate('el => getComputedStyle(el).backgroundColor') == 'rgb(240, 243, 241)'
+        assert neutral() == original_neutral
+        assert page.locator('body').evaluate('el => getComputedStyle(el).backgroundColor') == 'rgb(245, 246, 248)'
         button('连接').click()
-        page.screenshot(path=str(args.output / 'optional-green.png'))
+        page.screenshot(path=str(args.output / 'optional-teal.png'))
         button('设置').click()
         page.get_by_role('tab', name='外观与启动', exact=True).click()
         button('雾蓝').click()
         expect(page.locator('html')).to_have_attribute('data-accent', 'blue')
-        assert page.locator('body').evaluate('el => getComputedStyle(el).backgroundColor') == 'rgb(243, 245, 249)'
-        checks.append('blue-default-and-reversible-opt-in-green-surfaces')
+        assert neutral() == original_neutral
+        assert page.locator('body').evaluate('el => getComputedStyle(el).backgroundColor') == 'rgb(245, 246, 248)'
+        checks.append('blue-default-and-reversible-accent-with-neutral-surfaces')
 
         # Every color remains an accent, never a new state or invented network metric.
         for theme in ('light', 'dark'):
@@ -217,7 +241,7 @@ def main():
                 status_colors('online')
                 layout(theme + '-' + accent)
         for theme in ('light', 'dark'):
-            for accent in ('blue', 'teal'):
+            for accent in ('blue', 'teal', 'indigo', 'violet', 'rose', 'amber'):
                 page.goto(args.url + f'?demo=1&theme={theme}&accent={accent}&scenario=offline')
                 page.wait_for_load_state('networkidle')
                 status_colors('offline')
@@ -225,14 +249,45 @@ def main():
         page.wait_for_load_state('networkidle')
         expect(page.locator('.sidebar-status')).to_have_attribute('data-state', 'unknown')
         expect(page.get_by_role('heading', name='连接状态未知', exact=True)).to_be_visible()
+        for theme in ('light', 'dark'):
+            page.set_viewport_size({'width': 1600, 'height': 1000})
+            page.goto(args.url + f'?demo=1&theme={theme}&accent=blue&scenario=online-details')
+            page.wait_for_load_state('networkidle')
+            expect(page.locator('.quota-status')).to_have_count(0)
+            settle()
+            page.screenshot(path=str(args.output / f'connection-compact-{theme}.png'))
+            button('账户').click()
+            settle()
+            expect(page.locator('.online-detail')).to_have_count(4)
+            expect(page.locator('.online-detail-list')).to_contain_text('演示用户')
+            expect(page.locator('.online-detail-list')).to_contain_text('2001:db8::42')
+            expect(page.locator('.online-detail-list')).to_contain_text('Campus Demo')
+            expect(page.locator('.online-detail-list')).to_contain_text('中国移动')
+            identity = page.locator('.online-identity').bounding_box()
+            detail = page.locator('.online-detail-list').bounding_box()
+            assert identity['height'] < 100 and identity['y'] + identity['height'] <= detail['y']
+            layout('account-compact-' + theme)
+            page.screenshot(path=str(args.output / f'account-compact-{theme}.png'))
         for width, height in ((700, 560), (390, 844), (320, 720)):
             page.set_viewport_size({'width': width, 'height': height})
-            visit('dark')
+            visit('dark', scenario='online-details')
             layout('connection-' + str(width))
             page.screenshot(path=str(args.output / f'compact-{width}.png'), full_page=True)
+            page.get_by_role('switch', name='自动重连', exact=True).click()
+            help_control = page.get_by_label('自动换号条件', exact=True)
+            help_control.focus()
+            page.keyboard.press('Enter')
+            expect(page.locator('.rotation-help p')).to_be_visible()
+            expect(page.locator('.rotation-help p')).to_contain_text('请先开启自动重连')
+            help_box = page.locator('.rotation-help p').bounding_box()
+            assert help_box['x'] >= 0 and help_box['x'] + help_box['width'] <= width, help_box
+            layout('rotation-help-' + str(width))
+            page.keyboard.press('Enter')
+            expect(page.locator('.rotation-help p')).to_be_hidden()
             button('账户').click()
             layout('account-' + str(width))
             expect(page.locator('.online-identity dd')).to_have_text('20260001')
+            expect(page.locator('.online-detail')).to_have_count(4)
             page.screenshot(path=str(args.output / f'account-{width}.png'), full_page=True)
             expect(page.locator('.quota-ambient')).to_have_attribute('data-motion', 'paused')
             expect(page.locator('.account-summary')).not_to_contain_text('余额')

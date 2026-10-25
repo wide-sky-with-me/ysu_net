@@ -107,11 +107,13 @@ def main():
         expect(page.get_by_label("诊断结果")).not_to_contain_text("Python")
         expect(page.get_by_label("诊断结果")).not_to_contain_text("Node.js")
         expect(page.get_by_label("诊断结果")).not_to_contain_text("fake-e2e-password")
-        page.get_by_role("tab", name="外观与启动", exact=True).click()
+        navigate("关于")
         updates = page.get_by_role("region", name="软件更新", exact=True)
         expect(updates).to_contain_text("模拟模式不联网检查或安装更新。")
         expect(updates.get_by_role("button")).to_have_count(0)
         expect(updates.get_by_role("link")).to_have_count(0)
+        navigate("设置")
+        page.get_by_role("tab", name="外观与启动", exact=True).click()
         autostart = page.get_by_role("switch", name="登录系统后自动启动", exact=True)
         expect(autostart).to_have_attribute("aria-checked", "false")
         autostart.click()
@@ -133,6 +135,7 @@ def main():
         navigate("设置")
         page.get_by_role("tab", name="外观与启动", exact=True).click()
         expect(page.get_by_role("switch", name="登录系统后自动启动", exact=True)).to_have_attribute("aria-checked", "false")
+        navigate("关于")
         expect(page.get_by_role("region", name="软件更新", exact=True)).to_contain_text("模拟模式不联网检查或安装更新。")
 
         for scenario, heading in (("offline", "校园网未连接"), ("unknown", "连接状态未知"),

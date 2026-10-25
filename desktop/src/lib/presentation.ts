@@ -14,6 +14,18 @@ export function reconnectNotice(auto: Snapshot['auto'] | undefined): string {
   return auto.message;
 }
 
+const ROUTINE_SWITCH_MESSAGES = new Set([
+  '流量自动换号已关闭',
+  '随自动重连检查剩余流量',
+  '自动换号已关闭',
+  '自动换号已开启，额度观测由核心处理',
+]);
+
+/** Switch position already conveys routine state; keep failures and unfamiliar results. */
+export function accountSwitchNotice(message: string | undefined): string {
+  return !message || ROUTINE_SWITCH_MESSAGES.has(message) ? '' : message;
+}
+
 export function accountInfoState(snapshot: Snapshot | null): 'error' | 'ready' | 'offline' | 'unread' | 'unknown' {
   if (snapshot?.info_error) return 'error';
   if (snapshot?.info?.online) return 'ready';

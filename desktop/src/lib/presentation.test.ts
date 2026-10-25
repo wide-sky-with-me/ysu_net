@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountInfoState, canAnimateQuota, reconnectNotice } from './presentation';
+import { accountInfoState, accountSwitchNotice, canAnimateQuota, reconnectNotice } from './presentation';
 import { demoSnapshot } from './demo';
 
 describe('reconnect presentation', () => {
@@ -29,6 +29,30 @@ describe('reconnect presentation', () => {
 
   it('does not invent status before the core snapshot arrives', () => {
     expect(reconnectNotice(undefined)).toBe('');
+  });
+});
+
+describe('account switch presentation', () => {
+  it.each([
+    '流量自动换号已关闭', '随自动重连检查剩余流量',
+    '自动换号已关闭', '自动换号已开启，额度观测由核心处理',
+  ])('omits only routine copy already conveyed by the switch: %s', (message) => {
+    expect(accountSwitchNotice(message)).toBe('');
+  });
+
+  it.each([
+    '正在确认目标账号，当前账号尚未变更',
+    '已确认切换到备用账号',
+    '模拟：目标账号登录失败，已独立确认恢复原连接',
+    '流量自动换号已关闭：账号凭据不可用',
+    '未知的新轮换状态',
+  ])('retains actionable results and unfamiliar states: %s', (message) => {
+    expect(accountSwitchNotice(message)).toBe(message);
+  });
+
+  it('does not invent state before a snapshot arrives', () => {
+    expect(accountSwitchNotice(undefined)).toBe('');
+    expect(accountSwitchNotice('')).toBe('');
   });
 });
 

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod accounts;
 mod bridge;
+mod project;
 mod runtime;
 mod smoke;
 mod storage;
@@ -256,6 +257,7 @@ fn main() {
             get_desktop_settings,
             set_autostart,
             quit_app,
+            project::project_open_link,
             smoke::smoke_rendered,
             updater::updater_status,
             updater::updater_open_releases,
