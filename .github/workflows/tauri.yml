@@ -77,12 +77,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk desktop-file-utils ffmpeg minisign
+            librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk desktop-file-utils ffmpeg
       - name: Install pinned public delta tools (Linux)
         if: runner.os == 'Linux'
         # CLI's published --locked dev self-dependency conflicts with its root 1.4.4.
         # Application Cargo.lock and all application --locked gates remain unchanged.
         run: |
+          # Jammy has no minisign package; pin the official static 0.12 archive.
+          verifier="$RUNNER_TEMP/ysu-public-verifier"
+          mkdir -p "$verifier"
+          archive="$RUNNER_TEMP/minisign-0.12-linux.tar.gz"
+          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 \
+            https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz -o "$archive"
+          echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$verifier" --strip-components=2 --no-same-owner minisign-linux/x86_64/minisign
+          chmod 755 "$verifier/minisign"
+          echo "$verifier" >> "$GITHUB_PATH"
+          export PATH="$verifier:$PATH"
+          minisign -v
           cargo install qbsdiff --version 1.4.4 --features cmd
           test "$(qbsdiff --version)" = 'qbsdiff 1.4.4'
           test "$(qbspatch --version)" = 'qbspatch 1.4.4'

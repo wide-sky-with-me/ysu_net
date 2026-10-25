@@ -379,6 +379,8 @@ async fn checked_delta_fixture() -> Update {
         .unwrap();
     let mut update = app
         .updater_builder()
+        .endpoints(vec![FEED_URL.parse().unwrap()])
+        .unwrap()
         .executable_path("fixture-path/app")
         .configure_client(|_| panic!("delta fixture must not make a network request"))
         .build()
