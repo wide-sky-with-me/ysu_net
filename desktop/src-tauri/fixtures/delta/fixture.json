@@ -1,0 +1,36 @@
+{
+  "purpose": "PUBLIC, non-executable signed delta test data; independent ephemeral test key",
+  "base_version": "1.0.0",
+  "target_version": "2.0.0",
+  "algorithm": "bsdiff40",
+  "files": {
+    "base.bin": {
+      "sha256": "2f34c57ac70f70412850f41f2ab10111c1c87113d130ecde8fad2cf416e89022",
+      "bytes": 131117
+    },
+    "base.sig": {
+      "sha256": "edd9edcb46162024e751c4ddc2589958d0ffa1e29d2ae580b94ec5bd3d1ad3ff",
+      "bytes": 412
+    },
+    "target.bin": {
+      "sha256": "0c635fe0c751e28b784a0bc97a11a22c6dad7c5fad222854cdcf7564bffc4d21",
+      "bytes": 131131
+    },
+    "target.sig": {
+      "sha256": "d5fc9fe50ccce75ac556a6d7ede08ee2fd5ddd87f007df81431e21ed73e839da",
+      "bytes": 412
+    },
+    "patch.bsdiff": {
+      "sha256": "924de34a8b7d65f02ace865071f2be6190d95050b31830c8eb0512b8a596d272",
+      "bytes": 188
+    },
+    "patch.sig": {
+      "sha256": "31d90bfc8eb72c4c2b1cb517fdb45dc606adbd50e4147408590fe5fda2642095",
+      "bytes": 416
+    },
+    "public.key": {
+      "sha256": "6b38ca705fa56f34d29c007e328fccf6e909c0ce8c63d8f6914e37af68dc072d",
+      "bytes": 152
+    }
+  }
+}

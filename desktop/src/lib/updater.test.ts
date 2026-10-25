@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
-import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, parseUpdateSnapshot, RELEASES_URL, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
+import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, parseUpdateSnapshot, RELEASES_URL, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
 import type { UpdatePhase, UpdateSnapshot } from './updater';
 import { render } from 'svelte/server';
 import UpdatePanel from './UpdatePanel.svelte';
 
 const candidate = (phase: UpdatePhase = 'available'): UpdateSnapshot => ({
-  sequence: 4, phase, current_version: '0.2.0', release: { version: '0.3.0', notes: '测试更新说明 <script>plain text</script>' }, downloaded: 0, total: null, error: null, releases_url: RELEASES_URL,
+  sequence: 4, phase, current_version: '0.2.0', release: { version: '0.3.0', notes: '测试更新说明 <script>plain text</script>' }, downloaded: 0, total: null, download_mode: null, fallback: false, error: null, releases_url: RELEASES_URL,
 });
 
 describe('user-initiated updater bridge', () => {
@@ -106,7 +106,7 @@ describe('update state and recovery semantics', () => {
     expect(canInstallUpdate(candidate(), false)).toBe(true);
     expect(canInstallUpdate(candidate(), true)).toBe(false);
     expect(canInstallUpdate({ ...candidate('error'), error: 'download_failed' }, false)).toBe(true);
-    for (const phase of ['idle', 'disabled', 'manual', 'checking', 'up_to_date', 'downloading', 'verifying', 'quiescing', 'installing', 'recovery_required', 'restart_required'] as const) {
+    for (const phase of ['idle', 'disabled', 'manual', 'checking', 'up_to_date', 'downloading', 'verifying', 'reconstructing', 'quiescing', 'installing', 'recovery_required', 'restart_required'] as const) {
       expect(canInstallUpdate(candidate(phase), false)).toBe(false);
     }
     expect(canInstallUpdate({ ...candidate(), release: null }, false)).toBe(false);
@@ -129,6 +129,26 @@ describe('update state and recovery semantics', () => {
       expect(() => parseUpdateSnapshot(value)).toThrow();
     }
     expect(parseUpdateSnapshot({ ...candidate(), releases_url: 'javascript:fixture()' }).releases_url).toBe(RELEASES_URL);
+  });
+  it('normalizes legacy transfer fields without admitting unknown download data', () => {
+    const legacy: Record<string, unknown> = { ...candidate() };
+    delete legacy.download_mode; delete legacy.fallback;
+    expect(parseUpdateSnapshot(legacy)).toEqual(candidate());
+    for (const value of [
+      { ...candidate(), download_mode: 'https://fixture.invalid/private' },
+      { ...candidate(), fallback: 'yes' },
+      { ...candidate('reconstructing'), release: null },
+    ]) expect(() => parseUpdateSnapshot(value)).toThrow();
+    expect(parseUpdateSnapshot({ ...candidate(), download_mode: 'delta', fallback: true })).toMatchObject({ download_mode: 'delta', fallback: true });
+  });
+  it('distinguishes patch download, reconstruction and complete-package fallback', () => {
+    expect(updateDownloadLabel({ ...candidate('downloading'), download_mode: 'delta' })).toContain('差分补丁');
+    expect(updateDownloadLabel({ ...candidate('downloading'), download_mode: 'full', fallback: true })).toContain('完整包');
+    expect(updateDownloadLabel(candidate('downloading'))).toContain('完整更新包');
+    expect(updateDownloadLabel(candidate('reconstructing'))).toContain('还原');
+    expect(updateDownloadLabel(candidate('verifying'))).toBeUndefined();
+    expect(updateWorking('reconstructing')).toBe(true);
+    expect(canInstallUpdate(candidate('reconstructing'), false)).toBe(false);
   });
   it('tells users how each stopped-core failure can recover', () => {
     expect(updateErrorMessage('install_failed')).toContain('后台已恢复');

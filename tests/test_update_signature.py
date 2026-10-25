@@ -151,9 +151,61 @@ class PublicSignatureGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "URL or inline signature differs"):
             self.verify()
 
+class SharedPublicVerifierTests(unittest.TestCase):
+    """Injected runner tests never invoke a tool or generate a signing key."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        config = self.root / "desktop/src-tauri/tauri.conf.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(json.dumps({"plugins": {"updater": {"pubkey": PUBLIC_KEY, "requireSignedVersion": True}}}))
+        self.payload = self.root / "artifact.txt"
+        self.payload.write_bytes(PAYLOAD)
+        self.signature = self.root / "artifact.txt.sig"
+        self.signature.write_text(SIGNATURE)
+
+    def gate(self, runner):
+        with patch.object(manifest.shutil, "which", return_value="fixture-minisign"):
+            return manifest.PublicVerifier(self.root, runner=runner)
+
+    def test_runner_receives_original_public_key_and_captured_envelope(self):
+        calls = []
+
+        def runner(arguments, **options):
+            calls.append(arguments)
+            detached = Path(arguments[arguments.index("-x") + 1])
+            self.assertEqual(detached.read_bytes(), base64.b64decode(SIGNATURE))
+            self.assertEqual(arguments[-2:], ["-P", base64.b64decode(PUBLIC_KEY).decode().splitlines()[1]])
+            self.assertTrue(options["capture_output"])
+            self.assertFalse(options["check"])
+            return type("Result", (), {"returncode": 0})()
+
+        self.assertEqual(self.gate(runner).verify(self.payload, self.signature, self.root, "999.0.0"), SIGNATURE)
+        self.assertEqual(len(calls), 1)
+
+    def test_rejected_crypto_cannot_be_replaced_by_structure_or_hash(self):
+        gate = self.gate(lambda *args, **kwargs: type("Result", (), {"returncode": 1})())
+        with self.assertRaisesRegex(ValueError, "does not verify"):
+            gate.verify(self.payload, self.signature, self.root, "999.0.0")
+
+    def test_valid_crypto_still_requires_exact_signed_version(self):
+        gate = self.gate(lambda *args, **kwargs: type("Result", (), {"returncode": 0})())
+        with self.assertRaisesRegex(ValueError, "version metadata"):
+            gate.verify(self.payload, self.signature, self.root, "999.0.1")
+
+    def test_verifier_interprets_authenticated_capture_not_changed_signature_file(self):
+        def runner(*args, **kwargs):
+            self.signature.write_text("mutated during verifier invocation")
+            return type("Result", (), {"returncode": 0})()
+
+        self.assertEqual(self.gate(runner).verify(self.payload, self.signature, self.root, "999.0.0"), SIGNATURE)
+
+
 
 class ReleaseCliGateTests(unittest.TestCase):
-    def invoke(self, verify_error=None):
+    def invoke(self, verify_error=None, asset_error=None):
         order = []
         output, errors = io.StringIO(), io.StringIO()
 
@@ -165,10 +217,16 @@ class ReleaseCliGateTests(unittest.TestCase):
             if verify_error:
                 raise verify_error
 
+        def validate(*args):
+            order.append("assets")
+            if asset_error:
+                raise asset_error
+
         arguments = ["--artifacts", "fixture-artifacts", "--dist", "fixture-dist",
                      "--output", "fixture-output", "--tag", "v0.2.1"]
         with patch.object(manifest, "prepare_release", side_effect=prepare), \
                 patch.object(manifest, "verify_release_signatures", side_effect=verify), \
+                patch.object(manifest, "validate_release_assets", side_effect=validate), \
                 redirect_stdout(output), redirect_stderr(errors):
             result = manifest.main(arguments)
         return result, order, output.getvalue(), errors.getvalue()
@@ -183,9 +241,16 @@ class ReleaseCliGateTests(unittest.TestCase):
     def test_cli_requires_verification_after_assembly_before_success(self):
         result, order, output, errors = self.invoke()
         self.assertEqual(result, 0)
-        self.assertEqual(order, ["prepare", "verify"])
+        self.assertEqual(order, ["prepare", "verify", "assets"])
         self.assertIn("signatures and signed versions verified", output)
         self.assertEqual(errors, "")
+
+    def test_cli_inventory_failure_cannot_return_or_print_success(self):
+        result, order, output, errors = self.invoke(asset_error=ValueError("fixture inventory rejection"))
+        self.assertEqual(result, 1)
+        self.assertEqual(order, ["prepare", "verify", "assets"])
+        self.assertNotIn("Prepared 13 assets", output)
+        self.assertIn("fixture inventory rejection", errors)
 
 
 if __name__ == "__main__":

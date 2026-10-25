@@ -2,10 +2,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 export const RELEASES_URL = 'https://github.com/wide-sky-with-me/ysu_net/releases/latest';
-export const UPDATE_PHASES = ['idle', 'disabled', 'manual', 'checking', 'up_to_date', 'available', 'downloading', 'verifying', 'quiescing', 'installing', 'restart_required', 'recovery_required', 'error'] as const;
+export const UPDATE_PHASES = ['idle', 'disabled', 'manual', 'checking', 'up_to_date', 'available', 'downloading', 'verifying', 'reconstructing', 'quiescing', 'installing', 'restart_required', 'recovery_required', 'error'] as const;
 export type UpdatePhase = typeof UPDATE_PHASES[number];
 export const UPDATE_ERRORS = ['disabled', 'manual_only', 'busy', 'core_busy', 'configuration', 'feed_not_ready', 'check_failed', 'invalid_feed', 'target_missing', 'untrusted_asset', 'no_candidate', 'stale_candidate', 'download_failed', 'signature', 'core_stop_failed', 'install_failed', 'application_restore_failed', 'recovery_failed', 'invalid_state', 'open_failed', 'ipc'] as const;
 export type UpdateError = typeof UPDATE_ERRORS[number];
+export const DOWNLOAD_MODES = ['full', 'delta', 'cached'] as const;
+export type DownloadMode = typeof DOWNLOAD_MODES[number];
 export interface UpdateRelease { version: string; notes: string }
 export interface UpdateSnapshot {
   sequence: number;
@@ -14,6 +16,8 @@ export interface UpdateSnapshot {
   release: UpdateRelease | null;
   downloaded: number;
   total: number | null;
+  download_mode: DownloadMode | null;
+  fallback: boolean;
   error: UpdateError | null;
   releases_url: string;
 }
@@ -35,22 +39,26 @@ export function parseUpdateSnapshot(value: unknown): UpdateSnapshot {
   if (!object(value) || !nonnegative(value.sequence) || !includes(UPDATE_PHASES, value.phase) ||
       typeof value.current_version !== 'string' || !nonnegative(value.downloaded) ||
       !(value.total === null || nonnegative(value.total)) || !(value.error === null || includes(UPDATE_ERRORS, value.error)) ||
+      !(value.download_mode === undefined || value.download_mode === null || includes(DOWNLOAD_MODES, value.download_mode)) ||
+      !(value.fallback === undefined || typeof value.fallback === 'boolean') ||
       !(value.release === null || (object(value.release) && typeof value.release.version === 'string' &&
         value.release.version.length <= 128 && typeof value.release.notes === 'string' && value.release.notes.length <= 65_536))) {
     throw 'ipc' satisfies UpdateError;
   }
-  if (['available', 'downloading', 'verifying', 'quiescing', 'installing', 'restart_required'].includes(value.phase) && !value.release) throw 'ipc' satisfies UpdateError;
+  if (['available', 'downloading', 'verifying', 'reconstructing', 'quiescing', 'installing', 'restart_required'].includes(value.phase) && !value.release) throw 'ipc' satisfies UpdateError;
   return {
     sequence: value.sequence, phase: value.phase, current_version: value.current_version,
     release: value.release === null ? null : { version: String((value.release as Record<string, unknown>).version), notes: String((value.release as Record<string, unknown>).notes) },
     downloaded: value.downloaded, total: value.total as number | null, error: value.error as UpdateError | null,
+    download_mode: value.download_mode === undefined ? null : value.download_mode as DownloadMode | null,
+    fallback: value.fallback === true,
     // Never trust an IPC/feed-supplied navigation URL.
     releases_url: RELEASES_URL,
   };
 }
 
 export function initialUpdateSnapshot(mode: 'desktop' | 'demo' | 'web', demo = false, currentVersion = ''): UpdateSnapshot {
-  return { sequence: 0, phase: mode === 'demo' || demo ? 'disabled' : mode === 'web' ? 'manual' : 'idle', current_version: currentVersion, release: null, downloaded: 0, total: null, error: null, releases_url: RELEASES_URL };
+  return { sequence: 0, phase: mode === 'demo' || demo ? 'disabled' : mode === 'web' ? 'manual' : 'idle', current_version: currentVersion, release: null, downloaded: 0, total: null, download_mode: null, fallback: false, error: null, releases_url: RELEASES_URL };
 }
 
 export function updateErrorCode(error: unknown): UpdateError {
@@ -85,7 +93,7 @@ export function updateErrorMessage(error: UpdateError): string {
   return messages[error];
 }
 
-export const updateWorking = (phase: UpdatePhase): boolean => ['checking', 'downloading', 'verifying', 'quiescing', 'installing'].includes(phase);
+export const updateWorking = (phase: UpdatePhase): boolean => ['checking', 'downloading', 'verifying', 'reconstructing', 'quiescing', 'installing'].includes(phase);
 export function canInstallUpdate(snapshot: UpdateSnapshot, authBusy: boolean): boolean {
   return !authBusy && !!snapshot.release && (snapshot.phase === 'available' || snapshot.phase === 'error');
 }
@@ -94,6 +102,14 @@ export function updatePercent(snapshot: UpdateSnapshot): number | undefined {
 }
 export function newerUpdateSnapshot(current: UpdateSnapshot, next: UpdateSnapshot): UpdateSnapshot {
   return next.sequence >= current.sequence ? next : current;
+}
+
+export function updateDownloadLabel(snapshot: UpdateSnapshot): string | undefined {
+  if (snapshot.phase === 'reconstructing') return '正在还原完整更新包…';
+  if (snapshot.phase !== 'downloading') return undefined;
+  if (snapshot.download_mode === 'delta') return '正在下载差分补丁…';
+  if (snapshot.download_mode === 'cached') return '正在读取已验证更新包…';
+  return snapshot.fallback ? '差分不可用，正在下载完整包…' : '正在下载完整更新包…';
 }
 
 export function createUpdaterClient(mode: 'desktop' | 'demo' | 'web', demo = false, currentVersion = ''): UpdaterClient {

@@ -1,14 +1,27 @@
 //! User-initiated signed updates. No network work runs during setup or status reads.
 //! The bundled updater public key is the trust root; IPC never accepts a key or URL.
+//! Decision: .agents/notes/proposals/desktop/2026-10-25-signed-delta-download.md
 use crate::bridge::CoreBridge;
 use serde::Serialize;
 use std::{
     future::Future,
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
+
+#[path = "updater_delta.rs"]
+mod delta;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadMode {
+    Full,
+    Delta,
+    Cached,
+}
 
 pub const RELEASES_URL: &str = "https://github.com/wide-sky-with-me/ysu_net/releases/latest";
 const FEED_URL: &str =
@@ -55,6 +68,7 @@ pub enum UpdatePhase {
     Available,
     Downloading,
     Verifying,
+    Reconstructing,
     Quiescing,
     Installing,
     RestartRequired,
@@ -108,7 +122,7 @@ fn public_error(error: &tauri_plugin_updater::Error, stage: UpdatePhase) -> Upda
         E::PreviousAppNotRestored(_) => UpdateError::ApplicationRestoreFailed,
         _ => match stage {
             UpdatePhase::Checking => UpdateError::CheckFailed,
-            UpdatePhase::Downloading | UpdatePhase::Verifying => UpdateError::DownloadFailed,
+            UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Reconstructing => UpdateError::DownloadFailed,
             _ => UpdateError::InstallFailed,
         },
     }
@@ -128,6 +142,8 @@ pub struct UpdateSnapshot {
     pub release: Option<UpdateRelease>,
     pub downloaded: u64,
     pub total: Option<u64>,
+    pub download_mode: Option<DownloadMode>,
+    pub fallback: bool,
     pub error: Option<UpdateError>,
     pub releases_url: &'static str,
 }
@@ -171,6 +187,8 @@ impl UpdateManager {
                     release: None,
                     downloaded: 0,
                     total: None,
+                    download_mode: None,
+                    fallback: false,
                     error: None,
                     releases_url: RELEASES_URL,
                 },
@@ -250,6 +268,7 @@ fn trusted_asset_url(url: &tauri::Url, signature: &str) -> bool {
 
 trait Progress: Sync {
     fn phase(&self, phase: UpdatePhase);
+    fn transfer(&self, _mode: DownloadMode, _fallback: bool) {}
     fn chunk(&self, length: usize, total: Option<u64>);
 }
 
@@ -261,25 +280,18 @@ trait Artifact: Sync {
     fn install(&self, bytes: Vec<u8>) -> impl Future<Output = Result<(), UpdateError>> + Send;
 }
 
-impl Artifact for Update {
+struct NativeArtifact {
+    update: Update,
+    cache_root: Option<PathBuf>,
+}
+
+impl Artifact for NativeArtifact {
     async fn download(&self, progress: &impl Progress) -> Result<Vec<u8>, UpdateError> {
-        // on_download_finish happens before signature verification, not after it.
-        // Only a successful download() return means verified bytes.
-        tokio::time::timeout(
-            DOWNLOAD_TIMEOUT,
-            Update::download(
-                self,
-                |length, total| progress.chunk(length, total),
-                || progress.phase(UpdatePhase::Verifying),
-            ),
-        )
-        .await
-        .map_err(|_| UpdateError::DownloadFailed)?
-        .map_err(|error| public_error(&error, UpdatePhase::Downloading))
+        delta::download(&self.update, self.cache_root.clone(), progress).await
     }
 
     async fn install(&self, bytes: Vec<u8>) -> Result<(), UpdateError> {
-        let update = self.clone();
+        let update = self.update.clone();
         tauri::async_runtime::spawn_blocking(move || update.install(bytes))
             .await
             .map_err(|_| UpdateError::InstallFailed)?
@@ -321,6 +333,14 @@ impl Progress for NativeProgress<'_> {
     fn phase(&self, phase: UpdatePhase) {
         self.manager
             .change(self.app, |session| session.snapshot.phase = phase);
+    }
+    fn transfer(&self, mode: DownloadMode, fallback: bool) {
+        self.manager.change(self.app, |session| {
+            session.snapshot.download_mode = Some(mode);
+            session.snapshot.fallback = fallback;
+            session.snapshot.downloaded = 0;
+            session.snapshot.total = None;
+        });
     }
     fn chunk(&self, length: usize, total: Option<u64>) {
         self.manager.change(self.app, |session| {
@@ -420,6 +440,8 @@ pub async fn updater_check(
         session.snapshot.error = None;
         session.snapshot.downloaded = 0;
         session.snapshot.total = None;
+        session.snapshot.download_mode = None;
+        session.snapshot.fallback = false;
     });
     let checked = async {
         let public_key = app
@@ -442,10 +464,12 @@ pub async fn updater_check(
             .timeout(CHECK_TIMEOUT)
             .build()
             .map_err(|_| UpdateError::Configuration)?;
-        let candidate = tokio::time::timeout(CHECK_TIMEOUT, updater.check())
-            .await
-            .map_err(|_| UpdateError::CheckFailed)?
-            .map_err(|error| public_error(&error, UpdatePhase::Checking))?;
+        let candidate = match delta::fetch_feed().await? {
+            Some(raw) => updater
+                .restore_update(raw)
+                .map_err(|error| public_error(&error, UpdatePhase::Checking))?,
+            None => None,
+        };
         if candidate
             .as_ref()
             .is_some_and(|update| !trusted_asset_url(&update.download_url, &update.signature))
@@ -519,12 +543,18 @@ pub async fn updater_install(
         session.snapshot.error = None;
         session.snapshot.downloaded = 0;
         session.snapshot.total = None;
+        session.snapshot.download_mode = None;
+        session.snapshot.fallback = false;
     });
     let progress = NativeProgress {
         manager: &manager,
         app: &app,
     };
-    match apply_update(&candidate, bridge.inner(), &progress).await {
+    let artifact = NativeArtifact {
+        update: candidate,
+        cache_root: app.path().app_cache_dir().ok().map(|root| root.join("update-packages-v1")),
+    };
+    match apply_update(&artifact, bridge.inner(), &progress).await {
         Ok(()) => Ok(manager.change(&app, |session| session.pending = None)),
         Err(failure) => {
             manager.fail(&app, failure.error, failure.recovery);

@@ -70,6 +70,8 @@ class UpdateManifestTests(unittest.TestCase):
         self.assertEqual(data["pub_date"], "2026-10-22T00:00:00Z")
         self.assertEqual(set(data["platforms"]), {"windows-x86_64", "darwin-aarch64", "darwin-x86_64"})
         self.assertEqual(len(list(self.output.iterdir())), 13)
+        self.assertNotIn("deltas", data)
+        self.assertEqual(manifest.validate_release_assets(self.output, "0.2.1"), data)
         self.assertEqual(json.loads((self.output / "latest.json").read_text()), data)
         for platform in data["platforms"].values():
             url = urlsplit(platform["url"])
@@ -169,6 +171,40 @@ class UpdateManifestTests(unittest.TestCase):
         payload.write_bytes(data)
         with self.assertRaises(ValueError):
             self.prepare(published=datetime(2026, 10, 22))
+
+    def test_final_inventory_rejects_missing_extra_and_wrong_checksums(self):
+        self.prepare()
+        sums = self.output / "SHA256SUMS"
+        original = sums.read_bytes()
+        sums.write_text("0" * 64 + "  latest.json\n")
+        with self.assertRaisesRegex(ValueError, "SHA256SUMS"):
+            manifest.validate_release_assets(self.output, "0.2.1")
+        sums.write_bytes(original)
+        extra = self.output / "diagnostic.exe"
+        extra.write_bytes(b"never a formal installer")
+        manifest.write_checksums(self.output)
+        with self.assertRaisesRegex(ValueError, "inventory"):
+            manifest.validate_release_assets(self.output, "0.2.1")
+        extra.unlink()
+        sums.write_bytes(original)
+        (self.output / "YSU-Net_0.2.1_linux-x64.deb").unlink()
+        with self.assertRaisesRegex(ValueError, "inventory"):
+            manifest.validate_release_assets(self.output, "0.2.1")
+
+    def test_raw_diagnostic_executable_is_not_consumed_as_bundle(self):
+        directory = self.artifacts / "rust-desktop-bundle-windows-x64"
+        (directory / "ysu-net.exe").write_bytes(b"diagnostic only")
+        with self.assertRaisesRegex(ValueError, "unexpected files"):
+            self.prepare()
+        self.assertFalse(self.output.exists())
+
+    def test_full_payload_bound_is_checked_before_output(self):
+        payload = self.payloads["windows-x64"]
+        with payload.open("r+b") as stream:
+            stream.truncate(manifest.MAX_FULL_SIZE + 1)
+        with self.assertRaisesRegex(ValueError, "size limit"):
+            self.prepare()
+        self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":
