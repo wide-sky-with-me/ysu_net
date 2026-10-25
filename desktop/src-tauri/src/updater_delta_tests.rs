@@ -4,12 +4,19 @@
 //! reconstruct_sdk_fixture seam awaits the Lead's real double-signed fixture.
 use super::*;
 use serde_json::json;
-use std::{collections::VecDeque, sync::{Arc, Mutex}};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
 type Trace = Arc<Mutex<Vec<&'static str>>>;
 
 fn integer(value: i64) -> [u8; 8] {
-    let raw = if value < 0 { value.unsigned_abs() | (1u64 << 63) } else { value as u64 };
+    let raw = if value < 0 {
+        value.unsigned_abs() | (1u64 << 63)
+    } else {
+        value as u64
+    };
     raw.to_le_bytes()
 }
 fn bz(bytes: &[u8]) -> Vec<u8> {
@@ -32,7 +39,10 @@ fn patch_raw(controls: &[u8], delta: &[u8], extra: &[u8], target: u64) -> Vec<u8
     result
 }
 fn patch(tuples: &[[i64; 3]], delta: &[u8], extra: &[u8], target: u64) -> Vec<u8> {
-    let controls: Vec<u8> = tuples.iter().flat_map(|t| t.iter().flat_map(|v| integer(*v))).collect();
+    let controls: Vec<u8> = tuples
+        .iter()
+        .flat_map(|t| t.iter().flat_map(|v| integer(*v)))
+        .collect();
     patch_raw(&controls, delta, extra, target)
 }
 fn fixture() -> (Release, Descriptor, Vec<u8>, Vec<u8>, Vec<u8>) {
@@ -40,21 +50,35 @@ fn fixture() -> (Release, Descriptor, Vec<u8>, Vec<u8>, Vec<u8>) {
     let mut target = base.clone();
     target[234] = b'B';
     target[8123] = b'C';
-    let delta: Vec<u8> = target.iter().zip(&base).map(|(new, old)| new.wrapping_sub(*old)).collect();
+    let delta: Vec<u8> = target
+        .iter()
+        .zip(&base)
+        .map(|(new, old)| new.wrapping_sub(*old))
+        .collect();
     let patch = patch(&[[8192, 0, 0]], &delta, &[], target.len() as u64);
     let full_url = format!("{ASSET_PREFIX}v0.3.0/setup.exe");
     let d = Descriptor {
         format: "bsdiff40".into(),
-        base_version: "0.2.1".into(), base_sha256: digest(&base), base_size: base.len() as u64,
-        target_version: "0.3.0".into(), target_sha256: digest(&target), target_size: target.len() as u64,
-        full_url: full_url.clone(), full_signature: "mock-full-signature".into(),
-        url: format!("{ASSET_PREFIX}v0.3.0/setup.patch"), signature: "mock-patch-signature".into(),
-        sha256: digest(&patch), size: patch.len() as u64,
+        base_version: "0.2.1".into(),
+        base_sha256: digest(&base),
+        base_size: base.len() as u64,
+        target_version: "0.3.0".into(),
+        target_sha256: digest(&target),
+        target_size: target.len() as u64,
+        full_url: full_url.clone(),
+        full_signature: "mock-full-signature".into(),
+        url: format!("{ASSET_PREFIX}v0.3.0/setup.patch"),
+        signature: "mock-patch-signature".into(),
+        sha256: digest(&patch),
+        size: patch.len() as u64,
     };
     let raw_d = descriptor_json(&d);
     let release = Release {
-        current: "0.2.1".into(), version: "0.3.0".into(), target: "windows".into(),
-        url: full_url.parse().unwrap(), signature: d.full_signature.clone(),
+        current: "0.2.1".into(),
+        version: "0.3.0".into(),
+        target: "windows".into(),
+        url: full_url.parse().unwrap(),
+        signature: d.full_signature.clone(),
         raw: json!({"version":"0.3.0", "platforms": {
             (WINDOWS.key): {"url":full_url, "signature":d.full_signature}
         }, "deltas": {(WINDOWS.key): [raw_d]}}),
@@ -74,7 +98,11 @@ fn root() -> (tempfile::TempDir, PathBuf) {
     let directory = tempfile::tempdir().unwrap();
     // macOS temp paths can themselves use /var -> /private/var. Production rejects
     // symlink parents; normalize this trusted, newly created fixture root first.
-    let path = directory.path().canonicalize().unwrap().join("update-packages-v1");
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("update-packages-v1");
     (directory, path)
 }
 
@@ -85,10 +113,18 @@ struct RecordedProgress {
     phases: Mutex<Vec<UpdatePhase>>,
 }
 impl Progress for RecordedProgress {
-    fn phase(&self, phase: UpdatePhase) { self.phases.lock().unwrap().push(phase); }
-    fn chunk(&self, length: usize, _: Option<u64>) { *self.bytes.lock().unwrap() += length as u64; }
+    fn phase(&self, phase: UpdatePhase) {
+        self.phases.lock().unwrap().push(phase);
+    }
+    fn chunk(&self, length: usize, _: Option<u64>) {
+        *self.bytes.lock().unwrap() += length as u64;
+    }
     fn transfer(&self, mode: DownloadMode, fallback: bool) {
-        let mode = match mode { DownloadMode::Full => "full", DownloadMode::Delta => "delta", DownloadMode::Cached => "cached" };
+        let mode = match mode {
+            DownloadMode::Full => "full",
+            DownloadMode::Delta => "delta",
+            DownloadMode::Cached => "cached",
+        };
         *self.bytes.lock().unwrap() = 0;
         self.transfers.lock().unwrap().push((mode, fallback));
     }
@@ -99,17 +135,33 @@ struct FakeNetwork {
 }
 impl FakeNetwork {
     fn new(replies: Vec<Result<Vec<u8>, UpdateError>>) -> Self {
-        Self { replies: Mutex::new(replies.into()), calls: Mutex::new(vec![]) }
+        Self {
+            replies: Mutex::new(replies.into()),
+            calls: Mutex::new(vec![]),
+        }
     }
 }
 impl Network for FakeNetwork {
-    async fn fetch(&self, url: &reqwest::Url, limit: u64, progress: &impl Progress)
-        -> Result<Vec<u8>, UpdateError> {
-        self.calls.lock().unwrap().push((url.path().to_owned(), limit));
-        let reply = self.replies.lock().unwrap().pop_front().expect("unexpected extra network attempt")?;
+    async fn fetch(
+        &self,
+        url: &reqwest::Url,
+        limit: u64,
+        progress: &impl Progress,
+    ) -> Result<Vec<u8>, UpdateError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((url.path().to_owned(), limit));
+        let reply = self
+            .replies
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("unexpected extra network attempt")?;
         let mut bytes = Vec::new();
         for chunk in reply.chunks(4096) {
-            append_bounded(&mut bytes, chunk, limit as usize).map_err(|_| UpdateError::DownloadFailed)?;
+            append_bounded(&mut bytes, chunk, limit as usize)
+                .map_err(|_| UpdateError::DownloadFailed)?;
             progress.chunk(chunk.len(), None);
         }
         Ok(bytes)
@@ -117,24 +169,39 @@ impl Network for FakeNetwork {
 }
 #[derive(Clone)]
 struct FakeVerifier {
-    target: Vec<u8>, patch: Vec<u8>, reject_patch: bool, reject_full: bool, trace: Trace,
+    target: Vec<u8>,
+    patch: Vec<u8>,
+    reject_patch: bool,
+    reject_full: bool,
+    trace: Trace,
 }
 impl FakeVerifier {
     fn new(target: &[u8], patch: &[u8]) -> Self {
-        Self { target: target.into(), patch: patch.into(), reject_patch: false,
-            reject_full: false, trace: Arc::new(Mutex::new(vec![])) }
+        Self {
+            target: target.into(),
+            patch: patch.into(),
+            reject_patch: false,
+            reject_full: false,
+            trace: Arc::new(Mutex::new(vec![])),
+        }
     }
 }
 impl Verifier for FakeVerifier {
     fn full(&self, bytes: &[u8]) -> Result<(), UpdateError> {
         self.trace.lock().unwrap().push("verify-full");
-        if self.reject_full || bytes != self.target { Err(UpdateError::Signature) } else { Ok(()) }
+        if self.reject_full || bytes != self.target {
+            Err(UpdateError::Signature)
+        } else {
+            Ok(())
+        }
     }
     fn patch(&self, bytes: &[u8], signature: &str) -> Result<(), UpdateError> {
         self.trace.lock().unwrap().push("verify-patch");
         if self.reject_patch || bytes != self.patch || signature != "mock-patch-signature" {
             Err(UpdateError::Signature)
-        } else { Ok(()) }
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -158,18 +225,42 @@ fn initial_and_redirect_url_policies_do_not_accept_credentials_or_other_hosts() 
     let good = format!("{ASSET_PREFIX}v0.3.0/setup.exe");
     assert!(asset_url(&good).is_some());
     for bad in [
-        good.replace("https:", "http:"), good.replace("github.com/", "github.com.evil/"),
-        good.replace("ysu_net/", "elsewhere/"), format!("{good}?token=redacted"),
-        format!("{good}#fragment"), good.replace("https://", "https://user:password@"),
-        good.replace("setup.exe", "nested/file.exe"), good.replace("setup.exe", "%2fsetup.exe"),
+        good.replace("https:", "http:"),
+        good.replace("github.com/", "github.com.evil/"),
+        good.replace("ysu_net/", "elsewhere/"),
+        format!("{good}?token=redacted"),
+        format!("{good}#fragment"),
+        good.replace("https://", "https://user:password@"),
+        good.replace("setup.exe", "nested/file.exe"),
+        good.replace("setup.exe", "%2fsetup.exe"),
         good.replace("github.com/", "github.com:8443/"),
-    ] { assert!(asset_url(&bad).is_none(), "must reject non-canonical release asset"); }
-    for host in ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com", "github-releases.githubusercontent.com"] {
-        assert!(transport_url(&format!("https://{host}/asset?cdn-token=opaque").parse().unwrap()));
-        assert!(!transport_url(&format!("http://{host}/asset").parse().unwrap()));
+    ] {
+        assert!(
+            asset_url(&bad).is_none(),
+            "must reject non-canonical release asset"
+        );
     }
-    assert!(!transport_url(&"https://example.org/asset".parse().unwrap()));
-    assert!(!transport_url(&"https://user@github.com/asset".parse().unwrap()));
+    for host in [
+        "github.com",
+        "release-assets.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "github-releases.githubusercontent.com",
+    ] {
+        assert!(transport_url(
+            &format!("https://{host}/asset?cdn-token=opaque")
+                .parse()
+                .unwrap()
+        ));
+        assert!(!transport_url(
+            &format!("http://{host}/asset").parse().unwrap()
+        ));
+    }
+    assert!(!transport_url(
+        &"https://example.org/asset".parse().unwrap()
+    ));
+    assert!(!transport_url(
+        &"https://user@github.com/asset".parse().unwrap()
+    ));
 }
 
 #[test]
@@ -183,7 +274,10 @@ fn sdk_target_precedence_and_architecture_are_reproduced_not_guessed_from_os() {
     assert_eq!(descriptors(&release, WINDOWS).len(), 1); // Installer key wins.
     release.raw["platforms"][WINDOWS.key]["signature"] = json!("mismatch");
     assert!(descriptors(&release, WINDOWS).is_empty()); // Do not bypass it via bare key.
-    release.raw["platforms"].as_object_mut().unwrap().remove(WINDOWS.key);
+    release.raw["platforms"]
+        .as_object_mut()
+        .unwrap()
+        .remove(WINDOWS.key);
     release.raw["platforms"][WINDOWS.bare]["signature"] = json!(release.signature);
     assert_eq!(descriptors(&release, WINDOWS).len(), 1);
     release.target = WINDOWS.key.into(); // A custom SDK target is not the runtime OS.
@@ -194,21 +288,36 @@ fn sdk_target_precedence_and_architecture_are_reproduced_not_guessed_from_os() {
 fn descriptor_malformed_unknown_oversize_and_non_newer_metadata_are_ignored() {
     let (release, d, _, _, _) = fixture();
     for (field, value) in [
-        ("format", json!("unknown")), ("base_version", json!("0.1.0")),
-        ("target_version", json!("0.4.0")), ("base_sha256", json!("A".repeat(64))),
-        ("target_sha256", json!("a".repeat(63))), ("sha256", json!("g".repeat(64))),
-        ("size", json!(PATCH_LIMIT + 1)), ("target_size", json!(FULL_LIMIT + 1)),
-        ("base_size", json!(-1)), ("target_size", json!(0)),
-        ("full_signature", json!("not-selected")), ("signature", json!("x".repeat(SIGNATURE_LIMIT + 1))),
+        ("format", json!("unknown")),
+        ("base_version", json!("0.1.0")),
+        ("target_version", json!("0.4.0")),
+        ("base_sha256", json!("A".repeat(64))),
+        ("target_sha256", json!("a".repeat(63))),
+        ("sha256", json!("g".repeat(64))),
+        ("size", json!(PATCH_LIMIT + 1)),
+        ("target_size", json!(FULL_LIMIT + 1)),
+        ("base_size", json!(-1)),
+        ("target_size", json!(0)),
+        ("full_signature", json!("not-selected")),
+        ("signature", json!("x".repeat(SIGNATURE_LIMIT + 1))),
         ("full_url", json!(format!("{ASSET_PREFIX}v0.3.0/other.exe"))),
-        ("url", json!("https://example.org/p.patch")), ("unknown", json!(true)),
+        ("url", json!("https://example.org/p.patch")),
+        ("unknown", json!(true)),
     ] {
         let mut changed = release.clone();
         changed.raw["deltas"][WINDOWS.key][0][field] = value;
-        assert!(descriptors(&changed, WINDOWS).is_empty(), "accepted invalid {field}");
+        assert!(
+            descriptors(&changed, WINDOWS).is_empty(),
+            "accepted invalid {field}"
+        );
     }
     let mut changed = release.clone();
-    changed.raw["deltas"][WINDOWS.key] = json!([descriptor_json(&d), descriptor_json(&d), descriptor_json(&d), descriptor_json(&d)]);
+    changed.raw["deltas"][WINDOWS.key] = json!([
+        descriptor_json(&d),
+        descriptor_json(&d),
+        descriptor_json(&d),
+        descriptor_json(&d)
+    ]);
     assert!(descriptors(&changed, WINDOWS).is_empty());
     changed = release.clone();
     changed.raw["deltas"][WINDOWS.key][0]["target_size"] = json!(100);
@@ -223,7 +332,10 @@ fn descriptor_malformed_unknown_oversize_and_non_newer_metadata_are_ignored() {
 #[test]
 fn qbsdiff_really_reconstructs_a_bsdiff40_fixture_after_bounded_preflight() {
     let (_, _, base, target, patch) = fixture();
-    assert_eq!(checked_apply(&base, &patch, target.len() as u64).unwrap(), target);
+    assert_eq!(
+        checked_apply(&base, &patch, target.len() as u64).unwrap(),
+        target
+    );
     let copy = self::patch(&[[0, 3, 0]], &[], b"abc", 3);
     assert_eq!(checked_apply(&[], &copy, 3).unwrap(), b"abc");
 }
@@ -232,7 +344,11 @@ fn qbsdiff_really_reconstructs_a_bsdiff40_fixture_after_bounded_preflight() {
 fn headers_reject_magic_negative_zero_negative_lengths_overflow_and_truncation() {
     let (_, _, base, _, valid) = fixture();
     for index in [8usize, 16, 24] {
-        for raw in [integer(-1), (1u64 << 63).to_le_bytes(), i64::MAX.to_le_bytes()] {
+        for raw in [
+            integer(-1),
+            (1u64 << 63).to_le_bytes(),
+            i64::MAX.to_le_bytes(),
+        ] {
             let mut bad = valid.clone();
             bad[index..index + 8].copy_from_slice(&raw);
             assert!(checked_apply(&base, &bad, 8192).is_err());
@@ -242,7 +358,8 @@ fn headers_reject_magic_negative_zero_negative_lengths_overflow_and_truncation()
     bad[8..16].copy_from_slice(&i64::MAX.to_le_bytes());
     bad[16..24].copy_from_slice(&i64::MAX.to_le_bytes());
     assert!(sections(&bad, 8192).is_err()); // 32 + MAX + MAX would overflow u64.
-    bad = valid.clone(); bad[0] = b'x';
+    bad = valid.clone();
+    bad[0] = b'x';
     assert!(checked_apply(&base, &bad, 8192).is_err());
     for length in [0usize, 7, 31, valid.len() - 1] {
         assert!(checked_apply(&base, &valid[..length], 8192).is_err());
@@ -257,9 +374,20 @@ fn malicious_control_counts_zero_progress_source_reads_and_seeks_are_bounded() {
     zeros.push([0, 1, 0]);
     assert!(checked_apply(&[], &patch(&zeros, &[], b"x", 1), 1).is_err());
     let many: Vec<_> = (0..=CONTROL_LIMIT).map(|_| [0, 1, 0]).collect();
-    assert!(checked_apply(&[], &patch(&many, &[], &vec![0; many.len()], many.len() as u64), many.len() as u64).is_err());
-    for tuples in [vec![[-1, 1, 0]], vec![[0, -1, 0]], vec![[2, 0, 0]],
-        vec![[0, 1, -1]], vec![[0, 1, i64::MAX]], vec![[1, 0, 1], [1, 0, 0]]] {
+    assert!(checked_apply(
+        &[],
+        &patch(&many, &[], &vec![0; many.len()], many.len() as u64),
+        many.len() as u64
+    )
+    .is_err());
+    for tuples in [
+        vec![[-1, 1, 0]],
+        vec![[0, -1, 0]],
+        vec![[2, 0, 0]],
+        vec![[0, 1, -1]],
+        vec![[0, 1, i64::MAX]],
+        vec![[1, 0, 1], [1, 0, 0]],
+    ] {
         assert!(checked_apply(b"x", &patch(&tuples, b"xx", b"x", 1), 1).is_err());
     }
     assert!(checked_apply(b"x", &patch_raw(&[0; 23], &[], b"x", 1), 1).is_err());
@@ -274,15 +402,26 @@ fn short_extra_or_delta_output_and_unused_or_concatenated_bytes_are_rejected() {
         (vec![[1, 0, 0]], vec![0, 0], vec![]),
         (vec![[0, 0, 0]], vec![], vec![]),
         (vec![[0, 2, 0]], vec![], b"xx".to_vec()),
-    ] { assert!(checked_apply(b"x", &patch(&tuples, &delta, &extra, 1), 1).is_err()); }
+    ] {
+        assert!(checked_apply(b"x", &patch(&tuples, &delta, &extra, 1), 1).is_err());
+    }
     let mut trailing = patch(&[[0, 1, 0]], &[], b"x", 1);
     trailing.extend(bz(b"ignored second member"));
     assert!(checked_apply(&[], &trailing, 1).is_err());
-    let mut writer = BudgetWriter { bytes: vec![], limit: 1, deadline: Instant::now() + Duration::from_secs(1) };
+    let mut writer = BudgetWriter {
+        bytes: vec![],
+        limit: 1,
+        deadline: Instant::now() + Duration::from_secs(1),
+    };
     assert!(writer.write_all(b"xx").is_err());
     assert!(writer.bytes.is_empty());
-    assert!(preflight(0, &patch(&[[0, 1, 0]], &[], b"x", 1), 1,
-        Instant::now() - Duration::from_secs(1)).is_err());
+    assert!(preflight(
+        0,
+        &patch(&[[0, 1, 0]], &[], b"x", 1),
+        1,
+        Instant::now() - Duration::from_secs(1)
+    )
+    .is_err());
 }
 
 #[test]
@@ -290,17 +429,29 @@ fn patch_signature_precedes_any_decoder_and_final_signature_is_still_required() 
     let (_, d, base, target, patch) = fixture();
     let mut verifier = FakeVerifier::new(&target, &patch);
     verifier.reject_patch = true;
-    let result = reconstruct_with(&base, &patch, &d, &verifier,
-        |_, _, _| panic!("unverified patch must never reach a decoder"));
+    let result = reconstruct_with(&base, &patch, &d, &verifier, |_, _, _| {
+        panic!("unverified patch must never reach a decoder")
+    });
     assert_eq!(result, Err(UpdateError::Signature));
     assert_eq!(*verifier.trace.lock().unwrap(), ["verify-patch"]);
     verifier.reject_patch = false;
     verifier.reject_full = true;
-    assert_eq!(reconstruct_with(&base, &patch, &d, &verifier, checked_apply), Err(UpdateError::Signature));
-    let mut wrong = d.clone(); wrong.target_sha256 = "0".repeat(64);
-    assert_eq!(reconstruct_with(&base, &patch, &wrong, &verifier, checked_apply), Err(UpdateError::DownloadFailed));
-    assert!(reconstruct_with(b"wrong base", &patch, &d, &verifier,
-        |_, _, _| panic!("wrong base must not decode")).is_err());
+    assert_eq!(
+        reconstruct_with(&base, &patch, &d, &verifier, checked_apply),
+        Err(UpdateError::Signature)
+    );
+    let mut wrong = d.clone();
+    wrong.target_sha256 = "0".repeat(64);
+    assert_eq!(
+        reconstruct_with(&base, &patch, &wrong, &verifier, checked_apply),
+        Err(UpdateError::DownloadFailed)
+    );
+    assert!(
+        reconstruct_with(b"wrong base", &patch, &d, &verifier, |_, _, _| panic!(
+            "wrong base must not decode"
+        ))
+        .is_err()
+    );
 }
 
 #[tokio::test]
@@ -310,30 +461,66 @@ async fn first_launch_fetches_only_the_full_target_and_caches_after_verification
     let network = FakeNetwork::new(vec![Ok(target.clone())]);
     let verifier = FakeVerifier::new(&target, &patch);
     let progress = RecordedProgress::default();
-    let result = download_inner(release, Some(WINDOWS), Some(root.clone()), &progress, &network, verifier).await.unwrap();
+    let result = download_inner(
+        release,
+        Some(WINDOWS),
+        Some(root.clone()),
+        &progress,
+        &network,
+        verifier,
+    )
+    .await
+    .unwrap();
     assert_eq!(result, target);
     assert_eq!(network.calls.lock().unwrap().len(), 1);
     assert_eq!(network.calls.lock().unwrap()[0].1, FULL_LIMIT);
     assert_eq!(*progress.transfers.lock().unwrap(), [("full", false)]);
     let cache = Cache::open(root).unwrap();
-    assert_eq!(cache.entries().unwrap().iter().filter(|e| own_package(&e.name)).count(), 1);
+    assert_eq!(
+        cache
+            .entries()
+            .unwrap()
+            .iter()
+            .filter(|e| own_package(&e.name))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
 async fn precise_cached_base_enables_a_real_delta_without_any_full_fetch() {
     let (release, _, base, target, patch) = fixture();
     let (_directory, root) = root();
-    Cache::open(root.clone()).unwrap().store(WINDOWS, "0.2.1", &base).unwrap();
+    Cache::open(root.clone())
+        .unwrap()
+        .store(WINDOWS, "0.2.1", &base)
+        .unwrap();
     let network = FakeNetwork::new(vec![Ok(patch.clone())]);
     let progress = RecordedProgress::default();
     let verifier = FakeVerifier::new(&target, &patch);
     let trace = verifier.trace.clone();
-    assert_eq!(download_inner(release, Some(WINDOWS), Some(root.clone()), &progress, &network, verifier).await.unwrap(), target);
+    assert_eq!(
+        download_inner(
+            release,
+            Some(WINDOWS),
+            Some(root.clone()),
+            &progress,
+            &network,
+            verifier
+        )
+        .await
+        .unwrap(),
+        target
+    );
     assert_eq!(*trace.lock().unwrap(), ["verify-patch", "verify-full"]);
     assert_eq!(network.calls.lock().unwrap().len(), 1);
     assert_eq!(network.calls.lock().unwrap()[0].1, PATCH_LIMIT);
     assert_eq!(*progress.transfers.lock().unwrap(), [("delta", false)]);
-    assert!(progress.phases.lock().unwrap().contains(&UpdatePhase::Reconstructing));
+    assert!(progress
+        .phases
+        .lock()
+        .unwrap()
+        .contains(&UpdatePhase::Reconstructing));
     assert_eq!(Cache::open(root).unwrap().entries().unwrap().len(), 2);
 }
 
@@ -343,16 +530,32 @@ async fn patch_failure_falls_back_once_resets_progress_and_ignores_delta_target_
     release.raw["deltas"][WINDOWS.key][0]["target_sha256"] = json!("0".repeat(64));
     for full in [Ok(target.clone()), Err(UpdateError::DownloadFailed)] {
         let (_directory, root) = root();
-        Cache::open(root.clone()).unwrap().store(WINDOWS, "0.2.1", &base).unwrap();
+        Cache::open(root.clone())
+            .unwrap()
+            .store(WINDOWS, "0.2.1", &base)
+            .unwrap();
         let success = full.is_ok();
         let network = FakeNetwork::new(vec![Ok(patch.clone()), full]);
         let progress = RecordedProgress::default();
-        let result = download_inner(release.clone(), Some(WINDOWS), Some(root), &progress, &network,
-            FakeVerifier::new(&target, &patch)).await;
+        let result = download_inner(
+            release.clone(),
+            Some(WINDOWS),
+            Some(root),
+            &progress,
+            &network,
+            FakeVerifier::new(&target, &patch),
+        )
+        .await;
         assert_eq!(result.is_ok(), success);
         assert_eq!(network.calls.lock().unwrap().len(), 2);
-        assert_eq!(*progress.transfers.lock().unwrap(), [("delta", false), ("full", true)]);
-        assert_eq!(*progress.bytes.lock().unwrap(), if success { target.len() as u64 } else { 0 });
+        assert_eq!(
+            *progress.transfers.lock().unwrap(),
+            [("delta", false), ("full", true)]
+        );
+        assert_eq!(
+            *progress.bytes.lock().unwrap(),
+            if success { target.len() as u64 } else { 0 }
+        );
     }
 }
 
@@ -364,9 +567,23 @@ async fn cache_failures_and_malformed_descriptors_cannot_block_signed_full_downl
     fs::create_dir(&root).unwrap();
     fs::write(root.join("not-ours.txt"), b"preserve unknown file").unwrap();
     let network = FakeNetwork::new(vec![Ok(target.clone())]);
-    assert_eq!(download_inner(release, Some(WINDOWS), Some(root.clone()), &RecordedProgress::default(),
-        &network, FakeVerifier::new(&target, &patch)).await.unwrap(), target);
-    assert_eq!(fs::read(root.join("not-ours.txt")).unwrap(), b"preserve unknown file");
+    assert_eq!(
+        download_inner(
+            release,
+            Some(WINDOWS),
+            Some(root.clone()),
+            &RecordedProgress::default(),
+            &network,
+            FakeVerifier::new(&target, &patch)
+        )
+        .await
+        .unwrap(),
+        target
+    );
+    assert_eq!(
+        fs::read(root.join("not-ours.txt")).unwrap(),
+        b"preserve unknown file"
+    );
 }
 
 #[tokio::test]
@@ -375,8 +592,18 @@ async fn unverified_full_bytes_never_enter_the_cache() {
     let (_directory, root) = root();
     let mut verifier = FakeVerifier::new(&target, &patch);
     verifier.reject_full = true;
-    assert_eq!(download_inner(release, Some(WINDOWS), Some(root.clone()), &RecordedProgress::default(),
-        &FakeNetwork::new(vec![Ok(target)]), verifier).await, Err(UpdateError::Signature));
+    assert_eq!(
+        download_inner(
+            release,
+            Some(WINDOWS),
+            Some(root.clone()),
+            &RecordedProgress::default(),
+            &FakeNetwork::new(vec![Ok(target)]),
+            verifier
+        )
+        .await,
+        Err(UpdateError::Signature)
+    );
     assert!(Cache::open(root).unwrap().entries().unwrap().is_empty());
 }
 
@@ -401,14 +628,18 @@ fn atomic_write_failure_keeps_the_existing_base_and_never_publishes_target() {
     let (_directory, root) = root();
     let mut cache = Cache::open(root.clone()).unwrap();
     cache.store(WINDOWS, "0.2.1", &base).unwrap();
-    cache.store(WINDOWS, "0.2.2", b"newer but unused package").unwrap();
+    cache
+        .store(WINDOWS, "0.2.2", b"newer but unused package")
+        .unwrap();
     assert_eq!(cache.entries().unwrap().len(), 2);
     assert_eq!(cache.base(WINDOWS, &d).unwrap(), base); // Pin the precise base before pruning.
     let target_name = cache_name(WINDOWS, "0.3.0", &digest(&target)).unwrap();
-    assert!(cache.store_with(WINDOWS, "0.3.0", &target, |file, bytes| {
-        file.write_all(&bytes[..13])?;
-        Err(io::Error::other("injected atomic write failure"))
-    }).is_err());
+    assert!(cache
+        .store_with(WINDOWS, "0.3.0", &target, |file, bytes| {
+            file.write_all(&bytes[..13])?;
+            Err(io::Error::other("injected atomic write failure"))
+        })
+        .is_err());
     assert_eq!(cache.base(WINDOWS, &d).unwrap(), base);
     assert!(!root.join(target_name).exists());
     assert!(!cache.entries().unwrap().iter().any(|e| own_temp(&e.name)));
@@ -418,7 +649,9 @@ fn atomic_write_failure_keeps_the_existing_base_and_never_publishes_target() {
 fn cache_maintenance_keeps_two_packages_cleans_only_owned_fragments_and_never_clobbers() {
     let (_directory, root) = root();
     let mut cache = Cache::open(root.clone()).unwrap();
-    for version in ["0.1.0", "0.2.0", "0.3.0"] { cache.store(WINDOWS, version, version.as_bytes()).unwrap(); }
+    for version in ["0.1.0", "0.2.0", "0.3.0"] {
+        cache.store(WINDOWS, version, version.as_bytes()).unwrap();
+    }
     let entries = cache.entries().unwrap();
     assert!(entries.len() <= 2);
     assert!(entries.iter().all(|e| e.size <= FULL_LIMIT));
@@ -513,7 +746,10 @@ fn commit_never_clobbers_an_existing_target_on_any_supported_platform() {
     let target = cache_name(WINDOWS, "0.3.0", &digest(bytes)).unwrap();
     fs::write(root.join(&target), b"existing public fixture").unwrap();
     assert!(cache.dir.commit(&temp, &target, &verified).is_err());
-    assert_eq!(fs::read(root.join(target)).unwrap(), b"existing public fixture");
+    assert_eq!(
+        fs::read(root.join(target)).unwrap(),
+        b"existing public fixture"
+    );
     assert_eq!(fs::read(root.join(temp)).unwrap(), bytes);
 }
 
@@ -530,7 +766,10 @@ fn cache_operations_stay_anchored_when_parent_path_is_replaced() {
     fs::write(root.join("unknown.txt"), b"must not touch replacement").unwrap();
     assert_eq!(cache.base(WINDOWS, &d).unwrap(), base);
     cache.maintain(1).unwrap();
-    assert_eq!(fs::read(root.join("unknown.txt")).unwrap(), b"must not touch replacement");
+    assert_eq!(
+        fs::read(root.join("unknown.txt")).unwrap(),
+        b"must not touch replacement"
+    );
 }
 
 #[cfg(windows)]
@@ -571,16 +810,37 @@ async fn patch_network_and_signature_failures_each_have_one_full_attempt_only() 
     let (release, _, base, target, patch) = fixture();
     for bad_network in [true, false] {
         let (_directory, root) = root();
-        Cache::open(root.clone()).unwrap().store(WINDOWS, "0.2.1", &base).unwrap();
-        let reply = if bad_network { Err(UpdateError::DownloadFailed) } else { Ok(patch.clone()) };
+        Cache::open(root.clone())
+            .unwrap()
+            .store(WINDOWS, "0.2.1", &base)
+            .unwrap();
+        let reply = if bad_network {
+            Err(UpdateError::DownloadFailed)
+        } else {
+            Ok(patch.clone())
+        };
         let network = FakeNetwork::new(vec![reply, Ok(target.clone())]);
         let progress = RecordedProgress::default();
         let mut verifier = FakeVerifier::new(&target, &patch);
         verifier.reject_patch = !bad_network;
-        assert_eq!(download_inner(release.clone(), Some(WINDOWS), Some(root), &progress,
-            &network, verifier).await.unwrap(), target);
+        assert_eq!(
+            download_inner(
+                release.clone(),
+                Some(WINDOWS),
+                Some(root),
+                &progress,
+                &network,
+                verifier
+            )
+            .await
+            .unwrap(),
+            target
+        );
         assert_eq!(network.calls.lock().unwrap().len(), 2);
-        assert_eq!(*progress.transfers.lock().unwrap(), [("delta", false), ("full", true)]);
+        assert_eq!(
+            *progress.transfers.lock().unwrap(),
+            [("delta", false), ("full", true)]
+        );
     }
 }
 
@@ -599,7 +859,8 @@ fn windows_reparse_point_cache_roots_and_packages_are_not_followed() {
     let payload = outside.join("fixture.txt");
     fs::write(&payload, b"fixture").unwrap();
     let name = cache_name(WINDOWS, "0.2.1", &digest(b"fixture")).unwrap();
-    symlink_file(&payload, other_root.join(name)).expect("cloud symlink fixture requires symlink privilege");
+    symlink_file(&payload, other_root.join(name))
+        .expect("cloud symlink fixture requires symlink privilege");
     assert!(Cache::open(other_root).is_err());
     assert_eq!(fs::read(payload).unwrap(), b"fixture");
 }

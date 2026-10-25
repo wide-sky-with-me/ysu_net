@@ -122,7 +122,9 @@ fn public_error(error: &tauri_plugin_updater::Error, stage: UpdatePhase) -> Upda
         E::PreviousAppNotRestored(_) => UpdateError::ApplicationRestoreFailed,
         _ => match stage {
             UpdatePhase::Checking => UpdateError::CheckFailed,
-            UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Reconstructing => UpdateError::DownloadFailed,
+            UpdatePhase::Downloading | UpdatePhase::Verifying | UpdatePhase::Reconstructing => {
+                UpdateError::DownloadFailed
+            }
             _ => UpdateError::InstallFailed,
         },
     }
@@ -552,7 +554,11 @@ pub async fn updater_install(
     };
     let artifact = NativeArtifact {
         update: candidate,
-        cache_root: app.path().app_cache_dir().ok().map(|root| root.join("update-packages-v1")),
+        cache_root: app
+            .path()
+            .app_cache_dir()
+            .ok()
+            .map(|root| root.join("update-packages-v1")),
     };
     match apply_update(&artifact, bridge.inner(), &progress).await {
         Ok(()) => Ok(manager.change(&app, |session| session.pending = None)),

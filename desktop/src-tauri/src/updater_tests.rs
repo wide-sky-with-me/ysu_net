@@ -377,15 +377,19 @@ async fn checked_delta_fixture() -> Update {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .build(context)
         .unwrap();
-    let mut update = app.updater_builder()
+    let mut update = app
+        .updater_builder()
         .executable_path("fixture-path/app")
         .configure_client(|_| panic!("delta fixture must not make a network request"))
-        .build().unwrap()
+        .build()
+        .unwrap()
         .restore_update(serde_json::json!({
             "version": "2.0.0",
             "url": format!("{ASSET_PREFIX}v2.0.0/YSU-Net_2.0.0_windows-x64-setup.exe"),
             "signature": include_str!("../fixtures/delta/target.sig").trim(),
-        })).unwrap().unwrap();
+        }))
+        .unwrap()
+        .unwrap();
     update.current_version = "1.0.0".into();
     update
 }
@@ -413,9 +417,16 @@ async fn actual_sdk_double_signature_reconstructs_before_mock_installation() {
     let bytes = delta::reconstruct_sdk_fixture(&update, DELTA_BASE, DELTA_PATCH, metadata).unwrap();
     assert_eq!(bytes, DELTA_TARGET);
     let (_, core, progress, trace) = fixture();
-    let artifact = SignedFixtureArtifact { update, bytes, trace: trace.clone() };
+    let artifact = SignedFixtureArtifact {
+        update,
+        bytes,
+        trace: trace.clone(),
+    };
     apply_update(&artifact, &core, &progress).await.unwrap();
-    assert_eq!(*trace.lock().unwrap(), ["verify", "pause", "mock-install", "finish"]);
+    assert_eq!(
+        *trace.lock().unwrap(),
+        ["verify", "pause", "mock-install", "finish"]
+    );
 }
 
 #[tokio::test]
@@ -426,7 +437,10 @@ async fn actual_sdk_rejects_patch_tampering_even_with_a_recomputed_untrusted_sha
     let mut patch = DELTA_PATCH.to_vec();
     patch[32] ^= 1;
     metadata["sha256"] = format!("{:x}", Sha256::digest(&patch)).into();
-    assert_eq!(delta::reconstruct_sdk_fixture(&update, DELTA_BASE, &patch, metadata).unwrap_err(), UpdateError::Signature);
+    assert_eq!(
+        delta::reconstruct_sdk_fixture(&update, DELTA_BASE, &patch, metadata).unwrap_err(),
+        UpdateError::Signature
+    );
 }
 
 #[tokio::test]
@@ -434,11 +448,17 @@ async fn actual_sdk_rejects_replayed_full_signature_and_patch_announced_version(
     let mut update = checked_delta_fixture().await;
     update.signature = include_str!("../fixtures/delta/base.sig").trim().into();
     let metadata = delta_fixture_metadata(&update);
-    assert_eq!(delta::reconstruct_sdk_fixture(&update, DELTA_BASE, DELTA_PATCH, metadata).unwrap_err(), UpdateError::Signature);
+    assert_eq!(
+        delta::reconstruct_sdk_fixture(&update, DELTA_BASE, DELTA_PATCH, metadata).unwrap_err(),
+        UpdateError::Signature
+    );
     let mut update = checked_delta_fixture().await;
     update.version = "3.0.0".into();
     let metadata = delta_fixture_metadata(&update);
-    assert_eq!(delta::reconstruct_sdk_fixture(&update, DELTA_BASE, DELTA_PATCH, metadata).unwrap_err(), UpdateError::Signature);
+    assert_eq!(
+        delta::reconstruct_sdk_fixture(&update, DELTA_BASE, DELTA_PATCH, metadata).unwrap_err(),
+        UpdateError::Signature
+    );
 }
 
 struct SignedFixtureArtifact {
