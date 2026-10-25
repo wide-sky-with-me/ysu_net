@@ -1,6 +1,11 @@
 name: Native Rust desktop builds
 on:
   workflow_dispatch:
+    inputs:
+      format_only:
+        description: "Format public Rust source on the runner without building or releasing"
+        type: boolean
+        default: false
   push:
     branches: ["**"]
     # Path filters are not evaluated for tag pushes, so release tags always build.
@@ -15,6 +20,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    if: ${{ inputs.format_only != true }}
     strategy:
       fail-fast: false
       matrix:
@@ -72,9 +78,48 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk desktop-file-utils ffmpeg
+      - name: Install pinned public delta tools (Linux)
+        if: runner.os == 'Linux'
+        # CLI's published --locked dev self-dependency conflicts with its root 1.4.4.
+        # Application Cargo.lock and all application --locked gates remain unchanged.
+        run: |
+          # Jammy has no minisign package; pin the official static 0.12 archive.
+          verifier="$RUNNER_TEMP/ysu-public-verifier"
+          mkdir -p "$verifier"
+          archive="$RUNNER_TEMP/minisign-0.12-linux.tar.gz"
+          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 \
+            https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz -o "$archive"
+          echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$verifier" --strip-components=2 --no-same-owner minisign-linux/x86_64/minisign
+          chmod 755 "$verifier/minisign"
+          echo "$verifier" >> "$GITHUB_PATH"
+          export PATH="$verifier:$PATH"
+          minisign -v
+          cargo install qbsdiff --version 1.4.4 --features cmd
+          test "$(qbsdiff --version)" = 'qbsdiff 1.4.4'
+          test "$(qbspatch --version)" = 'qbspatch 1.4.4'
+          command -v minisign
       - run: npm ci --prefix desktop
       - name: Frontend and native build entry checks
         run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const root = 'desktop/src-tauri/fixtures/delta/';
+          const manifest = JSON.parse(fs.readFileSync(root + 'fixture.json', 'utf8'));
+          const names = ['base.bin', 'base.sig', 'target.bin', 'target.sig', 'patch.bsdiff', 'patch.sig', 'public.key'];
+          if (Object.keys(manifest.files).sort().join() !== [...names].sort().join()) throw Error('Unexpected public fixture files');
+          for (const name of names) {
+            const stat = fs.lstatSync(root + name);
+            if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1048576) throw Error('Invalid public fixture file');
+            const bytes = fs.readFileSync(root + name);
+            const expected = manifest.files[name];
+            if (bytes.length !== expected.bytes || crypto.createHash('sha256').update(bytes).digest('hex') !== expected.sha256) {
+              throw Error('Signed fixture bytes changed during checkout: ' + name);
+            }
+          }
+          console.log('Public signed fixture bytes match the cloud-generated identity.');
+          JS
           npm --prefix desktop run check
           npm --prefix desktop test
           npm --prefix desktop run test:build
@@ -121,7 +166,9 @@ jobs:
           uv sync --locked --group desktop-test
           uv run --no-sync python -m unittest discover -s tests -p test_node_runtime.py -v
           uv run --no-sync python -m unittest discover -s tests -p test_system_browser.py -v
-          uv run --no-sync python -m unittest tests.test_update_manifest -v
+          uv run --no-sync python -m unittest tests.test_update_manifest tests.test_update_signature -v
+          # Real producer integration is mandatory on Linux Actions; no production key.
+          uv run --no-sync python -m unittest discover -s tests -p 'test_*delta*.py' -v
       - name: Built frontend browser acceptance
         if: runner.os == 'Linux'
         run: |
@@ -293,6 +340,23 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.app.tar.gz
             desktop/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
 
+  format-source:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.format_only == true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format public Rust source on the runner
+        run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-formatted-source
+          if-no-files-found: error
+          path: desktop/src-tauri/src/
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
@@ -301,6 +365,19 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci --prefix desktop
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install exact public delta CLI version
+        # Do not use the upstream CLI's incompatible published --locked file.
+        run: |
+          cargo install qbsdiff --version 1.4.4 --features cmd
+          test "$(qbsdiff --version)" = 'qbsdiff 1.4.4'
+          test "$(qbspatch --version)" = 'qbspatch 1.4.4'
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
@@ -327,15 +404,56 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends minisign
-      - name: Validate release assets, public signatures, feed and checksums
+      - name: Prepare unchanged full assets and verify original public signatures
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
-          python -m unittest tests.test_update_manifest tests.test_update_signature -v
+          python -m unittest tests.test_update_manifest tests.test_update_signature tests.test_delta_manifest tests.test_delta_base -v
           python packaging/tauri_update_manifest.py --artifacts artifacts --dist dist \
             --output release-assets --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY"
-          [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 13 ]
+          # The original CLI still enforces the exact thirteen-asset baseline.
+          (cd release-assets && sha256sum -c SHA256SUMS)
+      - name: Capture authenticated public bases from the fixed latest release
+        id: delta-base
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python packaging/tauri_delta_base.py --target-version "${RELEASE_TAG#v}" \
+            --output release-bases --source-root "$GITHUB_WORKSPACE"
+      - name: Retain authenticated complete packages when no base is eligible
+        if: steps.delta-base.outputs.base_version == ''
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python packaging/tauri_delta.py --output release-assets --source-root "$GITHUB_WORKSPACE" \
+            --version "${RELEASE_TAG#v}"
+      - name: Generate and sign worthwhile delta attachments for this release tag
+        if: steps.delta-base.outputs.base_version != ''
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DELTA_BASE_VERSION: ${{ steps.delta-base.outputs.base_version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          args=()
+          if [[ -n "$DELTA_BASE_VERSION" ]]; then
+            args+=(--base-dir release-bases --base-version "$DELTA_BASE_VERSION")
+          fi
+          python packaging/tauri_delta.py --output release-assets --source-root "$GITHUB_WORKSPACE" \
+            --version "${RELEASE_TAG#v}" "${args[@]}"
+      - name: Reverify exact full-plus-delta inventory, signatures and reconstruction
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DELTA_BASE_VERSION: ${{ steps.delta-base.outputs.base_version }}
+        run: |
+          args=()
+          if [[ -n "$DELTA_BASE_VERSION" ]]; then
+            args+=(--base-dir release-bases --base-version "$DELTA_BASE_VERSION")
+          fi
+          # Strict 13+2N inventory, original complete payloads, all signatures and rebuilt bytes.
+          python packaging/tauri_delta.py --verify-only --output release-assets \
+            --source-root "$GITHUB_WORKSPACE" --version "${RELEASE_TAG#v}" "${args[@]}"
           (cd release-assets && sha256sum -c SHA256SUMS)
       - name: Publish release
         env:

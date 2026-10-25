@@ -1,0 +1,7 @@
+# Signatures and patch hashes cover exact bytes, including LF payload newlines.
+*.bin -text
+*.bsdiff -text
+*.sig text eol=lf
+*.key text eol=lf
+*.json text eol=lf
+.gitattributes text eol=lf

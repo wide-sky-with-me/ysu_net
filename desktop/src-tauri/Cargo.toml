@@ -25,8 +25,20 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 
+bzip2 = "0.6"
+qbsdiff = "=1.4.4"
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "stream"] }
+semver = "1"
+sha2 = "0.10"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5", features = ["blocking-api"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.5", features = ["fs", "process"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

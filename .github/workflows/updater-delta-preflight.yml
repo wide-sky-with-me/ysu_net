@@ -1,0 +1,57 @@
+name: Updater delta public preflight
+on:
+  workflow_dispatch:
+  push:
+    branches: ['build/delta-bootstrap-**']
+    paths: ['.github/workflows/updater-delta-preflight.yml', 'packaging/updater_delta_fixture.py']
+permissions:
+  contents: read
+concurrency:
+  group: delta-preflight-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-preflight:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - run: npm ci --prefix desktop
+      - name: Resolve the dependency lock on the runner
+        run: |
+          python3 packaging/updater_delta_fixture.py --prepare-dependencies
+          cargo metadata --manifest-path desktop/src-tauri/Cargo.toml --format-version 1 > "$RUNNER_TEMP/delta-metadata.json"
+          grep -q 'name = "qbsdiff"' desktop/src-tauri/Cargo.lock
+      - name: Install pinned patch tools on the runner
+        # qbsdiff 1.4.4 ships a dev self-dependency locked to 1.4.3; that upstream
+        # lock cannot install 1.4.4. Pin the tool version; app dependencies use our lock.
+        run: cargo install qbsdiff --version 1.4.4 --features cmd
+      - name: Generate independent public-only signing fixtures
+        env:
+          CI: 'true'
+        run: python3 packaging/updater_delta_fixture.py --output desktop/src-tauri/fixtures/delta
+      - uses: actions/upload-artifact@v4
+        with:
+          name: updater-delta-public-preflight
+          if-no-files-found: error
+          path: |
+            desktop/src-tauri/Cargo.lock
+            desktop/src-tauri/fixtures/delta/base.bin
+            desktop/src-tauri/fixtures/delta/base.sig
+            desktop/src-tauri/fixtures/delta/target.bin
+            desktop/src-tauri/fixtures/delta/target.sig
+            desktop/src-tauri/fixtures/delta/patch.bsdiff
+            desktop/src-tauri/fixtures/delta/patch.sig
+            desktop/src-tauri/fixtures/delta/public.key
+            desktop/src-tauri/fixtures/delta/fixture.json

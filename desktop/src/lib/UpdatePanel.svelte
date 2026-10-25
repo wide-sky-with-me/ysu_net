@@ -1,7 +1,7 @@
 <script lang="ts">
   import Confirm from '../components/Confirm.svelte';
   import Icon from '../components/Icon.svelte';
-  import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, RELEASES_URL, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
+  import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, RELEASES_URL, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
   import type { UpdateError, UpdatePhase, UpdateSnapshot } from './updater';
 
   let { mode, demo = false, busy = false, currentVersion = '' }: { mode: 'desktop' | 'demo' | 'web'; demo?: boolean; busy?: boolean; currentVersion?: string } = $props();
@@ -14,14 +14,14 @@
   const client = $derived(createUpdaterClient(mode, demo, currentVersion));
   const working = $derived(pending || updateWorking(snapshot.phase));
   const installable = $derived(!working && canInstallUpdate(snapshot, busy));
-  const percentage = $derived(updatePercent(snapshot));
+  const percentage = $derived(snapshot.phase === 'downloading' ? updatePercent(snapshot) : undefined);
   const visibleError = $derived(error || snapshot.error);
-  const progressVisible = $derived(['downloading', 'verifying', 'quiescing', 'installing'].includes(snapshot.phase));
+  const progressVisible = $derived(['downloading', 'verifying', 'reconstructing', 'quiescing', 'installing'].includes(snapshot.phase));
   const labels: Record<UpdatePhase, string> = {
     idle: '尚未检查更新', disabled: '模拟模式不联网检查或安装更新。',
     manual: '当前 Linux deb 包请前往发布页手动更新。', checking: '正在检查更新…',
     up_to_date: '当前已是最新版本', available: '发现新版本', downloading: '正在下载更新…',
-    verifying: '正在校验签名…', quiescing: '正在停止后台任务…', installing: '正在安装更新…',
+    verifying: '正在校验签名…', reconstructing: '正在还原完整更新包…', quiescing: '正在停止后台任务…', installing: '正在安装更新…',
     restart_required: '更新已安装，重启后生效。', recovery_required: '后台保持停止', error: '更新未完成',
   };
 
@@ -95,7 +95,7 @@
   </div>
   <div class="setting-row">
     <div aria-live="polite" aria-atomic="true">
-      <span>{mode === 'web' ? '请在桌面客户端检查更新。' : snapshot.phase === 'available' && snapshot.release ? `发现新版本 ${snapshot.release.version}` : labels[snapshot.phase]}</span>
+      <span>{mode === 'web' ? '请在桌面客户端检查更新。' : snapshot.phase === 'available' && snapshot.release ? `发现新版本 ${snapshot.release.version}` : updateDownloadLabel(snapshot) || labels[snapshot.phase]}</span>
       {#if snapshot.release && snapshot.phase !== 'available'}<p class="numeric">新版本 {snapshot.release.version}</p>{/if}
     </div>
     {#if snapshot.phase === 'restart_required'}
@@ -111,7 +111,7 @@
   {#if progressVisible}
     <div class="update-progress">
       <progress max="100" value={percentage} aria-label="更新下载进度"></progress>
-      <span class="muted numeric">{percentage === undefined ? `${Math.floor(snapshot.downloaded / 1024).toLocaleString()} KB` : `${percentage}%`}</span>
+      <span class="muted numeric">{snapshot.phase === 'downloading' ? percentage === undefined ? `${Math.floor(snapshot.downloaded / 1024).toLocaleString()} KB` : `${percentage}%` : ''}</span>
     </div>
   {/if}
   {#if snapshot.release && ['available', 'error'].includes(snapshot.phase)}
