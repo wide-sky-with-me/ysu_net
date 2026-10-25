@@ -28,7 +28,9 @@ export function demoSnapshot(search = ''): Snapshot {
       message: '',
     },
     busy: scenario === 'busy', busy_message: scenario === 'busy' ? '模拟：正在独立确认在线状态…' : '',
-    info: online && !['info-error', 'info-failure', 'info-unread'].includes(scenario || '') ? { online: true, fields: [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']], items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB']] } : null,
+    info: online && !['info-error', 'info-failure', 'info-unread'].includes(scenario || '') ? { online: true,
+      fields: scenario === 'online-details' ? [['账号', '20260001'], ['用户', '演示用户'], ['IP 地址', '2001:db8::42'], ['SSID', 'Campus Demo'], ['当前服务', '中国移动']] : [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']],
+      items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB']] } : null,
     info_error: scenario === 'info-error' ? '账户信息获取失败，请稍后重试' : '',
     logs: [
       { timestamp: '08:42:03', level: 'info', message: '离线模拟已启动；所有数据和操作均为演示' },

@@ -9,7 +9,7 @@ describe('online account detail presentation', () => {
     expect(grouped.identity?.kind).toBe('identity');
   });
 
-  it('uses a leading identity panel and keeps every other original field in order', () => {
+  it('uses a leading account header and keeps every other original field in order', () => {
     const fields = [['当前服务', '中国联通'], ['账号', '  original-user  '], ['IP 地址', '2001:db8::10'], ['自定义字段', '原始\n值']] as const;
     const grouped = partitionOnlineDetails(fields);
     expect(grouped.identity?.index).toBe(1);

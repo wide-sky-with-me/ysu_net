@@ -10,24 +10,26 @@
 
 ## 桌面版（Windows / Linux / macOS）
 
-自 **v0.2.0** 起，桌面版采用 **Tauri 2 + Svelte + 全 Rust 认证和后台**：三平台共用界面与原生逻辑，不依赖 Python、Node 或 Playwright 认证运行时。正式安装包从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载；源码构建见[Tauri 桌面说明](docs/tauri-desktop.md)，界面见[设计说明](docs/rust-desktop-design.md)。
+自 **v0.2.0** 起，桌面版采用 **Tauri 2 + Svelte + 全 Rust 认证和后台**：三平台共用界面与原生逻辑，不依赖 Python、Node 或 Playwright 认证运行时。正式安装包从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载；云端构建见[Tauri 桌面说明](docs/tauri-desktop.md#构建前提)，界面见[设计说明](docs/rust-desktop-design.md)。
 
 支持[多账号热切换与可选流量换号](docs/accounts.md)：界面管理账号，CLI/守护复用账号簿；仅确认门户连续报告零剩余流量时自动尝试备用账号，缺失流量不猜测。
 
-认证、诊断与平台限制见[Tauri 运行语义](docs/tauri-desktop.md#运行语义)；当次成绩和历史现场记录集中列在[验收记录](docs/tauri-desktop.md#验收记录)，不把已有在线会话读取、离线 Demo 或旧版成绩当作当前登录与升级成功。
+认证、诊断与平台限制见[Tauri 运行语义](docs/tauri-desktop.md#运行语义)；当次成绩与历史现场证据见[桌面验收导航](docs/desktop-acceptance.md)，不把已有在线会话读取、离线 Demo 或旧版成绩当作当前登录与升级成功。
+
+当前开发工作树的侧栏“关于”集中软件更新、随包日志与项目资料；主连接图标在核心确认在线时显示光环，操作反馈靠近右上角刷新入口，窄屏改为底部浮层。现行交互规则归属[设计说明](docs/rust-desktop-design.md)，更新方式与信任边界归属[软件更新](docs/updates.md)。
 
 ### 发行与候选状态
 
-当前桌面与独立 Python CLI 源码版本为 **0.2.1**。是否已经正式发行，以 [GitHub Releases 的 Latest / 对应版本条目](https://github.com/wide-sky-with-me/ysu_net/releases/latest)为准；开发分支推送和 CI 安装包不自动成为正式发行。
+**正式 v0.2.1 已发布**，附件、签名与公开下载复核见[0.2.1 发布验收](docs/desktop-release-0.2.1.md)；最新下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准。当前开发工作树仍标识为 **0.2.1**，包含正式版之后的改进，**不是新正式版**；同版本不等于同构建，开发分支推送和 CI 安装包也不自动成为正式发行。
 
-正式发行使用 `v*` 标签，要求四平台构建、原生及安装验收通过，并对三个更新载荷执行内嵌公钥与签名版本的严格验证。本轮结果见[0.2.1 发布验收](docs/desktop-release-0.2.1.md)，当前运行见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)。[历史候选 CI](docs/desktop-ci-2026-10-24.md)与[前次本地验收](docs/desktop-candidate-2026-10-23.md)只代表各自提交；软件内更新的实现与信任边界归属[软件更新](docs/updates.md)。
+编译和打包只在 GitHub Actions 执行，本机只下载、校验云端产物并安装/运行验收，不回退本地编译。当前运行见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)，各次结果与未覆盖范围见[桌面验收导航](docs/desktop-acceptance.md)。
 
 原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 标签和 Qt 发布附件保留供历史复现，不覆盖、不作为新版下载入口；Windows 先关闭旧版自启并卸载旧 Inno 版，再装当前用户 NSIS 版。Linux 从 0.1.0 升级到 0.2.0 无需 `--reinstall`，macOS 13.5+ 按 Apple 芯片 / Intel 分包，安装包未签名。详见[桌面客户端](docs/wiki/Desktop-Client.md)与[迁移说明](docs/migration.md#桌面-v020-升级)。
 
 ## 选择版本与交流入口
 
 - **Linux 命令行版**：以下安装步骤使用默认分支 `main`，适合终端、服务器和 systemd 后台运行。
-- **三平台桌面版**：选择正式 Release 中与系统、架构对应的附件；当前发布与源码候选的区别见[发行与候选状态](#发行与候选状态)，源码构建见[Tauri 说明](docs/tauri-desktop.md)。独立 Python CLI 不是桌面运行时。
+- **三平台桌面版**：选择正式 Release 中与系统、架构对应的附件；正式版与开发工作树的区别见[发行与候选状态](#发行与候选状态)，云端构建见[Tauri 说明](docs/tauri-desktop.md#构建前提)。独立 Python CLI 不是桌面运行时。
 - **入门与排障**：[Wiki 源文档](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) · [支持与反馈](SUPPORT.md)。
 - **社区协作**：[Discussions 问答与建议](https://github.com/wide-sky-with-me/ysu_net/discussions) · [Issue 故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [贡献指南](CONTRIBUTING.md) · [安全问题私密报告](SECURITY.md)。
 
@@ -98,10 +100,12 @@ sudo env PATH="$PATH" bash install.sh --system  # 系统级服务
 - [产品入口与项目架构](docs/architecture.md)：命令行与三平台桌面的关系、目录职责和兼容边界。
 - [命令行使用与配置](docs/usage.md)：完整命令、日常操作、配置和故障排查。
 - [更新、卸载与旧版迁移](docs/migration.md)：命令重装、旧服务清理与入口变更。
-- [Tauri 桌面版](docs/tauri-desktop.md)：三平台构建、演示与[验收记录](docs/tauri-desktop.md#验收记录)；软件内更新另见[更新说明](docs/updates.md)。
+- [Tauri 桌面版](docs/tauri-desktop.md)：云端构建、运行与演示；历次证据见[桌面验收导航](docs/desktop-acceptance.md)，视觉与更新语义分别见[设计说明](docs/rust-desktop-design.md)和[更新说明](docs/updates.md)。
 - [开发与验证](docs/development.md)：模块职责、离线测试和 Python 构建。
 
-## 本地验证
+## 云端验证
+
+以下命令仅由 GitHub Actions runner 执行；本机不运行产品构建或测试。
 
 ```bash
 uv sync --locked --extra browser

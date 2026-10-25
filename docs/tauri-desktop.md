@@ -24,7 +24,11 @@
 
 自启使用 Tauri 原生插件，只在用户登录桌面后运行。Linux 无桌面运行继续使用 CLI/systemd；迁移时先关闭旧客户端自启，当前不自动删除旧启动项。新旧包身份与发行限制见[架构边界](architecture.md#构建与发行边界)。
 
-软件内更新见[签名在线更新](updates.md)：0.2.1 新增桌面设置入口；0.2.0 仍需手动升级一次。正式 feed 与原位升级验证以实际发布和验收记录为准，不由界面或流程定义推断。
+软件内更新的入口、签名整包方式、平台差异与信任边界统一见[签名在线更新](updates.md)，不把整包覆盖升级称为已有二进制差分增量。现行主题、字段对齐、“关于”、反馈浮层及连接光环规则归属[设计说明](rust-desktop-design.md)；历次构建与部署证据见[桌面验收导航](desktop-acceptance.md)，不由界面或流程定义推断实际升级已经通过。
+
+“关于”同时展示离线更新日志、GitHub 地址和贡献者名单。日志只从唯一维护的 [release-notes.md](../packaging/release-notes.md) 派生转义文本，不读取可能落后的默认分支，也不把 feed 中的占位 notes 当完整日志。贡献者只使用[公开 API 核实快照](../desktop/src/lib/project-info.json)，显示快照日期，不推导邮箱、加载网络头像或在打开页面时抓取 GitHub；本地未发布改动不写进已发布日志。
+
+项目外链由[原生固定目标命令](../desktop/src-tauri/src/project.rs)打开，只接受 repository / contributors 字符串枚举，拒绝 URL、程序和对象输入；发布页沿用原有无参数更新命令。Demo 在原生端先拒绝，页面也禁用外链；普通网页使用固定公共锚点。打开失败只显示固定错误及可复制公共地址，不泄露系统异常。打开“关于”仅读取更新状态，不触发检查、下载或安装。
 
 ## 浏览器模式
 
@@ -34,30 +38,27 @@
 
 ## 构建前提
 
-构建需要 Node 22.12 / 24 / 26 及更新受支持版本、Rust 和平台 SDK；以 [package.json](../desktop/package.json)、[Cargo.toml](../desktop/src-tauri/Cargo.toml)及锁文件为准。桌面构建本身不需要 Python、uv 或 PyInstaller；Python 仅用于 CLI 和外部验收脚本。
+**编译和打包只在 GitHub Actions 执行**；本机只下载、校验云端产物并做安装与运行验收，不运行 Cargo/Rust 编译或前端生产构建，云端失败也不回退本地编译。开发构建使用独立构建分支，不打版本标签、不发布正式 Release，保护当前工作树、开发分支和暂存区；约束见[项目规则](../AGENTS.md#构建执行位置)。
+
+以下工具和 SDK 均为云端 runner 前提：Node 22.12 / 24 / 26 及更新受支持版本、Rust 和平台 SDK；以 [package.json](../desktop/package.json)、[Cargo.toml](../desktop/src-tauri/Cargo.toml)及锁文件为准，当前工作流使用 Node 24。桌面构建本身不需要 Python、uv 或 PyInstaller；Python 仅用于 CLI 和外部验收脚本。
 
 - Windows x64：Visual Studio C++ 桌面构建工具、Windows SDK；客户端使用系统 WebView2，安装器可按原配置引导安装。
 - Linux x64：Ubuntu 22.04 / glibc 2.35 构建基线，依赖 WebKitGTK 4.1、GTK3、AppIndicator；SDK 清单见 [tauri.Dockerfile](../packaging/tauri.Dockerfile)。
 - macOS：Apple Silicon（arm64）/ Intel（x64）分别原生构建 `.app` / `.dmg`，不是通用二进制；最低系统为 13.5，更早系统须独立验证后再调整。
 
-跨系统安装包在对应系统构建。0.2.0 的 Windows / macOS 安装包未签名、未公证；下载核对 `SHA256SUMS`，按系统的发布者 / 首次打开提示处理。平台是否跑通以实际验收记录为准，不依据框架支持推断。
+跨系统安装包在对应系统的 GitHub Actions runner 构建。Windows / macOS 的系统发布者签名限制与安装迁移见[迁移说明](migration.md#桌面-v020-升级)，更新签名另见[更新说明](updates.md)；下载核对 `SHA256SUMS` 或对应 Actions artifact 的摘要与来源身份。平台是否跑通以对应实际验收记录为准，不依据框架支持推断。
 
 ```bash
 npm ci --prefix desktop
+# 仅示意 GitHub Actions runner 的步骤，禁止本机执行：
 npm --prefix desktop run native:build
-# 指定本系统格式，例如 Linux：
+# 按 runner 平台选择格式，例如 Linux：
 npm --prefix desktop run native:build -- --bundles deb
-# 开发应用 / 只准备图标 / 只编译程序：
-npm --prefix desktop run native:dev
-npm --prefix desktop run native:build -- --prepare-only
-npm --prefix desktop run native:build -- --no-bundle
-# Windows / macOS 签名更新包（需提前配置签名环境变量）：
+# Windows / macOS 正式标签作业由受保护环境提供签名配置：
 npm --prefix desktop run native:build -- --signed-update
 ```
 
-[构建入口](../desktop/scripts/desktop.mjs)核对桌面内部版本、生成图标，然后调用锁定依赖的 Tauri 构建。默认 Linux `deb`、Windows `nsis`、macOS `app,dmg`；产物位于 `desktop/src-tauri/target/release/bundle/`。图标、前端产物和目标目录是生成物。
-
-直接运行 `tauri build` 前需先生成图标。
+[构建入口](../desktop/scripts/desktop.mjs)在 runner 上核对桌面内部版本、生成图标，然后调用锁定依赖的 Tauri 构建。默认 Linux `deb`、Windows `nsis`、macOS `app,dmg`；云端产物位于 `desktop/src-tauri/target/release/bundle/`，由工作流上传附件。图标、前端产物和目标目录是生成物；不要在本机直接运行 `tauri build` 或为验收补做本地编译。
 
 ## 配置与演示
 
@@ -65,13 +66,16 @@ npm --prefix desktop run native:build -- --signed-update
 
 `--demo` 或 `YSU_DESKTOP_DEMO=1` 使用临时样例配置，忽略传入真实路径及凭据环境变量。演示不认证、不启动系统浏览器、不下载组件、不修改系统自启；退出清理临时目录。演示账户、连接和浏览器可用状态为样例，不代表主机或校园网状态。
 
-普通浏览器打开 Vite 地址只显示“等待桌面核心”，不模拟客户端。显式 `?demo=1` 才启用前端样例，可加 `theme=light|dark`、`accent=teal|blue|indigo|violet|rose|amber`、`scenario=offline|unknown|external|empty|busy`；`scenario=prefs-failure` 用于偏好保存失败回归。演示色仅在本页内存中生效，刷新重新按参数初始化，不写网页存储或真实设置。浏览器预览不代替原生运行器或 WebView 验收。
+普通浏览器打开已构建前端时显示“普通网页”，连接操作禁用，不模拟原生客户端。显式 `?demo=1` 才启用前端样例，可加 `theme=light|dark`、`accent=teal|blue|indigo|violet|rose|amber`、`scenario=offline|unknown|external|empty|busy`；`scenario=prefs-failure` 用于偏好保存失败回归。演示色仅在本页内存中生效，刷新重新按参数初始化，不写网页存储或真实设置。浏览器预览属于云端验收链路，不代替原生运行器或 WebView 验收。
 
-原生外观偏好沿用主配置相邻的 `gui.json` 与 `save_prefs`：可保存 `theme`、`accent`、`close_to_tray`，`auto_reconnect` 仍走专用操作。主题色参数严格白名单校验，非法请求不落盘；写入成功后快照更新选择。默认配色现为蓝灰白（`blue`）；旧配置缺 `accent`、未知未来色或字段类型异常时，仅主题色回到 `blue`，保留其他有效偏好，读取不改原文件；下一次合法偏好保存会将回退值归一化落盘。已明确保存的 `teal` 等合法主题值原样保留，不因默认色改变而覆盖用户选择；绿色仍可在外观设置中选择。命令行认证配置与账号簿不增加主题色字段。三平台共用相同实现，视觉规则见[设计说明](rust-desktop-design.md)。
+原生外观偏好沿用主配置相邻的 `gui.json` 与 `save_prefs`：可保存 `theme`、`accent`、`close_to_tray`，`auto_reconnect` 仍走专用操作。主题色参数严格白名单校验，非法请求不落盘；写入成功后快照更新选择。默认使用中性灰白/灰黑表面与蓝色强调（`blue`）；旧配置缺 `accent`、未知未来色或字段类型异常时，仅主题色回到 `blue`，保留其他有效偏好，读取不改原文件；下一次合法偏好保存会将回退值归一化落盘。已明确保存的 `teal` 等合法主题值原样保留，不因默认色改变而覆盖用户选择；绿色强调仍可在外观设置中选择，但不再替换共用表面。命令行认证配置与账号簿不增加主题色字段。三平台共用相同实现，视觉规则见[设计说明](rust-desktop-design.md)。
 
 ## 验证命令
 
+以下为 [Tauri CI](../.github/workflows/tauri.yml) 在 GitHub Actions runner 上执行的检查与产品测试入口，**不是本机执行清单**。纯文档整理只做文档静态检查，不启动预览、编译或产品测试。
+
 ```bash
+# 仅在 GitHub Actions runner 执行：
 npm --prefix desktop run check
 npm --prefix desktop test
 npm --prefix desktop run test:build
@@ -84,9 +88,9 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 
 认证库普通测试使用本地回环 HTTP 样本、固定加密向量和协议状态，不访问校园网；另有需要系统 Chromium 的忽略测试，须显式运行 `cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml -- --ignored --test-threads=1`，普通测试通过不代表这些测试已执行。可用 `YSU_AUTH_CHROMIUM_PATH` 指定绝对可执行路径。原生测试覆盖运行器、配置、锁与演示；Python 回归按[开发说明](development.md#测试)单独执行，不合并技术栈成绩。
 
-完整浏览器脚本为 [tauri_web_smoke.py](../packaging/tauri_web_smoke.py)，新设计与键盘回归为 [rust_desktop_preview.py](../desktop/tests/rust_desktop_preview.py)，多账号与忙碌控制为 [multi_account_preview.py](../desktop/tests/multi_account_preview.py)。启动已构建前端的 Vite preview 后传入 URL 与系统浏览器路径；覆盖确认、密码清空、账号增改删、异步快照、设置分区、无运行时下载、主题、日志、未知/外部状态和紧凑布局。
+完整浏览器脚本为 [tauri_web_smoke.py](../packaging/tauri_web_smoke.py)，新设计与键盘回归为 [rust_desktop_preview.py](../desktop/tests/rust_desktop_preview.py)，多账号与忙碌控制为 [multi_account_preview.py](../desktop/tests/multi_account_preview.py)。它们由云端工作流针对已构建前端启动临时预览后执行；主题、“关于”、反馈与光环脚本也在同一云端链路中运行，入口见[设计验证](rust-desktop-design.md#验证)与[验收导航](desktop-acceptance.md)。浏览器成绩不代替原生或真实认证。
 
-原生离线自检使用真实 Rust 主程序与 WebView，验证连接、切换、账户、重连、窗口关闭驻留/重建、托盘菜单原生属性回读、关闭窗口后的快捷操作、下线及退出清理。Linux 自检仅在没有实际宿主时创建受控 D-Bus watcher，验证关闭分支和宿主丢失恢复，不模拟真实桌面面板或鼠标悬停；另一个生命周期脚本在无宿主环境检查最小化启动回退、单实例和真实 X11 关闭请求。Linux 示例：
+原生离线自检使用已构建的 Rust 主程序与 WebView，验证连接、切换、账户、重连、窗口关闭驻留/重建、托盘菜单原生属性回读、关闭窗口后的快捷操作、下线及退出清理。Linux 自检仅在没有实际宿主时创建受控 D-Bus watcher，验证关闭分支和宿主丢失恢复，不模拟真实桌面面板或鼠标悬停；另一个生命周期脚本在无宿主环境检查最小化启动回退、单实例和真实 X11 关闭请求。以下仅为云端 Linux runner 的命令示例；本机如获另行授权，只使用已下载并校验的云端安装程序/二进制，不为自检编译：
 
 ```bash
 uv sync --locked --group desktop-test
@@ -102,6 +106,6 @@ dbus-run-session -- xvfb-run -a uv run --no-sync python packaging/tauri_linux_li
 
 ## 验收记录
 
-[2026-10-23 候选本地验收](desktop-candidate-2026-10-23.md)记录该次 Linux 构建、离线界面、原生与隔离安装 / 卸载的实际成绩及失败复测；[2026-10-24 远端 CI 终结核对](desktop-ci-2026-10-24.md)单独记录同一源码的远端最终结果，不以本地通过覆盖 Linux CI 失败。最新正式发行与源码候选的区别统一见[首页发行状态](../README.md#发行与候选状态)。
+[桌面验收导航](desktop-acceptance.md)串起正式发布、2026-10-24/25 的主题/字段对齐、“关于”、反馈浮层、连接动效和 Windows / 云端部署阶段，并标注旧备份后续清理及各阶段未覆盖范围。带日期的记录保留原貌、路径与当时结论；历史本地编译记录不是现行构建许可，源码阶段“尚未更新安装版”也不覆盖后续独立部署证据。正式版与开发工作树的区别统一见[首页发行状态](../README.md#发行与候选状态)。
 
-[2026-10-21 Windows 本机只读验收](windows-readonly-fix-2026-10-21.md)确认当时的 0.1.0 开发快照可查询中国联通在线并读取账户，门户缺少剩余流量和余额，页面保持“门户未提供”。该次没有实际登录、下线、切换账号/服务、自动重连或轮换，不代替 v0.2.0 四平台 CI、浏览器认证、物理断网或长稳验收；原记录保持历史版本。视觉规则见[设计说明](rust-desktop-design.md)。
+更早的 [2026-10-23 候选本地验收](desktop-candidate-2026-10-23.md)、[2026-10-24 远端 CI 终结核对](desktop-ci-2026-10-24.md)和 [2026-10-21 Windows 本机只读验收](windows-readonly-fix-2026-10-21.md)均只代表各自提交、环境与样本，不以本地或旧版成绩覆盖远端失败、真实认证或当前原位升级缺口。

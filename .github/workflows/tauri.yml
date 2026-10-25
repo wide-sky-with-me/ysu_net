@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk desktop-file-utils
+            librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk desktop-file-utils ffmpeg
       - run: npm ci --prefix desktop
       - name: Frontend and native build entry checks
         run: |
@@ -142,6 +142,14 @@ jobs:
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/multi-account
           uv run --no-sync python desktop/tests/rounded_desktop_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/rounded
+          uv run --no-sync python desktop/tests/theme_palette_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/palettes
+          uv run --no-sync python desktop/tests/about_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/about
+          uv run --no-sync python desktop/tests/feedback_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/feedback
+          uv run --no-sync python desktop/tests/connection_motion_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/connection-motion-20261025/ci
       - name: Native WebView and lifecycle acceptance
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -260,6 +268,9 @@ jobs:
           name: rust-desktop-${{ matrix.name }}
           if-no-files-found: error
           path: |
+            desktop/dist/
+            desktop/src-tauri/target/release/ysu-net.exe
+            dist/connection-motion-20261025/**
             desktop/src-tauri/target/release/bundle/**/*.deb
             desktop/src-tauri/target/release/bundle/**/*.exe
             desktop/src-tauri/target/release/bundle/**/*.dmg

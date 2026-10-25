@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import accentCss from '../accents.css?raw';
+import baseCss from '../app.css?raw';
 import { ACCENT_OPTIONS, DEFAULT_ACCENT, normalizeAccent } from './accents';
 import { createDemoTransport, demoSnapshot } from './demo';
 import { parseSnapshot } from './protocol';
@@ -30,7 +32,7 @@ describe('accent preferences', () => {
     expect(parseSnapshot({ ...original, prefs }).prefs.accent).toBe('blue');
   });
 
-  it('preserves an explicitly selected green theme after changing unrelated preferences', async () => {
+  it('preserves an explicitly selected teal accent after changing unrelated preferences', async () => {
     const transport = createDemoTransport('?accent=teal&theme=dark');
     await transport.request('save_prefs', { close_to_tray: false });
     expect(parseSnapshot(await transport.request('snapshot', {})).prefs).toEqual({
@@ -77,5 +79,37 @@ describe('accent preferences', () => {
     expect(after.prefs).toEqual({ ...before.prefs, accent: 'amber' });
     expect(after.busy).toBe(before.busy);
     expect(after.auto).toEqual(before.auto);
+  });
+});
+
+const declarations = (body: string) => Object.fromEntries([...body.matchAll(/--([\w-]+)\s*:\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
+const accentRule = (value: string, dark: boolean) => {
+  const selector = `:root[data-accent='${value}']${dark ? "[data-theme='dark']" : ''}`;
+  const body = accentCss.slice(accentCss.indexOf(selector) + selector.length).match(/^\s*\{([^}]+)\}/)?.[1];
+  expect(body, selector).toBeDefined();
+  return declarations(body!);
+};
+
+describe('neutral theme palette contract', () => {
+  it.each(ACCENT_OPTIONS)('$value changes highlights only and matches the picker swatches', ({ value, light, dark }) => {
+    for (const isDark of [false, true]) {
+      const rule = accentRule(value, isDark);
+      expect(Object.keys(rule).sort()).toEqual(['accent', 'accent-hover', 'accent-soft']);
+      expect(rule.accent).toBe(isDark ? dark : light);
+    }
+  });
+
+  it('keeps the fallback blue palette aligned with the explicit default', () => {
+    const light = declarations(baseCss.match(/:root\s*\{([^}]+)\}/)![1]);
+    const dark = declarations(baseCss.match(/:root\[data-theme='dark'\]\s*\{([^}]+)\}/)![1]);
+    expect(light.canvas).toBe('#f5f6f8');
+    expect(dark.canvas).toBe('#151618');
+    expect(dark.surface).toBe('#212225');
+    for (const name of ['accent', 'accent-hover', 'accent-soft']) {
+      expect(light[name]).toBe(accentRule(DEFAULT_ACCENT, false)[name]);
+      expect(dark[name]).toBe(accentRule(DEFAULT_ACCENT, true)[name]);
+    }
+    expect(light['focus-outline']).toBe('var(--accent)');
+    expect(dark['on-accent']).toBe('#171b22');
   });
 });

@@ -5,7 +5,7 @@
 ## 模块职责
 
 Python 运行时代码位于 `src/ysu_net/`，通过安装包导入，不修改 `sys.path` 或依赖调用者的工作目录。三平台共用的 Svelte 前端与 Rust 原生壳位于仓库根 `desktop/`；整体边界见[项目架构](architecture.md)。下表的 Python 模块路径均相对 `src/ysu_net/`。
-开发使用 uv 的可编辑安装；Linux 安装器仍直接引用项目 `.venv`，因此项目目录必须保留。
+云端测试使用 uv 的可编辑安装；Linux 安装器仍直接引用项目 `.venv`，因此项目目录必须保留。
 
 | 位置 | 职责 |
 | --- | --- |
@@ -33,7 +33,10 @@ Python 运行时代码位于 `src/ysu_net/`，通过安装包导入，不修改 
 
 ## 环境与命令
 
+本页的依赖准备、构建和产品测试命令仅在 GitHub Actions runner 执行，不是本机操作清单。本机只下载、校验云端产物并安装或运行；纯文档修改只做静态核对，不编译、不运行产品测试，也不启动开发或预览服务。
+
 ```bash
+# 仅在 GitHub Actions runner 执行：
 uv sync --locked --extra browser
 uv run ysu --help
 uv run python -m ysu_net --help
@@ -41,13 +44,14 @@ uv run python -m ysu_net.auth.api --help
 uv run --extra browser python -m ysu_net.auth.browser --help
 ```
 
-`uv run ysu` 适用于项目开发；它不会自动安装 systemd 服务。
-发布给本机日常使用时运行 `bash install.sh`；浏览器用户追加 `--browser`。
-项目采用 `src` 布局，修改源码会立即反映到可编辑安装中；修改入口声明或依赖后重新 `uv sync`。
+`uv run ysu` 用于 runner 中的源码检查，不会自动安装 systemd 服务。项目采用 `src` 布局，可编辑安装用于云端测试；修改入口声明或依赖后在 runner 重新 `uv sync`。Linux CLI 的既有安装方式与目录保留要求见[首页](../README.md#快速开始)，不在本机用源码重建代替云端产物。
 
 ## 测试
 
+以下产品测试仅在 GitHub Actions runner 执行：
+
 ```bash
+# 仅在 GitHub Actions runner 执行：
 uv run --extra browser python -m unittest discover -s tests -v
 bash -n install.sh uninstall.sh
 uv lock --check
@@ -80,7 +84,10 @@ Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#�
 
 ## 构建与依赖
 
+以下打包与依赖准备仅在 GitHub Actions runner 执行：
+
 ```bash
+# 仅在 GitHub Actions runner 执行：
 uv build                       # 生成 dist/ 下的 wheel 和源码包
 uv sync --locked               # 仅安装 API 依赖
 uv sync --locked --extra browser
@@ -92,17 +99,17 @@ Python 分发使用 Hatchling，`pyproject.toml` 声明 Python 依赖和 `ysu` �
 
 ### 桌面构建
 
-Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令见[Tauri 开发说明](tauri-desktop.md#构建前提)。`desktop-test` 依赖组仅供外部浏览器/进程验收，不是 GUI 构建或运行依赖。推送 `v*` 标签时，Tauri 工作流在各平台构建与验收通过后，连同 `uv build` 生成的 wheel 与源码包一起发布，并生成 `SHA256SUMS`；发行边界见[项目架构](architecture.md#构建与发行边界)。
+Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令均面向 GitHub Actions runner，见[Tauri 开发说明](tauri-desktop.md#构建前提)。本机不需要为下载、安装或运行云端产物准备构建 SDK，也不启动 Vite preview。`desktop-test` 依赖组仅供云端外部浏览器/进程验收，不是 GUI 构建或运行依赖。推送 `v*` 标签时，Tauri 工作流在各平台构建与验收通过后，连同 runner 上 `uv build` 生成的 wheel 与源码包一起发布，并生成 `SHA256SUMS`；开发构建使用独立分支，不打版本标签、不发布正式 Release，发行边界见[项目架构](architecture.md#构建与发行边界)。
 
 ### 本地构建产物清理
 
-可重建输出包括 Cargo 的 `desktop/src-tauri/target/`、`desktop/crates/ysu-auth/target/` 和自定义 `CARGO_TARGET_DIR`（本机构建使用 `build/tauri-target/`），Vite 输出 `desktop/dist/`，以及依赖目录内的 `.vite/`、`.vitest-cache/` 和 `.vite-temp/`。清理前逐项核对实际绝对路径、无符号链接、Git 忽略且不含跟踪文件，并确认没有构建或预览进程使用它们。
+以下仅说明历史目录的保护边界，不要求清理或恢复本地构建。可重建输出包括 Cargo 的 `desktop/src-tauri/target/`、`desktop/crates/ysu-auth/target/` 和自定义 `CARGO_TARGET_DIR`（历史路径可为 `build/tauri-target/`），Vite 输出 `desktop/dist/`，以及依赖目录内的 `.vite/`、`.vitest-cache/` 和 `.vite-temp/`。清理须另行授权，并逐项核对实际绝对路径、无符号链接、Git 忽略且不含跟踪文件，确认没有进程使用它们。
 
 先保留安装包、校验和、原始 JSON 与关键验收截图，再清理编译中间产物；本地历史证据和交付物不因被 Git 忽略就自动视为垃圾。不要整目录删除 `build/` 或 `dist/`，也不要使用无差别的 `git clean -fdX`：忽略规则同时覆盖配置、环境文件、私钥、Cookie 和运行环境。
 
-保留项目 `.venv/`、`desktop/node_modules/` 的依赖主体、SDK / 编译工具链及各依赖锁文件；已安装的 Linux CLI / 服务仍引用项目目录与 `.venv`。删除前端或原生输出后需要重新构建，清理不等于卸载系统中的客户端或服务。
+保留项目 `.venv/`、`desktop/node_modules/` 的依赖主体、既有 SDK / 编译工具链及各依赖锁文件；已安装的 Linux CLI / 服务仍引用项目目录与 `.venv`，这不构成本机编译许可。若需补回前端或原生产物，应重新下载并校验云端产物，不在本机重建；清理不等于卸载系统中的客户端或服务。
 
-敏感资料与发布前检查流程见[敏感信息与发布检查](security.md)。忽略规则只防止误提交，不能替代内容检查；构建后还要检查 wheel 和源码包的文件清单与内容。
+敏感资料与发布前检查流程见[敏感信息与发布检查](security.md)。忽略规则只防止误提交，不能替代内容检查；云端构建后还要在 runner 检查 wheel 和源码包的文件清单与内容。
 
 新增认证实现时，将协议实现放入 `auth/`，扩展配置允许的后端和 `manager/backend.py` 调用，
 同时补充网络 mock 测试；不要让菜单、安装或默认诊断隐式访问校园网。

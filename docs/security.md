@@ -41,17 +41,26 @@ Issue、Discussion、PR、Wiki、发布说明和附件均属于公开资料。�
 
 ## 发布前检查
 
+本机只做文档、diff 与敏感资料的静态核对；构建、产品测试及包内容检查仅在 GitHub Actions runner 执行。本机不为发布检查准备构建 SDK、启动 preview 或补做编译，只下载、校验云端产物并安装或运行。
+
 ```bash
+# 本机允许的静态核对：
 git status --short --ignored=matching
 git diff --check
 git diff --cached --check
+```
+
+以下为 GitHub Actions runner 专用示例，不在本机执行：
+
+```bash
+# 仅在 GitHub Actions runner 执行：
 uv run --extra browser python -m unittest discover -s tests -q
 bash -n install.sh uninstall.sh
 uv lock --check
 uv build
 ```
 
-检查当前文件、待提交 diff 和可达 Git 历史中的凭据特征；扫描报告只保留规则、路径、行号或对象哈希，不回显匹配值。人工复核命中，区分协议常量、公共门户地址、测试数据和真实凭据。再检查 wheel 与源码包的成员及内容，确认没有配置、会话资料、私钥或临时调试文件。
+检查当前文件、待提交 diff 和可达 Git 历史中的凭据特征；扫描报告只保留规则、路径、行号或对象哈希，不回显匹配值。人工复核命中，区分协议常量、公共门户地址、测试数据和真实凭据。云端构建后在 runner 检查 wheel 与源码包的成员及内容，确认没有配置、会话资料、私钥或临时调试文件；本机核对下载来源与云端校验和，不重新构建。
 
 提交后确认 `git status --porcelain` 为空，本地 `HEAD` 与远端分支一致。忽略的虚拟环境和发布包可以保留，不为清理工作区而删除用户配置或运行环境。
 
