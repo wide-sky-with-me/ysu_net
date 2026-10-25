@@ -149,7 +149,7 @@ jobs:
           uv run --no-sync python desktop/tests/feedback_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/feedback
           uv run --no-sync python desktop/tests/connection_motion_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/connection-motion
+            --browser "$(command -v google-chrome)" --output dist/connection-motion-20261025/ci
       - name: Native WebView and lifecycle acceptance
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -270,6 +270,7 @@ jobs:
           path: |
             desktop/dist/
             desktop/src-tauri/target/release/ysu-net.exe
+            dist/connection-motion-20261025/**
             desktop/src-tauri/target/release/bundle/**/*.deb
             desktop/src-tauri/target/release/bundle/**/*.exe
             desktop/src-tauri/target/release/bundle/**/*.dmg
