@@ -31,9 +31,12 @@ jobs:
       - name: Resolve the dependency lock on the runner
         run: |
           python3 packaging/updater_delta_fixture.py --prepare-dependencies
-          cargo metadata --manifest-path desktop/src-tauri/Cargo.toml --no-deps --format-version 1 > "$RUNNER_TEMP/delta-metadata.json"
+          cargo metadata --manifest-path desktop/src-tauri/Cargo.toml --format-version 1 > "$RUNNER_TEMP/delta-metadata.json"
+          grep -q 'name = "qbsdiff"' desktop/src-tauri/Cargo.lock
       - name: Install pinned patch tools on the runner
-        run: cargo install qbsdiff --version 1.4.4 --locked --features cmd
+        # qbsdiff 1.4.4 ships a dev self-dependency locked to 1.4.3; that upstream
+        # lock cannot install 1.4.4. Pin the tool version; app dependencies use our lock.
+        run: cargo install qbsdiff --version 1.4.4 --features cmd
       - name: Generate independent public-only signing fixtures
         env:
           CI: 'true'
