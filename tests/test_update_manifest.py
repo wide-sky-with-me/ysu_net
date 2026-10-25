@@ -71,6 +71,10 @@ class UpdateManifestTests(unittest.TestCase):
         self.assertEqual(set(data["platforms"]), {"windows-x86_64", "darwin-aarch64", "darwin-x86_64"})
         self.assertEqual(len(list(self.output.iterdir())), 13)
         self.assertNotIn("deltas", data)
+        checksum_bytes = (self.output / "SHA256SUMS").read_bytes()
+        self.assertNotIn(b"\r\n", checksum_bytes)
+        checksum_names = [line.split(b"  ", 1)[1] for line in checksum_bytes.splitlines()]
+        self.assertEqual(checksum_names, sorted(checksum_names))
         self.assertEqual(manifest.validate_release_assets(self.output, "0.2.1"), data)
         self.assertEqual(json.loads((self.output / "latest.json").read_text()), data)
         for platform in data["platforms"].values():

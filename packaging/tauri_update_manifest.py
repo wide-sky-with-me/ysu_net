@@ -269,8 +269,10 @@ def sha256_file(path: Path) -> str:
 
 
 def write_checksums(output: Path) -> None:
-    lines = [f"{sha256_file(path)}  {path.name}\n" for path in sorted(output.iterdir()) if path.name != "SHA256SUMS"]
-    (output / "SHA256SUMS").write_text("".join(lines), encoding="ascii")
+    # WindowsPath orders case-insensitively; release inventories use exact names.
+    paths = sorted(output.iterdir(), key=lambda path: path.name)
+    lines = [f"{sha256_file(path)}  {path.name}\n" for path in paths if path.name != "SHA256SUMS"]
+    (output / "SHA256SUMS").write_text("".join(lines), encoding="ascii", newline="\n")
 
 
 def release_feed(output: Path, version: str) -> dict:
