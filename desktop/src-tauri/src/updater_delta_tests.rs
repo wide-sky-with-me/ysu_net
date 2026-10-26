@@ -11,6 +11,65 @@ use std::{
 
 type Trace = Arc<Mutex<Vec<&'static str>>>;
 
+#[tokio::test]
+async fn http_client_initializes_tls_in_fresh_process() {
+    const CHILD: &str = "YSU_UPDATER_TLS_STARTUP_TEST";
+    const NAME: &str = "updater::delta::tests::http_client_initializes_tls_in_fresh_process";
+    if let Ok(mode) = std::env::var(CHILD) {
+        assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+        match mode.as_str() {
+            "empty" => {}
+            "existing" => {
+                assert!(rustls::crypto::ring::default_provider()
+                    .install_default()
+                    .is_ok());
+            }
+            "racing" => {
+                std::thread::scope(|scope| {
+                    let workers: Vec<_> = (0..8)
+                        .map(|_| scope.spawn(initialize_tls_provider))
+                        .collect();
+                    for worker in workers {
+                        assert!(worker.join().unwrap().is_ok());
+                    }
+                });
+            }
+            _ => panic!("unexpected TLS subprocess mode"),
+        }
+        let selected = rustls::crypto::CryptoProvider::get_default().cloned();
+        let http = client(CHECK_TIMEOUT).expect("real update client must initialize without panic");
+        let installed = rustls::crypto::CryptoProvider::get_default().unwrap();
+        if let Some(selected) = selected {
+            assert!(Arc::ptr_eq(&selected, installed));
+        }
+        assert!(client(REQUEST_TIMEOUT).is_ok());
+        assert!(Arc::ptr_eq(
+            installed,
+            rustls::crypto::CryptoProvider::get_default().unwrap()
+        ));
+        // The transport is real, not a fake network/SDK verifier, but this
+        // forbidden scheme must fail before any socket or DNS access.
+        assert!(http.get("http://127.0.0.1/").send().await.is_err());
+        println!("TLS-STARTUP-OK:{mode}");
+        return;
+    }
+    for mode in ["empty", "existing", "racing"] {
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+            .env(CHILD, mode)
+            .output()
+            .expect("fresh TLS test process must start");
+        assert!(
+            result.status.success(),
+            "fresh mode {mode} failed: {} {}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout)
+            .contains(&format!("TLS-STARTUP-OK:{mode}")));
+    }
+}
+
 fn integer(value: i64) -> [u8; 8] {
     let raw = if value < 0 {
         value.unsigned_abs() | (1u64 << 63)

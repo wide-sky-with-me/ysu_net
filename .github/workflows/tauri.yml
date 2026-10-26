@@ -113,6 +113,9 @@ jobs:
           cargo fmt --manifest-path desktop/crates/ysu-auth/Cargo.toml --check
           cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml
           cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            python3 packaging/tauri_tls_regression.py
+          fi
           cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
       # The CDP pipe is wired differently per OS (fd 3/4 vs inherited Win32 handles).
       - name: Real Chromium authentication fixtures

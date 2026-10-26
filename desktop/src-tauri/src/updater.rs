@@ -30,6 +30,14 @@ const ASSET_PREFIX: &str = "https://github.com/wide-sky-with-me/ysu_net/releases
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Construct the real HTTPS transport during native offline acceptance. This
+/// performs no request and does not bypass Demo's update/check/install gates.
+pub(crate) fn verify_http_transport() -> Result<(), UpdateError> {
+    delta::client(CHECK_TIMEOUT)
+        .map(|_| ())
+        .map_err(|_| UpdateError::Configuration)
+}
+
 /// Keep the effective Options across NSIS/LaunchServices restarts, whose working
 /// directory and inherited environment need not match the original launcher.
 /// `config` is the absolute path already resolved by startup's Options parser.

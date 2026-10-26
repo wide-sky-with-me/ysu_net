@@ -73,6 +73,10 @@ async fn verify_accent_preferences(bridge: &CoreBridge) -> Result<Value, String>
 }
 
 async fn verify(app: &tauri::AppHandle) -> Result<Value, String> {
+    // Demo disables update requests, not construction of the actual HTTPS
+    // transport. Exercise release panic=abort startup without making a request.
+    crate::updater::verify_http_transport()
+        .map_err(|_| "更新 HTTP 客户端初始化失败".to_owned())?;
     let bridge = app.state::<Arc<CoreBridge>>().inner().clone();
     wait_for(&bridge, |snapshot| snapshot["sequence"].is_number()).await?;
     let accent_preferences = verify_accent_preferences(&bridge).await?;
@@ -320,7 +324,7 @@ async fn verify(app: &tauri::AppHandle) -> Result<Value, String> {
     .await?;
     Ok(
         json!({"ok": true, "mode": "demo", "core_ipc": true, "rendered": true, "login": true, "switch": true, "account": true, "account_management":true, "account_switch":true, "rotation_control":true, "quota_reporting":true, "password_redacted":true, "auto_reconnect": true, "window_destroyed": true, "background_alive": true, "window_recreated": true, "logout": true,
-            "accent_preferences":accent_preferences, "native_close_requested":true, "minimize_restore_api":true, "tray_native_menu_readback":true, "tray_actions_while_closed":true, "tray_initial":tray_initial, "tray_offline":tray_offline, "tray_host_loss_restored":host_loss_restored}),
+            "update_transport_initialized":true, "accent_preferences":accent_preferences, "native_close_requested":true, "minimize_restore_api":true, "tray_native_menu_readback":true, "tray_actions_while_closed":true, "tray_initial":tray_initial, "tray_offline":tray_offline, "tray_host_loss_restored":host_loss_restored}),
     )
 }
 

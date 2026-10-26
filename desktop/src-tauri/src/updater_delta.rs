@@ -125,7 +125,22 @@ fn asset_url(raw: &str) -> Option<reqwest::Url> {
     Some(url)
 }
 
-fn client(timeout: Duration) -> Result<reqwest::Client, ()> {
+fn initialize_tls_provider() -> Result<(), ()> {
+    // reqwest 0.13's no-provider feature does not infer ring from Cargo features.
+    // A compiled provider is not an installed default; without this, build()
+    // panics and release panic=abort kills the entire desktop process.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        // Another client may win the race. Keep its installed provider, never
+        // unwrap the losing install or replace an application-selected default.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    rustls::crypto::CryptoProvider::get_default()
+        .map(|_| ())
+        .ok_or(())
+}
+
+pub(super) fn client(timeout: Duration) -> Result<reqwest::Client, ()> {
+    initialize_tls_provider()?;
     reqwest::Client::builder()
         .https_only(true)
         .no_gzip()
