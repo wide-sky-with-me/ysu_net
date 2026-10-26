@@ -7,7 +7,7 @@
 - Windows / Linux / macOS 桌面：使用 Tauri 桌面客户端，见 [桌面客户端](Desktop-Client.md)；服务器/无桌面环境使用命令行版。
 - Linux 命令行：需要 Git、uv 和 Python 3.12 及以上；systemd 可选，没有用户总线时可使用前台守护。
 
-桌面安装包和独立 Python CLI 0.2.0 分发包来自[对应版本 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.0)的 Assets；发布流程要求四平台构建、原生与安装验收全部通过。尚无附件时从源码构建，不要把 Source code ZIP 当成安装程序，也不要下载 `v0.1.0` 的 Qt 附件代替新版。旧安装迁移见[桌面客户端](Desktop-Client.md)。
+正式桌面安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 的 Assets；当前正式版为 0.2.1，开发源码可能使用相同版本号，区别见[发行状态](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)。不要把 Source code ZIP 当安装程序，也不要用旧 Qt 附件代替 Tauri。需要开发产物时走[独立分支的云端构建](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)，不在本机编译或运行产品测试。旧安装迁移见[桌面客户端](Desktop-Client.md)。
 
 ## Linux 命令行初次安装
 
@@ -35,4 +35,4 @@ ysu on
 
 ## 最小自检
 
-先做本地诊断，再在校园网中分别检查连接、状态和下线；每次只改变一个条件。桌面版按 [桌面客户端](Desktop-Client.md) 验证。遇到问题按 [排障页](Troubleshooting.md) 分流，反馈前先 [脱敏](Privacy-and-Reporting.md)。
+先做本地诊断；接入校园网后按需单独查询状态，确认操作影响后再登录或停止连接，每次只改变一个条件。不要为读取账户而先下线。桌面用法见[桌面客户端](Desktop-Client.md)，异常按[排障页](Troubleshooting.md)分流，反馈前先[脱敏](Privacy-and-Reporting.md)。

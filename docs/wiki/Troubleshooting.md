@@ -2,25 +2,28 @@
 
 [返回导航](Home.md) · [命令行入口](CLI-Reference.md) · [隐私与反馈](Privacy-and-Reporting.md)
 
-先记下工具版本、使用方式、系统版本、认证方式与运营商，再一次改变一个条件。不要为排障公开真实账号或原始网络材料。
+先记下系统 / 架构、正式 Release 或开发构建来源、版本号、认证方式与运营商，再一次改变一个条件。同样显示 0.2.1 不代表同一构建；[正式版与当前源码](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)应分别判断。不要为排障公开真实账号、配置或原始网络材料。
 
 | 现象 | 最小检查与处理 |
 | --- | --- |
-| `ysu: command not found` | 检查 PATH 是否含 `~/.local/bin`；可直接执行 `~/.local/bin/ysu --help` |
-| 找不到 `ysu-gui` | Qt 客户端已移除，改用 Tauri 桌面客户端，见 [桌面版](Desktop-Client.md) |
-| `systemctl --user` 连接用户总线失败 | 登录用户会话，或使用无服务安装与前台守护；不要把此故障当成账号错误 |
-| 开启自动重连但尚未联网 | 服务启动不等于认证成功；单独查询状态并查看最少必要日志 |
-| 状态未知、查询超时或 DNS/TLS 错误 | 未知不等于已确认离线；先确认接入校园网，桌面可刷新状态。命令行先本地 `ysu doctor`，再按需 `ysu doctor --network`。 |
-| 账户信息读取失败 | 0.2.0 账户页显示公共错误，点击“重试读取账户信息”只重做查询；失败不伪造连接状态。尚未读取、确认离线和未知分别显示。 |
-| 提示已有守护进程或后台服务管理 | 同一配置只运行一个重连器；先按说明停止 systemd 服务或前台守护 |
-| 账号错误、验证码或认证暂停 | 暂停重连，本机核对配置或通过门户处理；不要连续重复提交密码 |
-| 剩余流量显示“门户未提供” | 门户没有返回可确认的流量字段，去门户或运营商查询；不是流量为零或无限量 |
-| 运营商切换失败或在线设备超限 | 先核对独立状态与原服务是否恢复，按门户提示处理已有在线设备；工具不自动踢其他设备 |
+| 找不到“关于”或界面与当前截图不同 | 正式 0.2.1 的更新入口在“设置 → 外观与启动”底部；“关于”、差分、光环 / 浮层属于后续开发改进。核对下载来源，不要仅凭相同版本号判断。 |
+| 状态未知、查询失败或超时 | 先确认接入校园网，再刷新状态；未知不等于离线。固定 `code=2` 只表示查询类失败，不足以判定账号、DNS 或 TLS 根因。本地诊断不执行登录。 |
+| 账户信息读取失败 | 使用账户页的只读重试，无需先下线或换号；连接状态由独立查询核验，账户缺项不能作为离线证据。 |
+| 剩余流量显示“门户未提供” | 到门户或运营商查询；缺失不是零或不限量，也不据此自动换号。 |
+| 开启重连却尚未联网 | 启动后台不等于认证成功；单独查询状态并查看最少必要日志。遇验证码或风控时暂停重连，在本机或门户处理。 |
+| 已有后台服务管理或账号切换被阻止 | 同一配置只运行一个重连器；由桌面或 CLI 的当前所有者操作，不删除锁文件来抢占。 |
+| 运营商切换失败或在线设备超限 | 核对独立状态与原服务恢复情况，按门户提示处理已有设备；工具不自动踢其他设备。 |
+| 更新提示“更新源尚未就绪” | 不等于“已经是最新版”；稍后重试或走固定正式发布页，不修改源或关闭验签。 |
+| 更新仍下载整包，没有差分 | 正式 0.2.1 本来是整包方式；开发树无匹配缓存、无合适补丁或差分失败时也使用整包，首更不保证省流量。完整条件见[更新说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)。 |
+| 安装失败或后台恢复失败 | 按明确提示恢复后台或退出后重开；恢复未完成时不要假定自动认证已经恢复，也不要删除账号配置。安装失败不触发差分二次安装。 |
+| `ysu: command not found` | 检查 PATH 是否含 `~/.local/bin`；可直接执行 `~/.local/bin/ysu --help`。 |
+| `systemctl --user` 连接用户总线失败 | 登录用户会话，或采用无服务安装与前台守护；这不是账号错误。 |
+| 找不到 `ysu-gui` | 旧 Qt 客户端已移除，改用 [Tauri 桌面版](Desktop-Client.md)；旧 Qt 问题和报告不作为当前版本故障结论。 |
 
-命令行的具体故障表与退出码见 [使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#常见问题)。桌面浏览器认证依赖与限制见 [Tauri 桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#浏览器模式)。不要把关闭 TLS 校验当作默认修复方式；先核对证书与可信 CA 配置。
+CLI 的完整故障表 / 退出码见[使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#常见问题)，桌面平台与浏览器限制见[桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md)。不要把关闭 TLS 校验当默认修复方式。需要开发构建时只走[云端路线](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)，不为排障在本机编译或跑产品测试。
 
 ## 形成可处理的反馈
 
-用法疑问到 [Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a)，可复现程序故障到 [Issue 表单](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=bug_report.yml)。已有同一问题时补充原帖，提供版本、复现顺序、预期/实际结果与人工脱敏的最少提示；无须上传账号、IP/MAC、完整日志、配置或 HAR。
+用法疑问到 [Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a)，可复现故障到 [Issue 表单](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=bug_report.yml)。先阅读已有问题及最新回复。历史 Qt [Issue #1](https://github.com/wide-sky-with-me/ysu_net/issues/1) 已关闭，不应继续标为“未确认修复”；其处理记录只属于当时版本，不是当前 Tauri 或所有平台的通用故障结论。
 
-没有真正执行的步骤标为“未测试”；历史验收不覆盖当前设备或所有运营商。改进想法可在 [Ideas](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/ideas) 讨论，不在排障贴中预先承诺修复排期。
+提供操作顺序、预期 / 实际结果及人工脱敏的最少固定错误片段；不上传账号、IP/MAC、完整日志、配置或 HAR。未经验证的步骤写“未测试”，云端 CI / 离线演示不代替真实校园网或原位升级验收。更多规则见[隐私与反馈](Privacy-and-Reporting.md)。

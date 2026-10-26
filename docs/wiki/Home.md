@@ -15,9 +15,9 @@
 
 ## 先分清版本
 
-自 **v0.2.0** 起，桌面采用 Tauri，独立 Python CLI 同步版本。下载[对应版本 Release](https://github.com/wide-sky-with-me/ysu_net/releases/tag/v0.2.0)的附件；发布流程要求四平台构建、原生和安装验收全部成功，实际结果以对应 CI 运行为准。`v0.1.0` 的 Qt 附件和旧测试标签保留历史，不覆盖，也不作为新版下载入口。源码复现以对应标签为准，新开发以 `main` 为基线。
+正式 **v0.2.1** 已发布，下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；版本与来源的区别见[首页发行状态](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)。当前 `main` / 开发源码仍可能标识为 0.2.1，但包含“关于”、差分下载、光环与反馈浮层等正式版之后的改进；合入主分支或 CI 成功不等于发布新版，也不保证已安装正式包包含这些变化。自 0.2.0 起桌面已由 Qt 迁移为 Tauri；旧 Qt 标签与附件仅保留历史，不作为当前下载入口。
 
-安装和本地诊断可在校外完成，登录与校园网状态查询需要接入校园网。API 是默认认证方式，浏览器方式是可选能力。缺少流量字段时显示“门户未提供”，不代表额度为零或不限量。
+安装和本地诊断可在校外完成，登录与校园网状态查询需要接入校园网。API 是默认认证方式；桌面可选本机 Edge / Chrome，CLI 的浏览器依赖独立安装。缺少流量时显示“门户未提供”，不代表零额度或不限量。编译、打包和产品测试只在 GitHub Actions 执行，本机不回退编译；需要开发版请先看[云端构建路线](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)。
 
 ## 社区入口
 

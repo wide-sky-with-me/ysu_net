@@ -2,7 +2,7 @@
 
 [返回首页](../README.md) · [CLI 使用](usage.md) · [Rust 图形版](tauri-desktop.md) · [设计决定](../.agents/notes/proposals/accounts/2026-10-14-account-rotation.md)
 
-适用于 `feat/rust-desktop` 开发版，尚未发布。Rust 图形版与 Python CLI 使用相同账号簿；两者仍分别运行自己的认证实现，不同时争用同一配置的认证锁。
+本页维护当前主线源码的多账号行为；已发行包能力以对应标签文档和[发行状态](../README.md#发行与候选状态)为准，不再用开发分支名称判断是否可用。Rust 图形版与 Python CLI 使用相同账号簿，但分别运行自己的认证实现，不同时争用同一配置的认证锁。
 
 ## 图形版
 

@@ -1,0 +1,24 @@
+{
+  "name": "Set up public delta verification tools",
+  "description": "Install fixed qbsdiff 1.4.4 and checksum-pinned Minisign 0.12 on Linux x64 Actions runners.",
+  "runs": {
+    "using": "composite",
+    "steps": [
+      {
+        "name": "Require a Linux x64 Actions runner",
+        "shell": "bash",
+        "run": "set -euo pipefail\nif [[ \"${GITHUB_ACTIONS:-}\" != true || \"${RUNNER_OS:-}\" != Linux || \"${RUNNER_ARCH:-}\" != X64 ]]; then\n  echo 'Public delta tools require a Linux x64 GitHub Actions runner.' >&2\n  exit 1\nfi\nfor tool in cargo curl sha256sum tar; do\n  command -v \"$tool\" >/dev/null\ndone\n"
+      },
+      {
+        "name": "Install checksum-pinned Minisign 0.12",
+        "shell": "bash",
+        "run": "set -euo pipefail\n# The fixed official archive works on Jammy, which has no minisign apt package.\nverifier=\"${RUNNER_TEMP:?}/ysu-public-verifier\"\narchive=\"${RUNNER_TEMP:?}/minisign-0.12-linux.tar.gz\"\nmkdir -p \"$verifier\"\ncurl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 \\\n  https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz -o \"$archive\"\necho \"9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $archive\" | sha256sum -c -\ntar -xzf \"$archive\" -C \"$verifier\" --strip-components=2 --no-same-owner minisign-linux/x86_64/minisign\nchmod 755 \"$verifier/minisign\"\ntest \"$(\"$verifier/minisign\" -v)\" = 'minisign 0.12'\nprintf '%s\\n' \"$verifier\" >> \"${GITHUB_PATH:?}\"\n"
+      },
+      {
+        "name": "Install and verify exact qbsdiff tools",
+        "shell": "bash",
+        "run": "set -euo pipefail\n# The upstream CLI 1.4.4 dev lock pins its self-dependency to 1.4.3.\n# Do not use that broken tool lock; application Cargo.lock/--locked gates stay intact.\ncargo install qbsdiff --version '=1.4.4' --features cmd\ntest \"$(qbsdiff --version)\" = 'qbsdiff 1.4.4'\ntest \"$(qbspatch --version)\" = 'qbspatch 1.4.4'\n"
+      }
+    ]
+  }
+}

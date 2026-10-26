@@ -48,7 +48,7 @@ uv run --extra browser python -m ysu_net.auth.browser --help
 
 ## 测试
 
-以下产品测试仅在 GitHub Actions runner 执行：
+以下产品测试仅在 GitHub Actions runner 执行。全量 `tests/` 包含真实差分 CLI 验签集成，Linux runner 除 uv 环境外还须准备 qbsdiff/qbspatch 与 Minisign；统一由[公共差分工具 action](../.github/actions/setup-delta-tools/action.yml)固定版本、来源与摘要，缺失仍硬失败，不通过跳过测试掩盖依赖问题。
 
 ```bash
 # 仅在 GitHub Actions runner 执行：
@@ -69,6 +69,8 @@ uv lock --check
 - `tests/test_system_browser.py`：系统浏览器查找、Snap 排除与启动回退。
 - `tests/test_node_runtime.py`：Node.js 运行时查找顺序与缺失时的报错。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
+
+[Mock tests](../.github/workflows/test.yml)负责完整 Python 回归与分发构建，[Tauri CI](../.github/workflows/tauri.yml)负责四平台前端/Rust/浏览器和包验收，[差分预检](../.github/workflows/updater-delta-preflight.yml)解析依赖锁并生成或检查公开夹具；三个入口复用相同公共工具准备。社区文档另由[社区检查](../.github/workflows/community.yml)验证。不能仅凭一条工作流成功宣称全部 CI 通过。
 
 Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#验证命令)，按不同栈分别报告覆盖范围。Python 两个后端的账户展示统一在 `auth/account.py` 修改；Rust 对应实现位于 `desktop/crates/ysu-auth/`，协议或展示语义变更需同时补相应回归。
 

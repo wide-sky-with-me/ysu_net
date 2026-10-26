@@ -11,11 +11,11 @@
 
 ## 版本与分支
 
-自 **v0.2.0** 起，桌面采用 Tauri，覆盖 Windows / Linux / macOS；独立 Python CLI 保留，版本同为 0.2.0。`v0.1.0` 的 Qt 附件和 `v0.1.0-beta.1` 标签仅作历史复现，不覆盖。新改动以 `main` 为基线创建分支，注明目标版本和验证范围；发布流程要求四平台构建、原生和安装验收全部成功，不把流程定义写成本次通过成绩。
+自 **v0.2.0** 起，桌面采用 Tauri，覆盖 Windows / Linux / macOS；Linux Python CLI 独立维护。正式发行与当前同版本开发树的区别见[首页发行状态](README.md#发行与候选状态)，不因合并到 `main` 就宣布新版本。`v0.1.0` 的 Qt 附件与旧测试标签仅供历史复现，不覆盖。新改动以 `main` 为基线创建分支，注明目标版本和验证范围；正式发布仍要求四平台构建、原生和安装验收成功。
 
-## 本地开发
+## 开发验证
 
-项目使用 Python 3.12 及以上、uv、标准库 unittest。命令行开发环境：
+编译、打包与产品测试仅在 GitHub Actions runner 执行，云端失败不回退本机编译。本机可阅读源码、编辑文件和执行文档/差异静态检查。以下 Python 3.12、uv 与 unittest 命令供 runner 使用：
 
 ```bash
 uv sync --locked --extra browser

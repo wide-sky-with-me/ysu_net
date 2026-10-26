@@ -14,11 +14,10 @@ GitHub 的 Issue 与 Discussion 表单必须存在于默认分支才会启用；
 
 ```bash
 python3 scripts/check_community.py
-python3 -m unittest discover -s tests -p test_community.py -v
 git diff --check
 ```
 
-检查涵盖必要社区文件、表单关键字段、必填脱敏确认、本地 Markdown 链接/锚点和常见敏感内容规则。报告只显示规则、路径与行号，不回显匹配值。外部 URL、GitHub 实际表单渲染与语义仍须单独核对；规则扫描不代替人工复核。
+本机只执行上述文档/差异静态检查；工作流另外运行 `python3 -m unittest discover -s tests -p test_community.py -v`，产品测试与软件构建始终只在 GitHub Actions。检查涵盖必要社区文件、表单关键字段、必填脱敏确认、本地 Markdown 链接/锚点和常见敏感内容规则。报告只显示规则、路径与行号，不回显匹配值；外部 URL、GitHub 实际表单渲染与语义仍须单独核对，规则扫描不代替人工复核。
 
 `.github/workflows/community.yml` 在相关文档和表单改动时执行上述离线检查，只申请 `contents: read`。它不自动访问校园网、提交凭据、修改 Wiki 或发布内容。
 
@@ -40,7 +39,7 @@ git -C "$wiki_dir" diff --check
 git -C "$wiki_dir" diff --stat
 ```
 
-`publish_wiki.py` 先检查源文档与 origin，再导出 Markdown 并将页间 `.md` 链接转为公开 Wiki URL；已有未提交改动时会停止。人工复核生成的 diff 和脱敏后，再只暂存本次源页面并提交、推送 Wiki 的默认分支。提交身份使用维护者公开的 GitHub noreply 地址，避免暴露个人邮箱；不要在 remote URL、命令行或脚本中嵌入访问令牌。
+[导出器](../scripts/publish_wiki.py)检查源页、固定 origin 和干净工作树，并在写入前预审全部目标。每页用同目录独占临时文件完成写入后替换，不截断可能与克隆外文件共享的硬链接；这是逐页替换，不是整站事务，也不声称能抵御所有同UID并发修改。I/O失败即停止，不自动提交或推送。人工复核 diff 和脱敏后，只暂存本次受审查页，再提交、推送 Wiki 的默认分支。提交身份使用维护者公开 GitHub noreply 地址；不要在 remote URL、命令行或脚本中嵌入令牌。
 
 同步后逐项核对首页、侧栏、页脚、安装/排障跳转和版本标签链接；比较源文件与导出页面。后续修改先更新审查源，再同步 Wiki，避免两边漂移。
 

@@ -8,6 +8,13 @@
 - [隐私与反馈](Privacy-and-Reporting.md)
 - [参与贡献](Contributing.md)
 
+## 版本与当前说明
+
+- [正式版与开发源码](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)
+- [软件更新与差分](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)
+- [云端构建与平台限制](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md)
+- [验收记录与范围](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/desktop-acceptance.md)
+
 ## 社区
 
 [问答](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a) · [建议](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/ideas) · [Issue](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose)
