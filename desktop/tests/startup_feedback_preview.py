@@ -339,12 +339,13 @@ class Regression:
           const notices = [...dock.querySelectorAll('.feedback-toast')];
           return {documentOverflow: document.documentElement.scrollWidth > innerWidth + 1,
             mainOverflow: main.scrollWidth > main.clientWidth + 1, dockPosition: getComputedStyle(dock).position,
+            expectedDockPosition: matchMedia('(max-width: 520px)').matches ? 'fixed' : 'absolute',
             noticeOverflow: notices.some(el => {const r = el.getBoundingClientRect();
               return r.left < -1 || r.right > innerWidth + 1 || r.top < -1 || r.bottom > innerHeight + 1;}),
             inlineFeedback: [...document.querySelectorAll('.notice, .busy-line')].some(el => !el.closest('.feedback-dock'))};
         }""")
         self.report['layouts'].append({'name': name, **result})
-        assert result['dockPosition'] == 'absolute', (name, 'global dock must remain absolute', result)
+        assert result['dockPosition'] == result['expectedDockPosition'], (name, 'dock must remain out of flow at its responsive breakpoint', result)
         assert not any(result[key] for key in ('documentOverflow', 'mainOverflow', 'noticeOverflow', 'inlineFeedback')), (name, result)
 
     def start_sample(self, page, operation, desired, *, detached=False):
