@@ -11,6 +11,8 @@
   import AnimatedMetric from './components/AnimatedMetric.svelte';
   import AboutPage from './components/AboutPage.svelte';
   import FeedbackDock from './components/FeedbackDock.svelte';
+  import { confirmAutostart, confirmedPreferences, preferenceNotice, settingBusyMessage, settingError } from './lib/settings';
+  import type { Setting } from './lib/settings';
   import { ambientMotion, pageMotion, stateMotion } from './lib/motion';
   import { DEFAULT_ACCENT } from './lib/accents';
   import { createTransport } from './lib/bridge';
@@ -31,6 +33,7 @@
   let native = $state<DesktopSettings | null>(null);
   let starting = $state(transport.mode !== 'web');
   let pending = $state(false);
+  let pendingSetting = $state<Setting | null>(null);
   let systemDark = $state(false);
   let notice = $state<{ message: string; error: boolean } | null>(null);
   let confirmation = $state<{ title: string; message: string; confirm: string; danger?: boolean; icon?: string; run: () => void } | null>(null);
@@ -158,6 +161,36 @@
     finally { if (!independent) pending = false; }
   }
 
+  async function executeSetting(setting: Setting, job: () => Promise<unknown>, message: string) {
+    if (locked) return;
+    pendingSetting = setting;
+    try {
+      await execute(async () => {
+        try { return await job(); }
+        catch (error) { throw new Error(settingError(setting, error)); }
+      }, message);
+    } finally { pendingSetting = null; }
+  }
+
+  function changeAutostart(enabled: boolean) {
+    void executeSetting('autostart', async () => {
+      try { await transport.setAutostart(enabled); }
+      catch (error) {
+        try { native = await transport.getDesktopSettings(); } catch { /* Keep last confirmed state. */ }
+        throw error;
+      }
+      const actual = await transport.getDesktopSettings();
+      native = actual;
+      confirmAutostart(actual, enabled);
+    }, enabled ? '登录自启已开启' : '登录自启已关闭');
+  }
+
+  function changeStartupMode(minimized: boolean) {
+    void executeSetting('startup', async () => {
+      receive(confirmedPreferences(await transport.setStartupMode(minimized), { autostart_minimized: minimized }));
+    }, preferenceNotice({ autostart_minimized: minimized }));
+  }
+
   function action(name: CoreCommands['action']['name'], value?: string | boolean) {
     return execute(() => transport.request('action', { name, ...(value === undefined ? {} : { value }) }), undefined, name === 'set_auto' && value === false);
   }
@@ -252,8 +285,11 @@
     else save();
   }
 
-  function savePreference(changes: CoreCommands['save_prefs']) {
-    void execute(() => transport.request('save_prefs', changes));
+  function savePreference(changes: Omit<CoreCommands['save_prefs'], 'autostart_minimized'>) {
+    const setting: Setting = changes.theme !== undefined ? 'theme' : changes.accent !== undefined ? 'accent' : 'tray';
+    void executeSetting(setting, async () => {
+      receive(confirmedPreferences(await transport.request('save_prefs', changes), changes));
+    }, preferenceNotice(changes));
   }
 
   function refreshBrowser() {
@@ -324,7 +360,7 @@
         <button type="button" class="icon-button header-action" aria-label={page === 'account' ? '刷新账户' : '刷新状态'} aria-busy={busy} title="刷新（F5）" disabled={busy || transport.mode === 'web'} onclick={() => available ? action(page === 'account' ? 'info' : 'status') : initialize()}><Icon name="refresh" size={18} /></button>
       {/if}
     </header>
-    <FeedbackDock {busy} busyMessage={snapshot?.busy_message || (starting ? '正在读取核心状态…' : '正在执行，请稍候…')} {notice} ondismiss={() => { notice = null; }} />
+    <FeedbackDock {busy} busyMessage={snapshot?.busy_message || (pendingSetting ? settingBusyMessage[pendingSetting] : starting ? '正在读取核心状态…' : '正在执行，请稍候…')} {notice} ondismiss={() => { notice = null; }} />
 
     <main id="main-content" use:pageMotion={page === 'settings' ? `${page}:${settingsSection}` : page} class:connection-page={page === 'connection'} class:log-page={page === 'logs'} class:settings-page={page === 'settings'}>
       {#if page === 'connection'}
@@ -413,13 +449,14 @@
           {:else if settingsSection === 'desktop'}
             <section class="settings-section">
               <div class="section-heading"><h2>外观</h2></div>
-              <div class="setting-row"><div><span>界面主题</span></div><div class="theme-selector" role="group" aria-label="外观">{#each [{ value: 'system', label: '系统' }, { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }] as option}<button type="button" class:selected={theme === option.value} aria-pressed={theme === option.value} disabled={locked} onclick={() => savePreference({ theme: option.value as Theme })}>{option.label}</button>{/each}</div></div>
-              <div class="setting-row accent-setting"><div><span>主题色</span></div><AccentPicker value={accent} disabled={locked} onchange={(value) => savePreference({ accent: value })} /></div>
+              <div class="setting-row" aria-busy={pendingSetting === 'theme'}><div><span>界面主题</span></div><div class="theme-selector" role="group" aria-label="外观">{#each [{ value: 'system', label: '系统' }, { value: 'light', label: '浅色' }, { value: 'dark', label: '深色' }] as option}<button type="button" class:selected={theme === option.value} aria-pressed={theme === option.value} disabled={locked} onclick={() => savePreference({ theme: option.value as Theme })}>{option.label}</button>{/each}</div></div>
+              <div class="setting-row accent-setting" aria-busy={pendingSetting === 'accent'}><div><span>主题色</span></div><AccentPicker value={accent} disabled={locked} onchange={(value) => savePreference({ accent: value })} /></div>
             </section>
             <section class="settings-section">
               <div class="section-heading"><h2>启动与退出</h2></div>
-              <div class="setting-row"><div><span>登录系统后自动启动</span>{#if transport.mode === 'desktop' && native?.demo}<p>离线模拟不修改系统自启。</p>{/if}</div><Toggle checked={native?.autostart || false} disabled={locked || !native || (transport.mode === 'desktop' && native.demo)} label="登录系统后自动启动" onchange={(enabled) => { void execute(async () => { await transport.setAutostart(enabled); native = await transport.getDesktopSettings(); }, '开机自启设置已保存。'); }} /></div>
-              <div class="setting-row"><div><span>关闭窗口时驻留托盘</span>{#if !native?.tray_available}<p>{!native ? transport.mode === 'web' ? '请在桌面客户端设置。' : '托盘状态待确认。' : '当前环境未提供系统托盘，关闭窗口将退出应用。'}</p>{/if}</div><Toggle checked={snapshot?.prefs.close_to_tray || false} disabled={locked || !native?.tray_available} label="关闭窗口时驻留托盘" onchange={(value) => savePreference({ close_to_tray: value })} /></div>
+              <div class="setting-row"><div><span>登录系统后自动启动</span>{#if transport.mode === 'desktop' && native?.demo}<p>离线模拟不修改系统自启。</p>{/if}</div><Toggle checked={native?.autostart || false} busy={pendingSetting === 'autostart'} disabled={locked || !native || (transport.mode === 'desktop' && native.demo)} label="登录系统后自动启动" onchange={changeAutostart} /></div>
+              <div class="setting-row"><div><span>自启后进入托盘</span><p>{native?.tray_available === false ? '当前无托盘，自启时会显示窗口。' : '手动打开仍显示窗口。'}</p></div><Toggle checked={snapshot?.prefs.autostart_minimized ?? true} busy={pendingSetting === 'startup'} disabled={locked || !native || (transport.mode === 'desktop' && native.demo)} label="自启后进入托盘" onchange={changeStartupMode} /></div>
+              <div class="setting-row"><div><span>关闭窗口时驻留托盘</span>{#if !native?.tray_available}<p>{!native ? transport.mode === 'web' ? '请在桌面客户端设置。' : '托盘状态待确认。' : '当前环境未提供系统托盘，关闭窗口将退出应用。'}</p>{/if}</div><Toggle checked={snapshot?.prefs.close_to_tray || false} busy={pendingSetting === 'tray'} disabled={locked || !native?.tray_available} label="关闭窗口时驻留托盘" onchange={(value) => savePreference({ close_to_tray: value })} /></div>
               <div class="quit-row"><button type="button" disabled={localLocked} onclick={() => { confirmation = { title: '退出 YSU Net', message: '退出后，本客户端的自动重连将停止；当前已建立的校园网连接不会因此自动下线。', confirm: '退出应用', icon: 'exit', run: () => { void execute(() => transport.quit(), undefined, true); } }; }}><Icon name="exit" size={16} />退出应用</button></div>
             </section>
           {:else if settingsSection === 'authentication'}

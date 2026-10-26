@@ -1250,3 +1250,93 @@ async fn failed_auto_preference_save_does_not_start_authentication() {
     assert_eq!(demo(&runtime).lock().unwrap().logins, 0);
     runtime.shutdown().await;
 }
+
+#[test]
+fn startup_preference_request_boundary_requires_a_real_boolean() {
+    for minimized in [false, true] {
+        assert!(valid_request(
+            "save_prefs",
+            &json!({"autostart_minimized":minimized})
+        ));
+    }
+    for invalid in [
+        json!(null), json!("true"), json!("false"), json!(0), json!(1), json!([]), json!({}),
+    ] {
+        assert!(!valid_request(
+            "save_prefs",
+            &json!({"autostart_minimized":invalid})
+        ));
+    }
+    assert!(!valid_request(
+        "save_prefs",
+        &json!({"autostart_minimized":false,"auto_reconnect":true})
+    ));
+}
+
+#[tokio::test]
+async fn startup_preference_returns_and_publishes_full_durable_snapshots() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let captured = events.clone();
+    let store = Store::open(None, true).unwrap();
+    let auth_before = std::fs::read(&store.path).unwrap();
+    let (runtime, _) = Runtime::new(
+        store.clone(),
+        Arc::new(move |value| events_capture(&captured, value)),
+    )
+    .unwrap();
+    assert_eq!(runtime.snapshot()["prefs"]["autostart_minimized"], true);
+    for minimized in [false, true] {
+        let before = runtime.snapshot();
+        let saved = runtime
+            .request("save_prefs", json!({"autostart_minimized":minimized}))
+            .await
+            .unwrap();
+        assert_eq!(saved, runtime.snapshot());
+        assert_eq!(saved["prefs"]["autostart_minimized"], minimized);
+        assert!(saved["sequence"].as_u64() > before["sequence"].as_u64());
+        assert_eq!(events.lock().unwrap().last().unwrap(), &saved);
+        assert_eq!(
+            runtime.persisted_prefs_for_smoke().await.unwrap(),
+            saved["prefs"]
+        );
+        let (reopened, _) = Runtime::new(store.clone(), Arc::new(|_| {})).unwrap();
+        assert_eq!(reopened.snapshot()["prefs"], saved["prefs"]);
+        for key in [
+            "config", "accounts", "status", "auto", "busy", "busy_message", "info", "info_error",
+            "logs", "environment",
+        ] {
+            assert_eq!(saved[key], before[key]);
+        }
+        assert!(!runtime.desired.load(Ordering::Acquire));
+    }
+    assert_eq!(std::fs::read(&store.path).unwrap(), auth_before);
+    assert_query_only(&runtime);
+}
+
+fn events_capture(events: &Mutex<Vec<Value>>, value: Value) {
+    events.lock().unwrap().push(value);
+}
+
+#[tokio::test]
+async fn invalid_or_failed_startup_preference_save_does_not_publish_or_change_snapshot() {
+    let (runtime, _) = fixture();
+    let before = runtime.snapshot();
+    let path = runtime.store.path.with_file_name("gui.json");
+    for invalid in [json!(null), json!("false"), json!(0), json!([]), json!({})] {
+        assert!(runtime
+            .request("save_prefs", json!({"autostart_minimized":invalid}))
+            .await
+            .is_err());
+        assert_eq!(runtime.snapshot(), before);
+        assert!(!path.exists());
+        assert!(!path.with_file_name("gui.json.write.lock").exists());
+    }
+    std::fs::create_dir(&path).unwrap();
+    assert!(runtime
+        .request("save_prefs", json!({"autostart_minimized":false}))
+        .await
+        .is_err());
+    assert_eq!(runtime.snapshot(), before);
+    assert!(runtime.store.load_prefs().autostart_minimized);
+    assert_query_only(&runtime);
+}

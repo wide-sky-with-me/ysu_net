@@ -14,6 +14,13 @@ describe('snapshot contract', () => {
     expect(parseSnapshot(older).info_error).toBe('');
     for (const info_error of [null, false, 7, {}, []]) expect(() => parseSnapshot({ ...snapshot, info_error })).toThrow('账户读取错误');
   });
+  it('defaults legacy startup mode to tray but rejects malformed native mode values', () => {
+    const data = demoSnapshot();
+    const { autostart_minimized: _, ...legacy } = data.prefs;
+    expect(parseSnapshot({ ...data, prefs: legacy }).prefs.autostart_minimized).toBe(true);
+    expect(parseSnapshot({ ...data, prefs: { ...data.prefs, autostart_minimized: false } }).prefs.autostart_minimized).toBe(false);
+    for (const value of [null, 'false', 0, {}, []]) expect(() => parseSnapshot({ ...data, prefs: { ...data.prefs, autostart_minimized: value } })).toThrow('偏好格式');
+  });
   it('rejects malformed sequences and shape', () => {
     for (const sequence of [-1, 1.5, NaN, Infinity, '4']) expect(() => parseSnapshot({ ...demoSnapshot(), sequence })).toThrow();
     expect(() => parseSnapshot({ ...demoSnapshot(), info: { online: true, items: [['bad']], fields: [] } })).toThrow();

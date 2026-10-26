@@ -51,7 +51,7 @@ export interface Snapshot {
   sequence: number;
   accounts: Accounts;
   config: PublicConfig;
-  prefs: { theme: Theme; accent: Accent; close_to_tray: boolean; auto_reconnect: boolean };
+  prefs: { theme: Theme; accent: Accent; close_to_tray: boolean; auto_reconnect: boolean; autostart_minimized: boolean };
   status: { online: boolean | null; service: string | null; user: string; ip: string; message: string } | null;
   auto: { state: 'off' | 'on' | 'external'; message: string; delay?: number };
   busy: boolean;
@@ -72,7 +72,7 @@ export interface CoreCommands {
   save_account: SaveAccount;
   delete_account: { id: string };
   rotation: { enabled: boolean };
-  save_prefs: { theme?: Theme; accent?: Accent; close_to_tray?: boolean };
+  save_prefs: { theme?: Theme; accent?: Accent; close_to_tray?: boolean; autostart_minimized?: boolean };
   diagnostics: Record<string, never>;
   browser_install: Record<string, never>;
 }
@@ -82,6 +82,7 @@ export interface Transport {
   subscribe(handler: (event: unknown) => void): Promise<() => void>;
   getDesktopSettings(): Promise<DesktopSettings>;
   setAutostart(enabled: boolean): Promise<void>;
+  setStartupMode(minimized: boolean): Promise<unknown>;
   quit(): Promise<void>;
 }
 
@@ -122,7 +123,7 @@ export function parseSnapshot(value: unknown): Snapshot {
   if (!object(c) || !text(c.username) || !enumValue(c.service, SERVICES) || !enumValue(c.backend, ['api', 'browser']) ||
       !text(c.base) || !text(c.cas_host) || !bool(c.verify_tls) || !bool(c.password_set) ||
       ![c.check_interval, c.retry_interval, c.max_retry_interval, c.operation_timeout].every(seconds)) throw new Error('桌面核心配置格式异常');
-  if (!object(p) || !enumValue(p.theme, ['system', 'light', 'dark']) || !bool(p.close_to_tray) || !bool(p.auto_reconnect)) throw new Error('桌面核心偏好格式异常');
+  if (!object(p) || !enumValue(p.theme, ['system', 'light', 'dark']) || !bool(p.close_to_tray) || !bool(p.auto_reconnect) || (p.autostart_minimized !== undefined && !bool(p.autostart_minimized))) throw new Error('桌面核心偏好格式异常');
   if (s !== null && (!object(s) || !(s.online === null || bool(s.online)) || !nullableText(s.service) || !text(s.user) || !text(s.ip) || !text(s.message))) throw new Error('桌面核心连接状态格式异常');
   if (!object(a) || !enumValue(a.state, ['off', 'on', 'external']) || !text(a.message) || (a.delay !== undefined && (typeof a.delay !== 'number' || !Number.isFinite(a.delay) || a.delay < 0))) throw new Error('桌面核心重连状态格式异常');
   if (!bool(value.busy) || !text(value.busy_message)) throw new Error('桌面核心任务状态格式异常');
@@ -138,7 +139,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       verify_tls: c.verify_tls, password_set: c.password_set, check_interval: Number(c.check_interval),
       retry_interval: Number(c.retry_interval), max_retry_interval: Number(c.max_retry_interval), operation_timeout: Number(c.operation_timeout),
     },
-    prefs: { theme: p.theme, accent: normalizeAccent(p.accent), close_to_tray: p.close_to_tray, auto_reconnect: p.auto_reconnect },
+    prefs: { theme: p.theme, accent: normalizeAccent(p.accent), close_to_tray: p.close_to_tray, auto_reconnect: p.auto_reconnect, autostart_minimized: p.autostart_minimized === undefined ? true : p.autostart_minimized },
     status: s === null ? null : { online: s.online as boolean | null, service: s.service as string | null, user: s.user as string, ip: s.ip as string, message: s.message as string },
     auto: { state: a.state, message: a.message, ...(a.delay === undefined ? {} : { delay: a.delay as number }) },
     busy: value.busy, busy_message: value.busy_message,

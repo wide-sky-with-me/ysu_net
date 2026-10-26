@@ -154,7 +154,7 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
                         .as_str()
                         .is_some_and(|v| ["system", "light", "dark"].contains(&v)),
                     "accent" => v.as_str().is_some_and(valid_accent),
-                    "close_to_tray" => v.is_boolean(),
+                    "close_to_tray" | "autostart_minimized" => v.is_boolean(),
                     _ => false,
                 })
         }

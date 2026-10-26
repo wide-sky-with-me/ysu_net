@@ -163,6 +163,8 @@ jobs:
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/palettes
           uv run --no-sync python desktop/tests/about_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/about
+          uv run --no-sync python desktop/tests/startup_feedback_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/startup-feedback
           uv run --no-sync python desktop/tests/feedback_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/feedback
           uv run --no-sync python desktop/tests/connection_motion_preview.py --url http://127.0.0.1:1422/ \

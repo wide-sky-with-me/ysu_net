@@ -4,6 +4,7 @@ mod bridge;
 mod project;
 mod runtime;
 mod smoke;
+mod startup;
 mod storage;
 mod tray;
 mod tray_model;
@@ -29,6 +30,7 @@ struct Options {
     config: Option<String>,
     demo: bool,
     minimized: bool,
+    autostart: bool,
     smoke: bool,
 }
 
@@ -43,9 +45,10 @@ fn options() -> Result<Options, String> {
                 result.demo = true;
             }
             "--minimized" => result.minimized = true,
+            "--autostart" => result.autostart = true,
             "--config" => result.config = Some(args.next().ok_or("--config 需要文件路径")?),
             "--help" | "-h" => {
-                println!("YSU Net 桌面客户端\n--demo 离线模拟\n--smoke 离线原生自检\n--minimized 以托盘方式启动\n--config PATH 使用指定配置");
+                println!("YSU Net 桌面客户端\n--demo 离线模拟\n--smoke 离线原生自检\n--minimized 强制以托盘方式启动\n--autostart 按偏好自启\n--config PATH 使用指定配置");
                 std::process::exit(0);
             }
             _ if arg.starts_with("--config=") => result.config = Some(arg[9..].to_owned()),
@@ -153,9 +156,7 @@ fn get_desktop_settings(
     let enabled = if bridge.demo {
         false
     } else {
-        app.autolaunch()
-            .is_enabled()
-            .map_err(|_| "读取系统自启设置失败")?
+        startup::read_enabled(&*app.autolaunch())?
     };
     Ok(
         json!({"autostart": enabled, "tray_available": bridge.tray_available.load(Ordering::Acquire),
@@ -165,24 +166,38 @@ fn get_desktop_settings(
 }
 
 #[tauri::command]
-fn set_autostart(
+async fn set_autostart(
     app: tauri::AppHandle,
     enabled: bool,
     bridge: tauri::State<'_, Arc<CoreBridge>>,
+    changes: tauri::State<'_, startup::StartupChanges>,
 ) -> Result<(), String> {
-    if bridge.demo {
-        return Err("模拟模式不修改系统自启配置".to_owned());
-    }
-    if bridge.update_busy() {
-        return Err("后台忙碌或正在更新，请稍后修改自启".to_owned());
-    }
-    let manager = app.autolaunch();
-    let result = if enabled {
-        manager.enable()
-    } else {
-        manager.disable()
-    };
-    result.map_err(|_| "更新系统自启设置失败，请检查安装位置及当前用户权限".to_owned())
+    let _change = changes.gate.lock().await;
+    startup::set_enabled(&*app.autolaunch(), enabled, bridge.demo, bridge.update_busy())
+}
+
+#[tauri::command]
+async fn set_startup_mode(
+    app: tauri::AppHandle,
+    minimized: bool,
+    bridge: tauri::State<'_, Arc<CoreBridge>>,
+    changes: tauri::State<'_, startup::StartupChanges>,
+) -> Result<Value, String> {
+    let _change = changes.gate.lock().await;
+    startup::set_mode(
+        &*app.autolaunch(),
+        minimized,
+        bridge.demo,
+        bridge.update_busy(),
+        |minimized| async move {
+            // Recheck after registration refresh and before any preference I/O.
+            startup::mutation_allowed(bridge.demo, bridge.update_busy())?;
+            bridge
+                .request("save_prefs", json!({"autostart_minimized":minimized}))
+                .await
+        },
+    )
+    .await
 }
 
 #[tauri::command]
@@ -223,10 +238,7 @@ fn main() {
         }
     };
     let bridge = CoreBridge::new(options.demo, options.smoke);
-    let mut autostart_args = vec!["--minimized".to_owned()];
-    if let Some(path) = &options.config {
-        autostart_args.extend(["--config".to_owned(), path.clone()]);
-    }
+    let autostart_args = startup::registration_args(options.config.as_deref());
     let app = tauri::Builder::default()
         .manage(updater::normalized_restart_env(
             options.config.as_deref(),
@@ -235,7 +247,7 @@ fn main() {
             options.smoke,
         ))
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            if !args.iter().any(|arg| arg == "--minimized") {
+            if startup::LaunchOrigin::from_args(&args).show_on_reopen() {
                 let _ = ensure_window(app);
             }
         }))
@@ -249,6 +261,7 @@ fn main() {
             env!("CARGO_PKG_VERSION").into(),
             bridge.demo,
         ))
+        .manage(startup::StartupChanges::default())
         .manage(bridge.clone())
         .manage(Mutex::new(WindowGeometry::default()))
         .manage(smoke::SmokeState::default())
@@ -256,6 +269,7 @@ fn main() {
             core_request,
             get_desktop_settings,
             set_autostart,
+            set_startup_mode,
             quit_app,
             project::project_open_link,
             smoke::smoke_rendered,
@@ -278,7 +292,18 @@ fn main() {
                 eprintln!("创建系统托盘失败，关闭窗口将退出：{error}");
                 bridge.tray_available.store(false, Ordering::Release);
             }
-            if !options.minimized || !bridge.tray_available.load(Ordering::Acquire) {
+            let origin = startup::LaunchOrigin {
+                autostart: options.autostart,
+                minimized: options.minimized,
+                smoke: options.smoke,
+            };
+            if origin.show_on_launch(
+                bridge.snapshot()["prefs"]["autostart_minimized"]
+                    .as_bool()
+                    .unwrap_or(true),
+                bridge.tray_available.load(Ordering::Acquire),
+                tray_host_available(),
+            ) {
                 ensure_window(handle)?;
             }
             if options.smoke {

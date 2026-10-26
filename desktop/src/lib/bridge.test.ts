@@ -23,9 +23,10 @@ describe('native bridge', () => {
   it('routes native preferences and quit directly', async () => {
     mocks.invoke.mockResolvedValue({ autostart: true, tray_available: true, version: '1.0' });
     const transport = createDesktopTransport();
-    await transport.getDesktopSettings(); await transport.setAutostart(true); await transport.quit();
+    await transport.getDesktopSettings(); await transport.setAutostart(true); await transport.setStartupMode(false); await transport.quit();
     expect(mocks.invoke).toHaveBeenCalledWith('get_desktop_settings');
     expect(mocks.invoke).toHaveBeenCalledWith('set_autostart', { enabled: true });
+    expect(mocks.invoke).toHaveBeenCalledWith('set_startup_mode', { minimized: false });
     expect(mocks.invoke).toHaveBeenCalledWith('quit_app', {});
   });
   it('requires explicit demo=1 and gives native mode precedence', () => {
@@ -42,6 +43,7 @@ describe('native bridge', () => {
       () => transport.request('rotation', { enabled: true }),
       () => transport.getDesktopSettings(),
       () => transport.setAutostart(true),
+      () => transport.setStartupMode(false),
       () => transport.quit(),
       () => transport.subscribe(() => {}),
     ]) await expect(operation()).rejects.toThrow('普通网页');
@@ -59,13 +61,15 @@ describe('native bridge', () => {
     await transport.request('action', { name: 'logout' });
     await transport.setAutostart(true);
     expect((await transport.getDesktopSettings()).autostart).toBe(true);
+    expect(await transport.setStartupMode(false)).toMatchObject({ prefs: { autostart_minimized: false } });
+    expect((await transport.getDesktopSettings()).autostart).toBe(true);
     await transport.quit();
     expect(handler).toHaveBeenCalled();
     stop();
     const fresh = createTransport('?demo=1');
     expect((await fresh.getDesktopSettings()).autostart).toBe(false);
     expect(await fresh.request('snapshot', {})).toMatchObject({
-      config: { username: '20260001' }, prefs: { auto_reconnect: true },
+      config: { username: '20260001' }, prefs: { auto_reconnect: true, autostart_minimized: true },
     });
     expect(mocks.invoke).not.toHaveBeenCalled();
     expect(mocks.listen).not.toHaveBeenCalled();

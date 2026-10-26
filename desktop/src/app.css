@@ -254,7 +254,8 @@
   .toggle { position: relative; padding: 0; width: 44px; height: 26px; min-height: 26px; border: 1px solid transparent; border-radius: 999px; background: var(--toggle-off); justify-content: flex-start; flex-shrink: 0; }
   .toggle::before { content: ''; position: absolute; inset: -9px 0; }
   .toggle:hover:not(:disabled) { background: var(--toggle-off); border-color: transparent; box-shadow: 0 0 0 4px var(--surface-alt); }
-  .toggle-knob { height: 18px; width: 18px; margin-left: 3px; border-radius: 50%; background: #ffffff; box-shadow: var(--knob-shadow); transform: translateX(0); transition: transform 220ms cubic-bezier(.2, .85, .25, 1.1), background-color var(--motion-fast); }
+  .toggle-knob { position: relative; height: 18px; width: 18px; margin-left: 3px; border-radius: 50%; background: #ffffff; box-shadow: var(--knob-shadow); transform: translateX(0); transition: transform 220ms cubic-bezier(.2, .85, .25, 1.1), background-color var(--motion-fast); }
+  .toggle[aria-busy='true'] .toggle-knob::after { content: ''; position: absolute; inset: 3px; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%; animation: feedback-spin 1s linear infinite; }
   .toggle[aria-checked='true'] { background: var(--primary-fill); }
   .toggle[aria-checked='true']:hover:not(:disabled) { background: var(--accent-hover); }
   .toggle[aria-checked='true'] .toggle-knob { transform: translateX(18px); background: var(--on-accent); }

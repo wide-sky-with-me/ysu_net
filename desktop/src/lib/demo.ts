@@ -18,7 +18,7 @@ export function demoSnapshot(search = ''): Snapshot {
       base: 'https://auth1.ysu.edu.cn', cas_host: 'https://cer.ysu.edu.cn', verify_tls: true,
       check_interval: 15, retry_interval: 30, max_retry_interval: 900, operation_timeout: 180, password_set: scenario !== 'empty',
     },
-    prefs: { theme: params.get('theme') === 'dark' ? 'dark' : params.get('theme') === 'light' ? 'light' : 'system', accent: normalizeAccent(params.get('accent')), close_to_tray: true, auto_reconnect: scenario !== 'external' && scenario !== 'no-auto' },
+    prefs: { theme: params.get('theme') === 'dark' ? 'dark' : params.get('theme') === 'light' ? 'light' : 'system', accent: normalizeAccent(params.get('accent')), close_to_tray: true, auto_reconnect: scenario !== 'external' && scenario !== 'no-auto', autostart_minimized: true },
     status: { online, service: online ? '中国移动' : null, user: online ? '20260001' : '', ip: online ? '10.24.16.82' : '', message: online === null ? '模拟查询超时，在线状态尚未确认' : online ? '已确认校园网连接' : '校园网尚未连接' },
     auto: { state: scenario === 'external' ? 'external' : scenario === 'no-auto' ? 'off' : 'on', message: scenario === 'external' ? '由外部后台服务管理，请先在命令行停止服务' : scenario === 'no-auto' ? '自动重连已关闭' : '正在监测连接，断线后自动登录' },
     accounts: {
@@ -174,7 +174,9 @@ export function createDemoTransport(search = ''): Transport {
         const changes = args as CoreCommands['save_prefs'];
         if ('accent' in changes && normalizeAccent(changes.accent) !== changes.accent) throw new Error('模拟：主题色值无效');
         if (scenario === 'prefs-failure') throw new Error('模拟：界面偏好保存失败，原设置已保留');
+        if ('autostart_minimized' in changes && typeof changes.autostart_minimized !== 'boolean') throw new Error('模拟：启动方式值无效');
         state.prefs = { ...state.prefs, ...changes }; log('界面偏好已保存');
+        publish(); return snapshot();
       } else if (command === 'diagnostics') {
         log('本地环境诊断完成'); publish();
         return { summary: '离线模拟诊断，不检查真实环境', environment: snapshot().environment };
@@ -186,6 +188,11 @@ export function createDemoTransport(search = ''): Transport {
     },
     getDesktopSettings: async () => ({ ...settings }),
     setAutostart: async (enabled) => { settings = { ...settings, autostart: enabled }; log(enabled ? '开机自启已开启' : '开机自启已关闭'); publish(); },
+    setStartupMode: async (minimized) => {
+      if (typeof minimized !== 'boolean') throw new Error('模拟：启动方式值无效');
+      if (scenario === 'prefs-failure') throw new Error('模拟：启动方式保存失败');
+      state.prefs.autostart_minimized = minimized; log('启动方式已保存'); publish(); return snapshot();
+    },
     quit: async () => { clearTimeout(switchTimer); clearTimeout(infoTimer); state.busy = false; state.busy_message = ''; state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.accounts.auto_switch = false; log('退出按钮已触发（演示页面保留）'); publish(); },
   };
 }

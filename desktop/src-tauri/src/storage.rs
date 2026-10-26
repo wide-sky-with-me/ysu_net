@@ -41,12 +41,18 @@ fn default_accent() -> String {
     "blue".into()
 }
 
+fn default_autostart_minimized() -> bool {
+    true
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Prefs {
     pub theme: String,
     #[serde(default = "default_accent")]
     pub accent: String,
     pub close_to_tray: bool,
+    #[serde(default = "default_autostart_minimized")]
+    pub autostart_minimized: bool,
     pub auto_reconnect: bool,
 }
 
@@ -56,6 +62,7 @@ impl Default for Prefs {
             theme: "system".into(),
             accent: default_accent(),
             close_to_tray: true,
+            autostart_minimized: default_autostart_minimized(),
             auto_reconnect: false,
         }
     }
@@ -295,6 +302,9 @@ impl Store {
             if let Some(value) = data.get("close_to_tray").and_then(Value::as_bool) {
                 prefs.close_to_tray = value;
             }
+            if let Some(value) = data.get("autostart_minimized").and_then(Value::as_bool) {
+                prefs.autostart_minimized = value;
+            }
             if let Some(value) = data.get("auto_reconnect").and_then(Value::as_bool) {
                 prefs.auto_reconnect = value;
             }
@@ -305,7 +315,14 @@ impl Store {
     pub fn update_prefs(&self, changes: Map<String, Value>) -> Result<Prefs, String> {
         if changes.is_empty()
             || !changes.keys().all(|key| {
-                ["theme", "accent", "close_to_tray", "auto_reconnect"].contains(&key.as_str())
+                [
+                    "theme",
+                    "accent",
+                    "close_to_tray",
+                    "autostart_minimized",
+                    "auto_reconnect",
+                ]
+                .contains(&key.as_str())
             })
         {
             return Err("偏好参数无效".into());
@@ -315,6 +332,12 @@ impl Store {
             .is_some_and(|value| !value.as_str().is_some_and(valid_accent))
         {
             return Err("主题色参数无效".into());
+        }
+        if changes
+            .get("autostart_minimized")
+            .is_some_and(|value| !value.is_boolean())
+        {
+            return Err("偏好参数无效".into());
         }
         let path = self.prefs_path();
         let _lock = lock_file(&path.with_file_name("gui.json.write.lock"), true)?;
@@ -614,5 +637,102 @@ mod tests {
             fs::metadata(&store.path).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn startup_preference_defaults_to_minimized_without_migrating_legacy_files() {
+        let store = Store::open(None, true).unwrap();
+        assert!(Prefs::default().autostart_minimized);
+        assert!(store.load_prefs().autostart_minimized);
+        assert!(!store.prefs_path().exists());
+        assert!(!store
+            .prefs_path()
+            .with_file_name("gui.json.write.lock")
+            .exists());
+        let legacy = json!({
+            "theme":"dark", "accent":"rose", "close_to_tray":false, "auto_reconnect":true
+        });
+        assert!(serde_json::from_value::<Prefs>(legacy.clone())
+            .unwrap()
+            .autostart_minimized);
+        write_json(&store.prefs_path(), &legacy).unwrap();
+        let before = fs::read(store.prefs_path()).unwrap();
+        let prefs = store.load_prefs();
+        assert!(prefs.autostart_minimized);
+        assert_eq!(prefs.theme, "dark");
+        assert_eq!(prefs.accent, "rose");
+        assert!(!prefs.close_to_tray);
+        assert!(prefs.auto_reconnect);
+        assert_eq!(fs::read(store.prefs_path()).unwrap(), before);
+        assert!(!store
+            .prefs_path()
+            .with_file_name("gui.json.write.lock")
+            .exists());
+    }
+
+    #[test]
+    fn startup_preference_tolerates_bad_disk_values_without_rewriting_other_fields() {
+        let store = Store::open(None, true).unwrap();
+        for invalid in [json!(null), json!("false"), json!(0), json!([]), json!({})] {
+            write_json(
+                &store.prefs_path(),
+                &json!({
+                    "autostart_minimized":invalid, "theme":"light", "accent":"violet",
+                    "close_to_tray":false, "auto_reconnect":true
+                }),
+            )
+            .unwrap();
+            let before = fs::read(store.prefs_path()).unwrap();
+            let prefs = store.load_prefs();
+            assert!(prefs.autostart_minimized);
+            assert_eq!(prefs.theme, "light");
+            assert_eq!(prefs.accent, "violet");
+            assert!(!prefs.close_to_tray);
+            assert!(prefs.auto_reconnect);
+            assert_eq!(fs::read(store.prefs_path()).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn startup_preference_round_trips_and_invalid_writes_are_side_effect_free() {
+        let store = Store::open(None, true).unwrap();
+        let auth_before = fs::read(&store.path).unwrap();
+        let invalid = [
+            json!(null), json!("true"), json!("false"), json!(0), json!(1), json!([]), json!({}),
+        ];
+        for value in &invalid {
+            assert!(store
+                .update_prefs(changes(json!({"autostart_minimized":value})))
+                .is_err());
+            assert!(!store.prefs_path().exists());
+            assert!(!store
+                .prefs_path()
+                .with_file_name("gui.json.write.lock")
+                .exists());
+        }
+        store
+            .update_prefs(changes(json!({
+                "theme":"dark", "accent":"amber", "close_to_tray":false, "auto_reconnect":true
+            })))
+            .unwrap();
+        for minimized in [false, true] {
+            let saved = store
+                .update_prefs(changes(json!({"autostart_minimized":minimized})))
+                .unwrap();
+            assert_eq!(saved.autostart_minimized, minimized);
+            assert_eq!(store.load_prefs().autostart_minimized, minimized);
+            assert_eq!(saved.theme, "dark");
+            assert_eq!(saved.accent, "amber");
+            assert!(!saved.close_to_tray);
+            assert!(saved.auto_reconnect);
+            let before = fs::read(store.prefs_path()).unwrap();
+            for value in &invalid {
+                assert!(store
+                    .update_prefs(changes(json!({"autostart_minimized":value,"theme":"light"})))
+                    .is_err());
+                assert_eq!(fs::read(store.prefs_path()).unwrap(), before);
+            }
+        }
+        assert_eq!(fs::read(&store.path).unwrap(), auth_before);
     }
 }
