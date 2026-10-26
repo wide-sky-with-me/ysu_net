@@ -65,8 +65,7 @@ async fn http_client_initializes_tls_in_fresh_process() {
             String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr)
         );
-        assert!(String::from_utf8_lossy(&result.stdout)
-            .contains(&format!("TLS-STARTUP-OK:{mode}")));
+        assert!(String::from_utf8_lossy(&result.stdout).contains(&format!("TLS-STARTUP-OK:{mode}")));
     }
 }
 

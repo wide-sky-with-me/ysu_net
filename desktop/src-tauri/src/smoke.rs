@@ -75,8 +75,7 @@ async fn verify_accent_preferences(bridge: &CoreBridge) -> Result<Value, String>
 async fn verify(app: &tauri::AppHandle) -> Result<Value, String> {
     // Demo disables update requests, not construction of the actual HTTPS
     // transport. Exercise release panic=abort startup without making a request.
-    crate::updater::verify_http_transport()
-        .map_err(|_| "更新 HTTP 客户端初始化失败".to_owned())?;
+    crate::updater::verify_http_transport().map_err(|_| "更新 HTTP 客户端初始化失败".to_owned())?;
     let bridge = app.state::<Arc<CoreBridge>>().inner().clone();
     wait_for(&bridge, |snapshot| snapshot["sequence"].is_number()).await?;
     let accent_preferences = verify_accent_preferences(&bridge).await?;
