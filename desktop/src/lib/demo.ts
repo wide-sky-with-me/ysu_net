@@ -1,6 +1,9 @@
 import { SERVICES, rotationControl, validateAccount } from './protocol';
 import { normalizeAccent } from './accents';
+import packageInfo from '../../package.json';
 import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, SaveAccount, Snapshot, Transport } from './protocol';
+
+const DEMO_VERSION = `${packageInfo.version}-demo`;
 
 export function demoSnapshot(search = ''): Snapshot {
   const params = new URLSearchParams(search);
@@ -37,7 +40,7 @@ export function demoSnapshot(search = ''): Snapshot {
       { timestamp: '08:42:04', level: 'success', message: '模拟：校园网状态查询完成' },
       { timestamp: '08:42:05', level: 'info', message: '模拟：自动重连监测已开启' },
     ],
-    environment: { version: '0.2.1-demo', rust: '离线演示', runtime: 'rust', platform: '离线演示', browser_available: true, browser_component_available: true },
+    environment: { version: DEMO_VERSION, rust: '离线演示', runtime: 'rust', platform: '离线演示', browser_available: true, browser_component_available: true },
   };
 }
 
@@ -45,7 +48,7 @@ export function createDemoTransport(search = ''): Transport {
   const scenario = new URLSearchParams(search).get('scenario');
   let state = demoSnapshot(search);
   const handlers = new Set<(event: unknown) => void>();
-  let settings: DesktopSettings = { autostart: false, tray_available: true, version: '0.2.1-demo' };
+  let settings: DesktopSettings = { autostart: false, tray_available: true, version: DEMO_VERSION };
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
   let infoTimer: ReturnType<typeof setTimeout> | undefined;
   let nextId = 1;

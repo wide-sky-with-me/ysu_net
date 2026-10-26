@@ -70,9 +70,10 @@ class TauriSigner:
         if json.loads(package.read_text())["version"] != TAURI_VERSION:
             raise ValueError("patch signing requires locked Tauri CLI 2.12.2")
         cli = manifest.regular_file(cli_root / "tauri.js", self.source_root)
-        # Do not support the CLI's private-key PATH fallback, and do not pass any
-        # other TAURI_SIGNING_* variables. Read these values only at signing time.
-        environment = {key: value for key, value in os.environ.items() if not key.startswith("TAURI_SIGNING_")}
+        # Tauri 2 also restores deprecated TAURI_PRIVATE_KEY* values, including a
+        # path that takes precedence over the literal key. Exclude both families.
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith(("TAURI_SIGNING_", "TAURI_PRIVATE_KEY"))}
         key = os.environ.get("TAURI_SIGNING_PRIVATE_KEY")
         if not key:
             raise ValueError("cloud release patch signing key is unavailable")

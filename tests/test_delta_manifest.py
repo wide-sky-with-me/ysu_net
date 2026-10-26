@@ -381,6 +381,9 @@ class DefaultSignerContractTests(unittest.TestCase):
                   "TAURI_SIGNING_PRIVATE_KEY": "NOT-A-KEY-test-placeholder",
                   "TAURI_SIGNING_PRIVATE_KEY_PASSWORD": "NOT-A-PASSWORD-test-placeholder",
                   "TAURI_SIGNING_PRIVATE_KEY_PATH": "/must-not-be-read",
+                  "TAURI_PRIVATE_KEY_PATH": "/legacy-must-not-be-read",
+                  "TAURI_PRIVATE_KEY": "NOT-A-LEGACY-KEY-test-placeholder",
+                  "TAURI_PRIVATE_KEY_PASSWORD": "NOT-A-LEGACY-PASSWORD-test-placeholder",
                   "PATH": "/fixture-bin"}
         values.update(changes)
         return patch.dict(delta.os.environ, values, clear=True)
@@ -393,6 +396,7 @@ class DefaultSignerContractTests(unittest.TestCase):
         self.assertEqual(arguments[0], "node")
         self.assertFalse(any("NOT-A-" in argument for argument in arguments))
         self.assertNotIn("TAURI_SIGNING_PRIVATE_KEY_PATH", options["env"])
+        self.assertFalse(any(name.startswith("TAURI_PRIVATE_KEY") for name in options["env"]))
         self.assertEqual(options["env"]["TAURI_SIGNING_PRIVATE_KEY"], "NOT-A-KEY-test-placeholder")
         self.assertEqual(options["env"]["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], "NOT-A-PASSWORD-test-placeholder")
 

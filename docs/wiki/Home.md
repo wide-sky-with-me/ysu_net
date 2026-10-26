@@ -15,7 +15,7 @@
 
 ## 先分清版本
 
-正式 **v0.2.1** 已发布，下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；版本与来源的区别见[首页发行状态](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)。当前 `main` / 开发源码仍可能标识为 0.2.1，但包含“关于”、差分下载、光环与反馈浮层等正式版之后的改进；合入主分支或 CI 成功不等于发布新版，也不保证已安装正式包包含这些变化。自 0.2.0 起桌面已由 Qt 迁移为 Tauri；旧 Qt 标签与附件仅保留历史，不作为当前下载入口。
+正式版本与当前源码的区别统一见[首页发行状态](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)，安装包从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 选择对应系统、架构的附件。本页不另维护 Latest 版本号；合入主分支、版本号相同或 CI 成功都不等于发布新版，功能以实际安装来源和对应版本说明为准。自 0.2.0 起桌面已由 Qt 迁移为 Tauri；旧 Qt 标签与附件仅保留历史，不作为当前下载入口。
 
 安装和本地诊断可在校外完成，登录与校园网状态查询需要接入校园网。API 是默认认证方式；桌面可选本机 Edge / Chrome，CLI 的浏览器依赖独立安装。缺少流量时显示“门户未提供”，不代表零额度或不限量。编译、打包和产品测试只在 GitHub Actions 执行，本机不回退编译；需要开发版请先看[云端构建路线](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)。
 

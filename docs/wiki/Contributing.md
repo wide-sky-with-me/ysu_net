@@ -8,7 +8,7 @@
 
 使用文档的错误、缺少的排障说明、脱敏复现与对应回归测试，都可以帮助项目发展。先搜索已有 Issue / Discussion，说明目标版本和预期行为，再提交聚焦一个问题的改动。
 
-从 `main` 创建聚焦问题的开发分支，说明目标正式版或开发构建；同样显示 0.2.1 不等于相同源码。桌面是 Tauri / Rust，CLI 的 Python 环境独立维护，不存在 Python `gui` 可选依赖。构建、依赖解析、产品测试与打包只在独立构建分支的 GitHub Actions 执行，不在本机运行 Cargo/Rust、前端生产构建或产品测试；云端失败继续修云端，不回退本机。前提和产物核验见[云端构建说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)。
+从 `main` 创建聚焦问题的开发分支，说明目标版本、来源提交或云端构建；版本号相同不等于相同源码，当前正式 / 候选状态见[首页](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)。桌面是 Tauri / Rust，CLI 的 Python 环境独立维护，不存在 Python `gui` 可选依赖。构建、依赖解析、产品测试与打包只在独立构建分支的 GitHub Actions 执行，不在本机运行 Cargo/Rust、前端生产构建或产品测试；云端失败继续修云端，不回退本机。前提和产物核验见[云端构建说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)。
 
 ## 文档与 Wiki
 

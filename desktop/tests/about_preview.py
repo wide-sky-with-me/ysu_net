@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
+BUNDLED_VERSION = json.loads((Path(__file__).resolve().parents[1] / 'package.json').read_text(encoding='utf-8'))['version']
+
 NATIVE_FIXTURE = r"""(() => {
   window.isTauri = true;
   const callbacks = new Map(), listeners = new Map(); let next = 1;
@@ -303,11 +305,13 @@ def main():
                 for button in ('GitHub 仓库', '完整发布日志', '查看 GitHub 贡献者'):
                     expect(page.get_by_role('button', name=button, exact=True)).to_be_disabled()
                 summary = page.locator('.about-release summary').first
-                expect(summary).to_have_text('YSU Net v0.2.1')
+                expect(summary).to_have_text(f'YSU Net v{BUNDLED_VERSION}')
                 summary.focus()
                 page.keyboard.press('Enter')
                 expect(page.locator('.about-release pre').first).to_be_visible()
-                expect(page.locator('.about-release pre').first).to_contain_text('签名完整包更新，不是二进制差分更新')
+                expect(page.locator('.about-release pre').first).to_contain_text('不更换 0.2.1 正式更新信任锚')
+                legacy = page.locator('.about-release').filter(has=page.get_by_text('YSU Net v0.2.1', exact=True))
+                expect(legacy.locator('pre')).to_contain_text('签名完整包更新，不是二进制差分更新')
                 layout(page, f'changelog-{theme}-{width}')
                 page.keyboard.press('Enter')
                 expect(page.locator('.about-release pre').first).to_be_hidden()
