@@ -22,7 +22,7 @@ describe('accent preferences', () => {
   it.each([undefined, null, false, 42, {}, [], 'future', 'BLUE', ' blue ', ''])('falls back without losing valid preferences: %j', (accent) => {
     const original = demoSnapshot('?theme=dark&scenario=no-auto');
     const prefs = { ...original.prefs, accent, close_to_tray: false };
-    expect(parseSnapshot({ ...original, prefs }).prefs).toEqual({ theme: 'dark', accent: 'blue', close_to_tray: false, auto_reconnect: false });
+    expect(parseSnapshot({ ...original, prefs }).prefs).toEqual({ theme: 'dark', accent: 'blue', close_to_tray: false, auto_reconnect: false, autostart_minimized: true });
     expect(prefs.accent).toBe(accent);
   });
 
@@ -36,8 +36,22 @@ describe('accent preferences', () => {
     const transport = createDemoTransport('?accent=teal&theme=dark');
     await transport.request('save_prefs', { close_to_tray: false });
     expect(parseSnapshot(await transport.request('snapshot', {})).prefs).toEqual({
-      theme: 'dark', accent: 'teal', close_to_tray: false, auto_reconnect: true,
+      theme: 'dark', accent: 'teal', close_to_tray: false, auto_reconnect: true, autostart_minimized: true,
     });
+  });
+
+  it('keeps an explicitly disabled startup-to-tray preference while changing appearance', async () => {
+    const transport = createDemoTransport('?theme=dark&accent=teal&scenario=no-auto');
+    await transport.setStartupMode(false);
+    const before = parseSnapshot(await transport.request('snapshot', {}));
+    await transport.request('save_prefs', { theme: 'light', accent: 'rose', close_to_tray: false });
+    const after = parseSnapshot(await transport.request('snapshot', {}));
+    expect(after.prefs).toEqual({ ...before.prefs, theme: 'light', accent: 'rose', close_to_tray: false });
+    expect(after.prefs.autostart_minimized).toBe(false);
+    expect((await transport.getDesktopSettings()).autostart).toBe(false);
+    expect(after.auto).toEqual(before.auto);
+    expect(after.status).toEqual(before.status);
+    expect(after.accounts).toEqual(before.accounts);
   });
 
   it.each(ACCENT_OPTIONS)('saves $value without changing theme, connection or automation', async ({ value }) => {
