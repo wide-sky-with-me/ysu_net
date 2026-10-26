@@ -10,9 +10,9 @@ on:
     branches: ["**"]
     # Path filters are not evaluated for tag pushes, so release tags always build.
     tags: ["v*"]
-    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml"]
+    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml", ".github/actions/setup-delta-tools/**"]
   pull_request:
-    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml"]
+    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml", ".github/actions/setup-delta-tools/**"]
 permissions:
   contents: read
 concurrency:
@@ -80,25 +80,7 @@ jobs:
             librsvg2-dev libssl-dev libxdo-dev patchelf xvfb dbus-x11 xauth imagemagick fonts-noto-cjk desktop-file-utils ffmpeg
       - name: Install pinned public delta tools (Linux)
         if: runner.os == 'Linux'
-        # CLI's published --locked dev self-dependency conflicts with its root 1.4.4.
-        # Application Cargo.lock and all application --locked gates remain unchanged.
-        run: |
-          # Jammy has no minisign package; pin the official static 0.12 archive.
-          verifier="$RUNNER_TEMP/ysu-public-verifier"
-          mkdir -p "$verifier"
-          archive="$RUNNER_TEMP/minisign-0.12-linux.tar.gz"
-          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 \
-            https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz -o "$archive"
-          echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $archive" | sha256sum --check -
-          tar -xzf "$archive" -C "$verifier" --strip-components=2 --no-same-owner minisign-linux/x86_64/minisign
-          chmod 755 "$verifier/minisign"
-          echo "$verifier" >> "$GITHUB_PATH"
-          export PATH="$verifier:$PATH"
-          minisign -v
-          cargo install qbsdiff --version 1.4.4 --features cmd
-          test "$(qbsdiff --version)" = 'qbsdiff 1.4.4'
-          test "$(qbspatch --version)" = 'qbspatch 1.4.4'
-          command -v minisign
+        uses: ./.github/actions/setup-delta-tools
       - run: npm ci --prefix desktop
       - name: Frontend and native build entry checks
         run: |
@@ -372,12 +354,8 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci --prefix desktop
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install exact public delta CLI version
-        # Do not use the upstream CLI's incompatible published --locked file.
-        run: |
-          cargo install qbsdiff --version 1.4.4 --features cmd
-          test "$(qbsdiff --version)" = 'qbsdiff 1.4.4'
-          test "$(qbspatch --version)" = 'qbspatch 1.4.4'
+      - name: Install pinned public delta tools
+        uses: ./.github/actions/setup-delta-tools
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
@@ -400,10 +378,6 @@ jobs:
           # macOS architectures produce the same original app.tar.gz basename.
           # Keep matrix directories separate until the validated mapping renames them.
           merge-multiple: false
-      - name: Install maintained public-signature verifier
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends minisign
       - name: Prepare unchanged full assets and verify original public signatures
         env:
           RELEASE_TAG: ${{ github.ref_name }}

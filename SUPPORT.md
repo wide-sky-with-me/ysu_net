@@ -4,8 +4,8 @@
 
 ## 先确认版本
 
-- Linux 命令行版：独立 Python CLI 版本为 `0.2.0`，从 `main` 安装见 [README](README.md) 和 [使用说明](docs/usage.md)。反馈时提供安装来源及提交短哈希。
-- Windows / Linux / macOS 桌面版：自 `v0.2.0` 起采用 Tauri，见 [桌面说明](docs/tauri-desktop.md)。反馈时提供版本号（设置 → 环境诊断）或提交短哈希。原 Qt 版（`v0.1.0` 附件）只保留历史，不再受理其问题；升级先看[迁移说明](docs/migration.md#桌面-v020-升级)。
+- Linux 命令行版：从 `main` 安装见 [README](README.md) 和 [使用说明](docs/usage.md)。反馈时提供实际版本、安装来源及提交短哈希，不把固定文档里的旧版本号当成当前安装身份。
+- Windows / Linux / macOS 桌面版：自 `v0.2.0` 起采用 Tauri，见 [桌面说明](docs/tauri-desktop.md)。反馈时提供版本、系统架构与正式 Release / 开发构建来源；同版本号不保证同一构建，区别见[发行状态](README.md#发行与候选状态)。原 Qt（`v0.1.0`）仅保留历史；旧问题修复记录不代表当前 Tauri 的现场验证，升级先看[迁移说明](docs/migration.md#桌面-v020-升级)。
 - Wiki 提供 [入门导航](docs/wiki/Home.md)；命令与参数以使用版本对应的文档为准。
 
 ## 选择反馈渠道

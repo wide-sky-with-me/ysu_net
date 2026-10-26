@@ -16,15 +16,15 @@
 
 认证、诊断与平台限制见[Tauri 运行语义](docs/tauri-desktop.md#运行语义)；当次成绩与历史现场证据见[桌面验收导航](docs/desktop-acceptance.md)，不把已有在线会话读取、离线 Demo 或旧版成绩当作当前登录与升级成功。
 
-当前开发工作树的侧栏“关于”集中软件更新、随包日志与项目资料；主连接图标在核心确认在线时显示光环，操作反馈靠近右上角刷新入口，窄屏改为底部浮层。现行交互规则归属[设计说明](docs/rust-desktop-design.md)，更新方式与信任边界归属[软件更新](docs/updates.md)。
+当前开发源码新增侧栏“关于”，集中软件更新、随包日志与项目资料；连接光环仅在核心确认在线时显示，操作反馈位于右上角或窄屏底部浮层，不代表实时网速或认证成功回执。开发树还支持有匹配缓存时的差分下载：无基线首更仍下载整包，补丁与还原整包均须通过原公钥和受签名版本验证，差分失败只在下载阶段最多回退一次整包。**这些是正式 0.2.1 之后的源码改进，不应按版本号推断已安装正式包拥有它们。** 交互规则见[设计说明](docs/rust-desktop-design.md)，缓存、平台与信任边界见[软件更新](docs/updates.md)。
 
 ### 发行与候选状态
 
-**正式 v0.2.1 已发布**，附件、签名与公开下载复核见[0.2.1 发布验收](docs/desktop-release-0.2.1.md)；最新下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准。当前开发工作树仍标识为 **0.2.1**，包含正式版之后的改进，**不是新正式版**；同版本不等于同构建，开发分支推送和 CI 安装包也不自动成为正式发行。
+**正式 v0.2.1 已发布**，附件、签名与公开下载复核见[0.2.1 发布验收](docs/desktop-release-0.2.1.md)；最新下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准。当前开发源码仍标识为 **0.2.1**，但包含正式版之后的改进，**不是新正式版**；同版本不等于同构建。合入 `main`、开发分支推送和 CI 安装包只更新源码或开发产物，不自动创建新版 Release，也不证明真实校园网登录或原位升级已通过。
 
-编译和打包只在 GitHub Actions 执行，本机只下载、校验云端产物并安装/运行验收，不回退本地编译。当前运行见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)，各次结果与未覆盖范围见[桌面验收导航](docs/desktop-acceptance.md)。
+编译、打包和产品测试只在 GitHub Actions 执行；开发构建使用独立构建分支，不打版本标签、不发布正式 Release。云端失败不回退本机编译，本机只按授权下载、校验云端产物并做安装 / 运行验收。工作流见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)，实际成绩与未覆盖范围见[桌面验收导航](docs/desktop-acceptance.md)。
 
-原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 标签和 Qt 发布附件保留供历史复现，不覆盖、不作为新版下载入口；Windows 先关闭旧版自启并卸载旧 Inno 版，再装当前用户 NSIS 版。Linux 从 0.1.0 升级到 0.2.0 无需 `--reinstall`，macOS 13.5+ 按 Apple 芯片 / Intel 分包，安装包未签名。详见[桌面客户端](docs/wiki/Desktop-Client.md)与[迁移说明](docs/migration.md#桌面-v020-升级)。
+原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 标签和 Qt 附件保留历史，不作为新版下载入口。Windows 旧 Inno 版与当前用户 NSIS 版不互相替换；旧 0.2.1 候选也不能等待同版本自动升级，应按[迁移说明](docs/migration.md#桌面-v021-及旧候选包)手动安装正式版。Linux `.deb` 继续按系统包升级，macOS 13.5+ 按 Apple 芯片 / Intel 分包；更新包签名不等于 Windows 发布者签名或 Apple 签名 / 公证。安装前提见[桌面客户端](docs/wiki/Desktop-Client.md)。
 
 ## 选择版本与交流入口
 
@@ -101,7 +101,7 @@ sudo env PATH="$PATH" bash install.sh --system  # 系统级服务
 - [命令行使用与配置](docs/usage.md)：完整命令、日常操作、配置和故障排查。
 - [更新、卸载与旧版迁移](docs/migration.md)：命令重装、旧服务清理与入口变更。
 - [Tauri 桌面版](docs/tauri-desktop.md)：云端构建、运行与演示；历次证据见[桌面验收导航](docs/desktop-acceptance.md)，视觉与更新语义分别见[设计说明](docs/rust-desktop-design.md)和[更新说明](docs/updates.md)。
-- [开发与验证](docs/development.md)：模块职责、离线测试和 Python 构建。
+- [开发与验证](docs/development.md)：模块职责、云端离线测试与 Python 分发构建。
 
 ## 云端验证
 
