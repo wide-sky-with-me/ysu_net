@@ -73,7 +73,7 @@ def main():
             assert not result["overlaps"], result
 
         visit()
-        expect(page.get_by_role("heading", name="校园网已连接", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="中国移动已连接", exact=True)).to_be_visible()
         screenshot("connection-light.png")
         layout("connection-light")
         # Modal cancellation preserves the actual operator and returns focus to its trigger.
@@ -101,7 +101,7 @@ def main():
         expect(page.get_by_role("heading", name="校园网未连接", exact=True)).to_be_visible()
         expect(page.get_by_role("switch", name="自动重连", exact=True)).to_have_attribute("aria-checked", "false")
         navigate("连接校园网")
-        expect(page.get_by_role("heading", name="校园网已连接", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="中国联通已连接", exact=True)).to_be_visible()
         checks.append("operator-confirm-esc-focus-and-logout-stops-reconnect")
 
         navigate("账户")
@@ -199,7 +199,7 @@ def main():
         navigate("退出应用")
         page.get_by_role("dialog").get_by_role("button", name="退出应用", exact=True).click()
         navigate("连接")
-        expect(page.get_by_role("heading", name="校园网已连接", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="中国联通已连接", exact=True)).to_be_visible()
         checks.append("autostart-tray-quit-confirmation-keeps-connection")
         visit()
         navigate("设置")
@@ -228,14 +228,14 @@ def main():
         navigate("清空视图")
         expect(page.get_by_text("当前视图暂无日志", exact=True)).to_be_visible()
         page.keyboard.press("Control+1")
-        expect(page.get_by_role("heading", name="校园网已连接", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="中国移动已连接", exact=True)).to_be_visible()
         page.keyboard.press("Control+3")
         expect(page.get_by_role("tablist")).to_be_visible()
         checks.append("themes-system-shortcuts-and-log-filters-copy-clear")
 
         for scenario, heading in (("offline", "校园网未连接"), ("unknown", "连接状态未知"),
-                                  ("external", "校园网已连接"), ("empty", "校园网未连接"),
-                                  ("busy", "校园网已连接")):
+                                  ("external", "中国移动已连接"), ("empty", "校园网未连接"),
+                                  ("busy", "中国移动已连接")):
             visit(f"?demo=1&scenario={scenario}&theme=light")
             expect(page.get_by_role("heading", name=heading, exact=True)).to_be_visible()
             if scenario in ("external", "busy"):

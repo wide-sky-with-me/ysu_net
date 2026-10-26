@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import type { FeedbackNotice } from './feedback';
 
 export const RELEASES_URL = 'https://github.com/wide-sky-with-me/ysu_net/releases/latest';
 export const UPDATE_PHASES = ['idle', 'disabled', 'manual', 'checking', 'up_to_date', 'available', 'downloading', 'verifying', 'reconstructing', 'quiescing', 'installing', 'restart_required', 'recovery_required', 'error'] as const;
@@ -91,6 +92,14 @@ export function updateErrorMessage(error: UpdateError): string {
     ipc: '读取更新状态失败，请重新打开设置后重试。',
   };
   return messages[error];
+}
+
+/** Only an explicit check's terminal result is a completion notice. */
+export function updateCheckNotice(snapshot: UpdateSnapshot): FeedbackNotice | null {
+  if (snapshot.phase === 'up_to_date') return { message: '当前已是最新版本', error: false };
+  if (snapshot.phase === 'available' && snapshot.release) return { message: `发现新版本 ${snapshot.release.version}`, error: false };
+  if (snapshot.phase === 'error') return { message: updateErrorMessage(snapshot.error || 'check_failed'), error: true };
+  return null;
 }
 
 export const updateWorking = (phase: UpdatePhase): boolean => ['checking', 'downloading', 'verifying', 'reconstructing', 'quiescing', 'installing'].includes(phase);

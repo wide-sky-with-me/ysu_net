@@ -51,7 +51,7 @@ def main():
             page.screenshot(path=str(args.output / name), full_page=True)
 
         visit("?demo=1&theme=light")
-        expect(page.get_by_role("heading", name="校园网已连接", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="中国移动已连接", exact=True)).to_be_visible()
         # Validate the Demo contract through its log and blocked updater, not an obsolete banner.
         navigate("日志")
         expect(page.get_by_role("log")).to_contain_text("所有数据和操作均为演示")
@@ -70,7 +70,7 @@ def main():
         expect(page.get_by_role("heading", name="校园网未连接", exact=True)).to_be_visible()
         expect(page.get_by_role("switch", name="自动重连", exact=True)).to_have_attribute("aria-checked", "false")
         navigate("连接校园网")
-        expect(page.get_by_role("heading", name="校园网已连接", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="中国联通已连接", exact=True)).to_be_visible()
         navigate("账户")
         expect(page.get_by_role("heading", name="套餐与用量", exact=True)).to_be_visible()
         shot("account-light.png")
@@ -139,8 +139,8 @@ def main():
         expect(page.get_by_role("region", name="软件更新", exact=True)).to_contain_text("模拟模式不联网检查或安装更新。")
 
         for scenario, heading in (("offline", "校园网未连接"), ("unknown", "连接状态未知"),
-                                  ("external", "校园网已连接"), ("empty", "校园网未连接"),
-                                  ("busy", "校园网已连接")):
+                                  ("external", "中国移动已连接"), ("empty", "校园网未连接"),
+                                  ("busy", "中国移动已连接")):
             visit(f"?demo=1&scenario={scenario}&theme=light")
             expect(page.get_by_role("heading", name=heading, exact=True)).to_be_visible()
             if scenario in ("external", "busy"):

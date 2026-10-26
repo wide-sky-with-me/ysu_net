@@ -14,7 +14,7 @@
   import { ambientMotion, pageMotion, stateMotion } from './lib/motion';
   import { DEFAULT_ACCENT } from './lib/accents';
   import { createTransport } from './lib/bridge';
-  import { accountInfoState, accountSwitchNotice, canAnimateQuota, reconnectNotice } from './lib/presentation';
+  import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
   import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
 
@@ -67,8 +67,8 @@
   const theme = $derived(snapshot?.prefs.theme || 'system');
   const accent = $derived(snapshot?.prefs.accent || DEFAULT_ACCENT);
   const actualTheme = $derived(theme === 'system' ? systemDark ? 'dark' : 'light' : theme);
-  const selectedService = $derived(snapshot?.config.service);
-  const statusTitle = $derived(transport.mode === 'web' ? '等待桌面核心' : starting && !snapshot ? '正在读取状态' : online ? '校园网已连接' : snapshot?.status?.online === false ? '校园网未连接' : '连接状态未知');
+  const selectedService = $derived(connectionService(snapshot));
+  const statusTitle = $derived(transport.mode === 'web' ? '等待桌面核心' : starting && !snapshot ? '正在读取状态' : connectionTitle(snapshot));
   const statusTone = $derived(online ? 'online' : snapshot?.status?.online === false ? 'offline' : 'unknown');
   const sidebarStatus = $derived(transport.mode === 'web' ? { label: '未连接核心', text: '待核心' }
     : online ? { label: '网络在线', text: '在线' }
@@ -459,7 +459,7 @@
         </div>
 
       {:else if page === 'about'}
-        <AboutPage mode={transport.mode} demo={!!native?.demo} {busy} currentVersion={native?.version || environment?.version || ''} />
+        <AboutPage mode={transport.mode} demo={!!native?.demo} {busy} currentVersion={native?.version || environment?.version || ''} onnotice={(value) => { if (mounted) notice = value; }} />
       {:else if page === 'logs'}
         <div class="log-toolbar"><div class="search-input"><Icon name="search" size={16} /><input aria-label="搜索日志" placeholder="搜索日志内容" bind:value={logSearch} />{#if logSearch}<button type="button" class="quiet-button search-clear" aria-label="清空搜索" onclick={() => { logSearch = ''; }}><Icon name="close" size={14} /></button>{/if}</div><select aria-label="筛选日志级别" bind:value={logFilter}><option value="all">全部级别</option><option value="info">信息</option><option value="success">成功</option><option value="error">错误</option></select><button type="button" class="icon-button" title="复制筛选日志" aria-label="复制筛选日志" disabled={!logs.length} onclick={() => { void copyLogs(); }}><Icon name="copy" size={18} /></button><button type="button" title="仅清空当前视图，保留核心日志" disabled={!logs.length} onclick={() => { logFloor = snapshot?.logs.length || 0; }}>清空视图</button></div>
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable log needs keyboard focus for reading.) -->

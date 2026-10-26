@@ -1,4 +1,19 @@
-import type { Snapshot } from './protocol';
+import { SERVICES, type Service, type Snapshot } from './protocol';
+
+function confirmedOnlineService(snapshot: Snapshot | null): Service | undefined {
+  return snapshot?.status?.online === true
+    ? SERVICES.find((service) => service === snapshot.status?.service) : undefined;
+}
+
+/** Online facts choose the visible carrier; this never rewrites account intent. */
+export function connectionService(snapshot: Snapshot | null): Service | undefined {
+  return confirmedOnlineService(snapshot) || snapshot?.config.service;
+}
+
+export function connectionTitle(snapshot: Snapshot | null): string {
+  if (snapshot?.status?.online === true) return `${confirmedOnlineService(snapshot) || '校园网'}已连接`;
+  return snapshot?.status?.online === false ? '校园网未连接' : '连接状态未知';
+}
 
 const ROUTINE_RECONNECT_MESSAGES = new Set([
   '自动重连已关闭',

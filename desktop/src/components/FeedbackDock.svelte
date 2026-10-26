@@ -42,14 +42,16 @@
 <div class="feedback-dock" bind:this={dock} aria-label="操作反馈">
   {#if view.notice}
     {@const currentNotice = view.notice}
-    <div class="feedback-toast feedback-notice" class:error={currentNotice.error} role={currentNotice.error ? 'alert' : 'status'}
-      transition:fade={{ duration: reducedMotion ? 0 : 120 }}
-      onpointerenter={() => controller.pauseNotice()} onpointerleave={resumeIfOutside}
-      onfocusin={() => controller.pauseNotice()} onfocusout={resumeIfOutside}>
-      <span class="feedback-symbol" aria-hidden="true"><Icon name={currentNotice.error ? 'alert' : 'check'} size={17} /></span>
-      <span class="feedback-message">{currentNotice.message}</span>
-      <button type="button" class="quiet-button feedback-close" aria-label="关闭提示" onclick={ondismiss}><Icon name="close" size={16} /></button>
-    </div>
+    {#key currentNotice}
+      <div class="feedback-toast feedback-notice" class:error={currentNotice.error} role={currentNotice.error ? 'alert' : 'status'}
+        transition:fade={{ duration: reducedMotion ? 0 : 120 }}
+        onpointerenter={() => controller.pauseNotice()} onpointerleave={resumeIfOutside}
+        onfocusin={() => controller.pauseNotice()} onfocusout={resumeIfOutside}>
+        <span class="feedback-symbol" aria-hidden="true"><Icon name={currentNotice.error ? 'alert' : 'check'} size={17} /></span>
+        <span class="feedback-message">{currentNotice.message}</span>
+        <button type="button" class="quiet-button feedback-close" aria-label="关闭提示" onclick={ondismiss}><Icon name="close" size={16} /></button>
+      </div>
+    {/key}
   {/if}
   {#if view.busyMessage}
     <div class="feedback-toast feedback-busy" role="status" transition:fade={{ duration: reducedMotion ? 0 : 120 }}>

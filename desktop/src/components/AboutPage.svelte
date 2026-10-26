@@ -5,9 +5,11 @@
     PROJECT_CONTRIBUTORS_URL, PROJECT_RELEASES_URL, PROJECT_REPOSITORY_URL, releaseNotes,
   } from '../lib/project';
   import type { ProjectLinkError, ProjectLinkTarget, ProjectMode } from '../lib/project';
+  import type { FeedbackNotice } from '../lib/feedback';
 
-  let { mode, demo = false, busy = false, currentVersion = '' }: {
+  let { mode, demo = false, busy = false, currentVersion = '', onnotice }: {
     mode: ProjectMode; demo?: boolean; busy?: boolean; currentVersion?: string;
+    onnotice?: (notice: FeedbackNotice | null) => void;
   } = $props();
   let opening = $state<ProjectLinkTarget | null>(null);
   let error = $state<ProjectLinkError | null>(null);
@@ -32,7 +34,7 @@
 </script>
 
 <div class="about-content">
-  <UpdatePanel {mode} {demo} {busy} {currentVersion} />
+  <UpdatePanel {mode} {demo} {busy} {currentVersion} {onnotice} />
 
   <section class="settings-section about-project" aria-labelledby="project-heading">
     <div class="section-heading"><h2 id="project-heading">开源项目</h2></div>

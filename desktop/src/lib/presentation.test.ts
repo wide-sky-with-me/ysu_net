@@ -1,6 +1,53 @@
 import { describe, expect, it } from 'vitest';
-import { accountInfoState, accountSwitchNotice, canAnimateQuota, reconnectNotice } from './presentation';
+import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice } from './presentation';
 import { demoSnapshot } from './demo';
+
+describe('connection carrier selection', () => {
+  it('shows confirmed online service without changing a different configured account', () => {
+    const state = demoSnapshot();
+    state.config.service = '校园网';
+    state.config.username = 'configured-fixture';
+    state.status = { online: true, service: '中国联通', user: 'observed-fixture', ip: '192.0.2.10', message: '' };
+    const before = JSON.stringify(state);
+    Object.freeze(state.config);
+    Object.freeze(state.status);
+    expect(connectionService(state)).toBe('中国联通');
+    expect(JSON.stringify(state)).toBe(before);
+  });
+  it.each([true, false, null])('keeps configured intent for unrecognized service, online=%s', (online) => {
+    const state = demoSnapshot();
+    state.config.service = '中国移动';
+    for (const service of [null, '', '未识别网络']) {
+      expect(connectionService({ ...state, status: { online, service, user: '', ip: '', message: '' } })).toBe('中国移动');
+    }
+  });
+  it.each([false, null])('does not treat a stale known service as online, online=%s', (online) => {
+    const state = demoSnapshot();
+    state.config.service = '校园网';
+    expect(connectionService({ ...state, status: { online, service: '中国联通', user: '', ip: '', message: '' } })).toBe('校园网');
+  });
+  it('supports all recognized online carriers and waits for the first snapshot', () => {
+    const state = demoSnapshot();
+    expect(connectionService(null)).toBeUndefined();
+    expect(connectionService({ ...state, status: null })).toBe(state.config.service);
+    for (const service of ['校园网', '中国移动', '中国联通', '中国电信']) {
+      expect(connectionService({ ...state, status: { online: true, service, user: '', ip: '', message: '' } })).toBe(service);
+    }
+  });
+  it('names only confirmed online carriers in the connection title', () => {
+    const state = demoSnapshot();
+    state.config.service = '中国移动';
+    for (const service of ['校园网', '中国移动', '中国联通', '中国电信']) {
+      expect(connectionTitle({ ...state, status: { online: true, service, user: '', ip: '', message: '' } })).toBe(`${service}已连接`);
+    }
+    for (const service of [null, '', '未识别网络']) {
+      expect(connectionTitle({ ...state, status: { online: true, service, user: '', ip: '', message: '' } })).toBe('校园网已连接');
+    }
+    expect(connectionTitle({ ...state, status: { online: false, service: '中国联通', user: '', ip: '', message: '' } })).toBe('校园网未连接');
+    expect(connectionTitle({ ...state, status: { online: null, service: '中国联通', user: '', ip: '', message: '' } })).toBe('连接状态未知');
+    expect(connectionTitle(null)).toBe('连接状态未知');
+  });
+});
 
 describe('reconnect presentation', () => {
   it.each([

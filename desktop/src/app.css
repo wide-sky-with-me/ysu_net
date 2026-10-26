@@ -196,7 +196,7 @@
   .feedback-toast.error .feedback-symbol { background: var(--danger-soft); color: var(--danger); }
   .feedback-busy { grid-template-columns: 32px minmax(0, 1fr); }
   .feedback-busy .feedback-symbol { background: var(--accent-soft); color: var(--accent); }
-  .feedback-busy .feedback-symbol svg, .header-action[aria-busy='true'] svg { transform-origin: center; animation: feedback-spin 1s linear infinite; }
+  .feedback-busy .feedback-symbol svg, .header-action[aria-busy='true'] svg, .update-check[aria-busy='true'] svg { transform-origin: center; animation: feedback-spin 1s linear infinite; }
   @keyframes feedback-spin { to { transform: rotate(360deg); } }
   .connection-overview { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'context' 'automation' 'controls'; gap: 16px; }
   .connection-context { grid-area: context; display: flex; flex-direction: column; padding: 26px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 28px; }

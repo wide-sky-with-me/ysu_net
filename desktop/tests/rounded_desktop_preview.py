@@ -143,7 +143,7 @@ def main():
         settle()
         assert page.evaluate('window.__motionCalls.length') == same_value_calls
         button('连接校园网').click()
-        expect(page.get_by_role('heading', name='校园网已连接', exact=True)).to_be_visible()
+        expect(page.get_by_role('heading', name='中国移动已连接', exact=True)).to_be_visible()
         settle()
         status_colors('online')
         checks.append('green-online-red-offline-real-state-pulse-and-no-same-snapshot-replay')
@@ -236,7 +236,7 @@ def main():
         for theme in ('light', 'dark'):
             for accent in ('teal', 'blue', 'indigo', 'violet', 'rose', 'amber'):
                 visit(theme, accent)
-                expect(page.get_by_role('heading', name='校园网已连接', exact=True)).to_be_visible()
+                expect(page.get_by_role('heading', name='中国移动已连接', exact=True)).to_be_visible()
                 settle()
                 status_colors('online')
                 layout(theme + '-' + accent)

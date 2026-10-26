@@ -1,18 +1,22 @@
 <script lang="ts">
   import Confirm from '../components/Confirm.svelte';
   import Icon from '../components/Icon.svelte';
-  import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, RELEASES_URL, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
+  import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, RELEASES_URL, updateCheckNotice, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
   import type { UpdateError, UpdatePhase, UpdateSnapshot } from './updater';
+  import type { FeedbackNotice } from './feedback';
+  type Operation = 'status' | 'check' | 'install' | 'resume' | 'restart';
 
-  let { mode, demo = false, busy = false, currentVersion = '' }: { mode: 'desktop' | 'demo' | 'web'; demo?: boolean; busy?: boolean; currentVersion?: string } = $props();
+  let { mode, demo = false, busy = false, currentVersion = '', onnotice }: { mode: 'desktop' | 'demo' | 'web'; demo?: boolean; busy?: boolean; currentVersion?: string; onnotice?: (notice: FeedbackNotice | null) => void } = $props();
   let snapshot = $state<UpdateSnapshot>(initialUpdateSnapshot('web'));
-  let pending = $state(false);
+  let pending = $state<Operation | null>(null);
   let openingReleases = $state(false);
   let ready = $state(false);
   let error = $state<UpdateError | null>(null);
+  let notifiedError = $state<UpdateError | null>(null);
   let confirmation = $state<string | null>(null);
   const client = $derived(createUpdaterClient(mode, demo, currentVersion));
-  const working = $derived(pending || updateWorking(snapshot.phase));
+  const checking = $derived(pending === 'check' || snapshot.phase === 'checking');
+  const working = $derived(pending !== null || updateWorking(snapshot.phase));
   const installable = $derived(!working && canInstallUpdate(snapshot, busy));
   const percentage = $derived(snapshot.phase === 'downloading' ? updatePercent(snapshot) : undefined);
   const visibleError = $derived(error || snapshot.error);
@@ -58,24 +62,38 @@
     return () => { active = false; stop?.(); };
   });
 
-  async function run(operation: 'status' | 'check' | 'install' | 'resume' | 'restart', version?: string) {
+  async function run(operation: Operation, version?: string) {
     if (pending) return;
     if (operation === 'install' && (!installable || version !== snapshot.release?.version)) { error = busy ? 'core_busy' : 'stale_candidate'; return; }
-    pending = true;
+    pending = operation;
     error = null;
+    notifiedError = null;
+    if (operation === 'check') onnotice?.(null);
     try {
       if (operation === 'restart') await client.restart();
       else {
         const value = operation === 'install' ? await client.install(version!) : await client[operation]();
         accept(value);
         ready = true;
+        if (operation === 'check' && onnotice) {
+          const completion = updateCheckNotice(value);
+          if (completion) {
+            if (completion.error) notifiedError = value.error || 'check_failed';
+            onnotice(completion);
+          }
+        }
       }
     } catch (value) {
-      error = updateErrorCode(value);
-      // The authoritative state distinguishes an ordinary failure (core restored)
-      // from failed core recovery; do not assume rejection means authentication is safe.
+      const code = updateErrorCode(value);
+      error = code;
+      // Status remains authoritative for recovery; an IPC acknowledgement alone
+      // is never a successful check, and raw rejected errors stay private.
       try { accept(await client.status()); ready = true; } catch { /* Keep the fixed error. */ }
-    } finally { pending = false; }
+      if (operation === 'check' && onnotice) {
+        notifiedError = code;
+        onnotice({ message: updateErrorMessage(code), error: true });
+      }
+    } finally { pending = null; }
   }
 </script>
 
@@ -103,10 +121,10 @@
     {:else if snapshot.phase === 'recovery_required'}
       {#if snapshot.error === 'recovery_failed'}<button type="button" disabled={working} onclick={() => { void run('resume'); }}>恢复后台</button>{/if}
     {:else if !['disabled', 'manual'].includes(snapshot.phase)}
-      <button type="button" disabled={working || busy} onclick={() => { void run(ready ? 'check' : 'status'); }}><Icon name="refresh" size={16} />{!ready ? '重新读取状态' : snapshot.phase === 'checking' ? '正在检查' : '检查更新'}</button>
+      <button type="button" class="update-check" aria-busy={checking} disabled={working || busy} onclick={() => { void run(ready ? 'check' : 'status'); }}><Icon name="refresh" size={16} />{!ready ? '重新读取状态' : checking ? '正在检查' : '检查更新'}</button>
     {/if}
   </div>
-  {#if visibleError}<p class="update-error" role="alert">{updateErrorMessage(visibleError)}</p>{/if}
+  {#if visibleError}<p class="update-error" role={visibleError === notifiedError ? undefined : 'alert'}>{updateErrorMessage(visibleError)}</p>{/if}
   {#if snapshot.release?.notes}<details class="update-notes" open><summary><span>更新说明</span></summary><pre>{snapshot.release.notes}</pre></details>{/if}
   {#if progressVisible}
     <div class="update-progress">

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
-import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, parseUpdateSnapshot, RELEASES_URL, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
+import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, parseUpdateSnapshot, RELEASES_URL, UPDATE_ERRORS, UPDATE_PHASES, updateCheckNotice, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
 import type { UpdatePhase, UpdateSnapshot } from './updater';
 import { render } from 'svelte/server';
 import UpdatePanel from './UpdatePanel.svelte';
@@ -98,6 +98,35 @@ describe('user-initiated updater bridge', () => {
     await expect(createUpdaterClient('desktop').check()).rejects.toBe('feed_not_ready');
     expect(updateErrorMessage('feed_not_ready')).toContain('更新源尚未就绪');
     expect(updateErrorMessage('feed_not_ready')).not.toContain('最新版');
+  });
+});
+
+describe('explicit update-check completion notices', () => {
+  beforeEach(() => vi.resetAllMocks());
+  it('uses the existing feedback shape and exact successful check wording', () => {
+    expect(updateCheckNotice({ ...candidate('up_to_date'), release: null })).toEqual({ message: '当前已是最新版本', error: false });
+    const available = { ...candidate(), release: { version: '0.2.2', notes: '<script>fixture-private</script>' } };
+    expect(updateCheckNotice(available)).toEqual({ message: '发现新版本 0.2.2', error: false });
+    expect(JSON.stringify(updateCheckNotice(available))).not.toContain('fixture-private');
+  });
+  it.each(UPDATE_PHASES.filter((phase) => !['up_to_date', 'available', 'error'].includes(phase)))('never treats %s as a completed explicit check', (phase) => {
+    expect(updateCheckNotice(candidate(phase))).toBeNull();
+  });
+  it.each(UPDATE_ERRORS)('maps terminal %s through the fixed error-message whitelist', (error) => {
+    expect(updateCheckNotice({ ...candidate('error'), error })).toEqual({ message: updateErrorMessage(error), error: true });
+  });
+  it('does not turn a missing terminal error into success', () => {
+    expect(updateCheckNotice({ ...candidate('error'), error: null })).toEqual({ message: updateErrorMessage('check_failed'), error: true });
+  });
+  it('only exposes sanitized IPC failures, never raw rejected text or candidate notes', async () => {
+    const raw = 'https://fixture.invalid/?token=private /private/fixture.exe';
+    mocks.invoke.mockRejectedValue(new Error(raw));
+    let code = updateErrorCode(null);
+    try { await createUpdaterClient('desktop').check(); } catch (error) { code = updateErrorCode(error); }
+    expect(code).toBe('ipc');
+    const notice = updateCheckNotice({ ...candidate('error'), error: code });
+    expect(notice).toEqual({ message: updateErrorMessage('ipc'), error: true });
+    for (const value of ['fixture.invalid', 'token=private', '/private/', '<script>']) expect(JSON.stringify(notice)).not.toContain(value);
   });
 });
 
