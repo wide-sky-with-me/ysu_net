@@ -173,7 +173,12 @@ async fn set_autostart(
     changes: tauri::State<'_, startup::StartupChanges>,
 ) -> Result<(), String> {
     let _change = changes.gate.lock().await;
-    startup::set_enabled(&*app.autolaunch(), enabled, bridge.demo, bridge.update_busy())
+    startup::set_enabled(
+        &*app.autolaunch(),
+        enabled,
+        bridge.demo,
+        bridge.update_busy(),
+    )
 }
 
 #[tauri::command]

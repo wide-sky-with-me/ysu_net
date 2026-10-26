@@ -1260,7 +1260,13 @@ fn startup_preference_request_boundary_requires_a_real_boolean() {
         ));
     }
     for invalid in [
-        json!(null), json!("true"), json!("false"), json!(0), json!(1), json!([]), json!({}),
+        json!(null),
+        json!("true"),
+        json!("false"),
+        json!(0),
+        json!(1),
+        json!([]),
+        json!({}),
     ] {
         assert!(!valid_request(
             "save_prefs",
@@ -1302,8 +1308,16 @@ async fn startup_preference_returns_and_publishes_full_durable_snapshots() {
         let (reopened, _) = Runtime::new(store.clone(), Arc::new(|_| {})).unwrap();
         assert_eq!(reopened.snapshot()["prefs"], saved["prefs"]);
         for key in [
-            "config", "accounts", "status", "auto", "busy", "busy_message", "info", "info_error",
-            "logs", "environment",
+            "config",
+            "accounts",
+            "status",
+            "auto",
+            "busy",
+            "busy_message",
+            "info",
+            "info_error",
+            "logs",
+            "environment",
         ] {
             assert_eq!(saved[key], before[key]);
         }

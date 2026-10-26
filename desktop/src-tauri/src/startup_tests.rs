@@ -85,10 +85,8 @@ fn launch_visibility_matrix_preserves_manual_legacy_and_smoke_semantics() {
                 for preference in [false, true] {
                     for icon in [false, true] {
                         for host in [false, true] {
-                            let hidden = !smoke
-                                && icon
-                                && host
-                                && (minimized || (autostart && preference));
+                            let hidden =
+                                !smoke && icon && host && (minimized || (autostart && preference));
                             assert_eq!(origin.show_on_launch(preference, icon, host), !hidden);
                         }
                     }

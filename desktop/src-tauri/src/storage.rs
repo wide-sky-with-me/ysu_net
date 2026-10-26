@@ -652,9 +652,11 @@ mod tests {
         let legacy = json!({
             "theme":"dark", "accent":"rose", "close_to_tray":false, "auto_reconnect":true
         });
-        assert!(serde_json::from_value::<Prefs>(legacy.clone())
-            .unwrap()
-            .autostart_minimized);
+        assert!(
+            serde_json::from_value::<Prefs>(legacy.clone())
+                .unwrap()
+                .autostart_minimized
+        );
         write_json(&store.prefs_path(), &legacy).unwrap();
         let before = fs::read(store.prefs_path()).unwrap();
         let prefs = store.load_prefs();
@@ -698,7 +700,13 @@ mod tests {
         let store = Store::open(None, true).unwrap();
         let auth_before = fs::read(&store.path).unwrap();
         let invalid = [
-            json!(null), json!("true"), json!("false"), json!(0), json!(1), json!([]), json!({}),
+            json!(null),
+            json!("true"),
+            json!("false"),
+            json!(0),
+            json!(1),
+            json!([]),
+            json!({}),
         ];
         for value in &invalid {
             assert!(store
@@ -728,7 +736,9 @@ mod tests {
             let before = fs::read(store.prefs_path()).unwrap();
             for value in &invalid {
                 assert!(store
-                    .update_prefs(changes(json!({"autostart_minimized":value,"theme":"light"})))
+                    .update_prefs(changes(
+                        json!({"autostart_minimized":value,"theme":"light"})
+                    ))
                     .is_err());
                 assert_eq!(fs::read(store.prefs_path()).unwrap(), before);
             }

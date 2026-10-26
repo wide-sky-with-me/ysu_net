@@ -603,5 +603,7 @@
     input:focus-visible, select:focus-visible, .password-control:focus-within, .search-input:focus-within { outline: 2px solid Highlight; outline-offset: 1px; }
     .toggle-knob { background: ButtonText; }
     .toggle[aria-checked='true'] .toggle-knob { background: HighlightText; }
+    .toggle[aria-busy='true'] .toggle-knob::after { border-color: ButtonFace; border-top-color: transparent; }
+    .toggle[aria-busy='true'][aria-checked='true'] .toggle-knob::after { border-color: Highlight; border-top-color: transparent; }
   }
 }
