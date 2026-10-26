@@ -44,7 +44,7 @@
     {@const currentNotice = view.notice}
     {#key currentNotice}
       <div class="feedback-toast feedback-notice" class:error={currentNotice.error} role={currentNotice.error ? 'alert' : 'status'}
-        transition:fade={{ duration: reducedMotion ? 0 : 120 }}
+        transition:fade|global={{ duration: reducedMotion ? 0 : 120 }}
         onpointerenter={() => controller.pauseNotice()} onpointerleave={resumeIfOutside}
         onfocusin={() => controller.pauseNotice()} onfocusout={resumeIfOutside}>
         <span class="feedback-symbol" aria-hidden="true"><Icon name={currentNotice.error ? 'alert' : 'check'} size={17} /></span>
