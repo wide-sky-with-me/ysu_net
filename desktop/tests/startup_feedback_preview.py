@@ -451,12 +451,11 @@ class Regression:
 
     def finish(self, page, operation, outcome='saved', *, actual=None):
         self.fixture(page, 'finish', operation, outcome)
-        if operation == 'autostart' and outcome in ('raw', 'error'):
-            self.fixture(page, 'discard', 'settings')
-        if operation == 'autostart' and outcome not in ('raw', 'error'):
+        if operation == 'autostart':
             self.wait_pending(page, 'settings')
             expect(page.locator(NOTICE)).to_have_count(0)
-            # Read-back is separately held: setter acknowledgement cannot save UI state.
+            # Success and failure both reconcile actual OS state; an error can follow
+            # a partial setter mutation. Resolve the held read instead of discarding it.
             expect(self.control(page, operation)).to_have_attribute('aria-busy', 'true')
             self.fixture(page, 'finish', 'settings', 'saved', actual)
 
