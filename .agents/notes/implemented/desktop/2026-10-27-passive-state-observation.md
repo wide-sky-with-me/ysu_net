@@ -1,7 +1,7 @@
 # 独立只读状态观察与身份缓存
 
 日期：2026-10-27<br>
-状态：首轮观察 / 导航源码已通过 CI；追加来源绑定的新完整候选待回归；未新发行、未现场确认<br>
+状态：观察、导航及来源绑定已通过四平台 Native / Mock 云端回归；未新发行、未现场确认<br>
 范围：Windows / Linux / macOS 共用 Rust Worker 与桌面事件提示，不改变 CLI 后台或认证授权
 
 ## 背景
@@ -33,10 +33,10 @@ API HTML resolver 复用原有窄规范化，不增加 HTTP 许可：只处理�
 
 这补的是合成导航兼容路径，不是对未知远端 URL 的放行，也未修复 Browser 分支另有的缺口。不能据此宣称 Win11 现场已恢复，不能要求用户公开会话 URL 或原始认证材料。
 
-## 实现与待验证
+## 实现与验证范围
 
 [原生观察器](../../../../desktop/src-tauri/src/runtime_observer.rs)、[串行运行器与提交配对](../../../../desktop/src-tauri/src/runtime.rs)、[来源类型](../../../../desktop/crates/ysu-auth/src/info_observation.rs)、[AuthClient 读取](../../../../desktop/crates/ysu-auth/src/lib.rs)、[事件桥](../../../../desktop/src/lib/observation.ts)与[页面接入](../../../../desktop/src/App.svelte)；[API resolver](../../../../desktop/crates/ysu-auth/src/protocol.rs)和[原可信导航边界](../../../../desktop/crates/ysu-auth/src/transport.rs)。
 
-首轮源码 `68f553a4` 已通过四平台 Native、Mock 与 Community，含当时的原生观察、[TS 合并 / 清理](../../../../desktop/src/lib/observation.test.ts)、[预览回归](../../../../desktop/tests/state_observer_preview.py)与[API 导航反例](../../../../desktop/crates/ysu-auth/src/regression_tests.rs)范围。追加来源绑定的[库级组合测试](../../../../desktop/crates/ysu-auth/src/info_observation_tests.rs)、[同 session 整链反例](../../../../desktop/crates/ysu-auth/src/info_observation_integration_tests.rs)与[Native 晚写回反例](../../../../desktop/src-tauri/src/runtime_observer_tests.rs)已补源码，新完整候选仍待云端格式化 / 全回归，不把首轮全绿当作新竞态已覆盖。全部产品测试与构建只走 GitHub Actions；Demo / Web、合成事件及回环夹具都不证明真实校园网或系统网络变化已验收。
+开发候选 `1a81aac9` 已通过四目标 Native 与 Mock 云端回归，包含[库级组合测试](../../../../desktop/crates/ysu-auth/src/info_observation_tests.rs)、[同 session 整链反例](../../../../desktop/crates/ysu-auth/src/info_observation_integration_tests.rs)、[Native 晚写回反例](../../../../desktop/src-tauri/src/runtime_observer_tests.rs)、[TS 合并 / 清理](../../../../desktop/src/lib/observation.test.ts)、[预览回归](../../../../desktop/tests/state_observer_preview.py)与[API 导航反例](../../../../desktop/crates/ysu-auth/src/regression_tests.rs)。首轮未覆盖来源竞态、追加回归的失败与复测分开见[当次对照验收](../../../../docs/auth-flow-review-2026-10-27.md)。全部产品测试与构建只走 GitHub Actions；Demo / Web、合成事件及回环夹具都不证明真实校园网或系统网络变化已验收。
 
 本次只做源码与文档静态核对，不连接校园网、不改本机配置或凭据、不运行本机产品。现行运行说明归[桌面运行语义](../../../../docs/tauri-desktop.md#独立只读状态观察开发源码)，历史诊断与更新门闩理由继续见[既有决策](2026-10-22-diagnostics-and-update-lifecycle.md)，不改其历史结论。
