@@ -7,6 +7,7 @@ mod cdp_pipe;
 mod cookies;
 mod crypto;
 mod diagnostic;
+mod info_observation;
 mod presentation;
 mod protocol;
 mod quota;
@@ -20,6 +21,7 @@ use transport::{Operation, Transport};
 
 pub use browser::system_chromium as browser_path;
 pub use diagnostic::{AuthDiagnostic, DiagnosticOperation, DiagnosticReason, DiagnosticStage};
+pub use info_observation::InfoObservation;
 pub use quota::{classify_quota, Quota, QuotaState};
 pub const SERVICES: [&str; 4] = ["校园网", "中国移动", "中国联通", "中国电信"];
 pub const QUERY_ERROR: i32 = 2;
@@ -276,21 +278,29 @@ impl AuthClient {
     }
 
     pub async fn info(&self) -> Result<serde_json::Value, AuthError> {
+        self.info_observation().await.map(|observation| observation.info)
+    }
+
+    /// Read-only account information with before/after identity evidence.
+    /// One session, lock and operation deadline cover the complete observation.
+    pub async fn info_observation(&self) -> Result<InfoObservation, AuthError> {
         diagnose(DiagnosticOperation::Info, async {
             let op = self.operation();
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let session = self.session(&op).await?;
-            let online = session.snapshot(&op).await?;
-            if !online.status.online {
-                return Ok(serde_json::json!({"online":false,"fields":[],"items":[]}));
+            let before = session.snapshot(&op).await?;
+            if !before.status.online {
+                return Ok(InfoObservation::offline(before.status));
             }
             let account = session.account(&op).await?;
-            let mut summary = presentation::summary(&online.payload, &account);
-            summary["quota"] = serde_json::to_value(classify_quota(&account))
-                .expect("quota contains only an enum and text");
+            let after = session
+                .snapshot(&op)
+                .await
+                .map_err(info_observation::postcheck_error)?;
+            let observation = InfoObservation::from_snapshots(&before, &account, after)?;
             op.remaining()
-                .map_err(|e| e.at(DiagnosticStage::AccountInfo))?;
-            Ok(summary)
+                .map_err(|e| e.at(DiagnosticStage::Verification))?;
+            Ok(observation)
         })
         .await
     }
@@ -429,3 +439,5 @@ mod quota_tests;
 mod service_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod info_observation_tests;

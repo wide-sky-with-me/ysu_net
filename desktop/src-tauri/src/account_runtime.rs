@@ -479,7 +479,7 @@ impl Backend {
             Self::Native => AuthClient::new(config.clone())?.verified_info().await,
             Self::Demo(_) => {
                 let before = self.status(config).await?;
-                let info = self.info(config).await?;
+                let info = self.info(config).await?.info;
                 let after = self.status(config).await?;
                 if !before.online
                     || before.user != config.username

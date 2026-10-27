@@ -83,6 +83,139 @@ fn online() -> Status {
     }
 }
 
+#[tokio::test]
+async fn demo_info_observation_uses_actual_source_without_extra_status_queries() {
+    let (runtime, _) = fixture();
+    let config = runtime.state.lock().unwrap().config.clone();
+    let actual = online();
+    {
+        let demo = demo(&runtime);
+        let mut demo = demo.lock().unwrap();
+        demo.online = actual.online;
+        demo.user = actual.user.clone();
+        demo.service = actual.service.clone();
+        demo.ip = Some(actual.ip.clone());
+    }
+    assert_ne!(actual.user, config.username);
+    let observation = runtime.backend.info(&config).await.unwrap();
+    assert!(observation.matches_status(&actual));
+    assert_eq!(observation.info["online"], true);
+    assert!(observation.info.get("status").is_none());
+    assert_eq!(demo(&runtime).lock().unwrap().status_calls, 0);
+    assert_eq!(demo(&runtime).lock().unwrap().info_calls, 1);
+
+    // Keep the old contradictory-payload fixture: actual source remains online,
+    // while the explicit info payload override exercises StateUnrecognized handling.
+    demo(&runtime).lock().unwrap().info_online = Some(false);
+    let observation = runtime.backend.info(&config).await.unwrap();
+    assert!(observation.status.online);
+    assert!(observation.matches_status(&actual));
+    assert_eq!(observation.info["online"], false);
+    assert_eq!(demo(&runtime).lock().unwrap().status_calls, 0);
+    assert_eq!(demo(&runtime).lock().unwrap().info_calls, 2);
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 0);
+    assert_eq!(demo(&runtime).lock().unwrap().logouts, 0);
+    assert_eq!(runtime.snapshot()["config"]["username"], config.username);
+}
+
+#[tokio::test]
+async fn info_source_change_before_verification_never_republishes_old_info_and_recovers() {
+    for field in ["user", "service", "ip"] {
+        let (runtime, receiver) = fixture();
+        let source = online();
+        let mut current = source.clone();
+        match field {
+            "user" => current.user = "second-external-user".into(),
+            "service" => current.service = Some("中国联通".into()),
+            "ip" => current.ip = "192.0.2.11".into(),
+            _ => unreachable!(),
+        }
+        let verification = Arc::new(tokio::sync::Notify::new());
+        {
+            let demo = demo(&runtime);
+            let mut demo = demo.lock().unwrap();
+            demo.online = source.online;
+            demo.user = source.user.clone();
+            demo.service = source.service.clone();
+            demo.ip = Some(source.ip.clone());
+            demo.status_gate = Some(verification.clone());
+        }
+        let mut worker = Worker::new(runtime.clone(), receiver);
+        worker.publish_status(&Ok(source.clone()), true);
+        runtime.update(|state| {
+            state.info = json!({"online":true,"fields":[["账号",source.user.clone()]],"items":[]});
+        });
+        let before = runtime.snapshot();
+        let saved = std::fs::read(&runtime.store.path).unwrap();
+        let saved_prefs = serde_json::to_value(runtime.store.load_prefs()).unwrap();
+        let task = tokio::spawn(async move {
+            worker.execute(Action::Info).await.unwrap();
+            worker
+        });
+        wait(&runtime, |_| {
+            demo(&runtime).lock().unwrap().status_calls == 1
+        })
+        .await;
+        {
+            let demo = demo(&runtime);
+            let mut demo = demo.lock().unwrap();
+            assert_eq!(demo.info_calls, 1, "info must precede independent verification");
+            demo.user = current.user.clone();
+            demo.service = current.service.clone();
+            demo.ip = Some(current.ip.clone());
+            demo.status_gate = None;
+        }
+        verification.notify_one();
+        let mut worker = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        let rejected = runtime.snapshot();
+        assert_eq!(rejected["status"]["online"], true);
+        assert_eq!(rejected["status"]["user"], current.user);
+        assert_eq!(rejected["status"]["service"], json!(current.service));
+        assert_eq!(rejected["status"]["ip"], current.ip);
+        assert!(rejected["info"].is_null(), "late old info survived {field} change");
+        let error = rejected["info_error"].as_str().unwrap();
+        for category in [
+            "phase=verification",
+            "stage=verification",
+            "code=2",
+            "reason=identity_mismatch",
+        ] {
+            assert!(error.contains(category), "missing {category} for {field}");
+        }
+        assert!(!error.contains(&source.user));
+        assert!(!error.contains(&current.user));
+        worker.observe().await;
+        assert!(runtime.snapshot()["info"].is_null());
+        assert_eq!(runtime.snapshot()["info_error"], rejected["info_error"]);
+        assert_eq!(runtime.snapshot()["logs"], rejected["logs"]);
+
+        // A new explicit read of actual B is allowed even though saved intent is A.
+        assert_ne!(runtime.snapshot()["config"]["username"], current.user);
+        worker.execute(Action::Info).await.unwrap();
+        let recovered = runtime.snapshot();
+        assert_eq!(recovered["status"]["user"], current.user);
+        assert_eq!(recovered["info"]["online"], true);
+        assert_eq!(recovered["info"]["fields"], json!([["账号",current.user]]));
+        assert!(recovered["info"].get("status").is_none());
+        assert_eq!(recovered["info_error"], "");
+        for key in ["config", "prefs", "accounts", "auto"] {
+            assert_eq!(recovered[key], before[key], "info changed saved intent {key}");
+        }
+        assert_eq!(std::fs::read(&runtime.store.path).unwrap(), saved);
+        assert_eq!(serde_json::to_value(runtime.store.load_prefs()).unwrap(), saved_prefs);
+        assert_eq!(demo(&runtime).lock().unwrap().info_calls, 2);
+        assert_eq!(demo(&runtime).lock().unwrap().status_calls, 3);
+        assert_eq!(demo(&runtime).lock().unwrap().logins, 0);
+        assert_eq!(demo(&runtime).lock().unwrap().logouts, 0);
+        assert!(!runtime.desired.load(Ordering::Acquire));
+        assert_eq!(runtime.auto_version.load(Ordering::Acquire), 0);
+        assert_eq!(runtime.rotation_version.load(Ordering::Acquire), 0);
+    }
+}
+
 #[test]
 fn periodic_timer_runs_auto_off_and_near_due_auto_samples_are_reused() {
     let now = Instant::now();

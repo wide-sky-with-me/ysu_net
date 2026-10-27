@@ -24,7 +24,7 @@ use tokio::{
 };
 use ysu_auth::{
     AuthClient, AuthDiagnostic, AuthError, Config, DiagnosticOperation, DiagnosticReason,
-    DiagnosticStage, Status, SERVICES,
+    DiagnosticStage, InfoObservation, Status, SERVICES,
 };
 
 const MAX_REQUEST: usize = 32 * 1024;
@@ -1044,7 +1044,10 @@ impl Worker {
                 self.phase = DiagnosticStage::AccountInfo;
                 self.busy("正在读取账户信息");
                 let result = self.runtime.backend.info(&config).await;
-                let info = result.as_ref().ok().and_then(normalize_info);
+                let info = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|observation| normalize_info(&observation.info));
                 let info_error = match &result {
                     Err(error) => Some(format!(
                         "账户信息获取失败，请稍后重试 [{}]",
@@ -1070,6 +1073,13 @@ impl Worker {
                 self.phase = DiagnosticStage::Verification;
                 self.busy("正在复查连接状态");
                 let observed = self.status(&config).await;
+                // status() may have invalidated cached info after an external identity change.
+                // Do not republish this read's older payload under that newer actual identity.
+                let matches_observed = result.as_ref().is_ok_and(|source| {
+                    observed
+                        .as_ref()
+                        .is_ok_and(|status| source.matches_status(status))
+                });
                 self.runtime.update(|state| {
                     if observed.as_ref().is_ok_and(|status| !status.online) {
                         // Only the independent status observation can confirm an offline connection.
@@ -1089,17 +1099,27 @@ impl Worker {
                     } else if let Some(message) = &info_error {
                         state.info = Value::Null;
                         state.info_error = message.clone();
-                    } else if info.as_ref().is_some_and(|info| info["online"] == true) {
+                    } else if info.as_ref().is_some_and(|info| info["online"] == true)
+                        && matches_observed
+                    {
                         state.info = info.clone().unwrap();
                     } else {
                         state.info = Value::Null;
-                        let error = self.local_error(
-                            2,
-                            DiagnosticStage::Verification,
-                            DiagnosticReason::StateUnrecognized,
-                        );
+                        let (reason, message) =
+                            if info.as_ref().is_some_and(|info| info["online"] == true) {
+                                (
+                                    DiagnosticReason::IdentityMismatch,
+                                    "账户信息读取期间实际身份已变化，请重新读取",
+                                )
+                            } else {
+                                (
+                                    DiagnosticReason::StateUnrecognized,
+                                    "账户信息与连接状态不一致，请重新读取",
+                                )
+                            };
+                        let error = self.local_error(2, DiagnosticStage::Verification, reason);
                         state.info_error = format!(
-                            "账户信息与连接状态不一致，请重新读取 [{}]",
+                            "{message} [{}]",
                             diagnostic_detail(self.action, self.phase, &error)
                         );
                         state.log("error", &state.info_error.clone());
@@ -1384,6 +1404,8 @@ struct Demo {
     service: Option<String>,
     user: String,
     #[cfg(test)]
+    ip: Option<String>,
+    #[cfg(test)]
     quota: Option<Value>,
     #[cfg(test)]
     login_failures: std::collections::HashMap<String, i32>,
@@ -1395,6 +1417,8 @@ struct Demo {
     status_diagnostic: Option<AuthDiagnostic>,
     #[cfg(test)]
     status_delay: Duration,
+    #[cfg(test)]
+    status_gate: Option<Arc<tokio::sync::Notify>>,
     #[cfg(test)]
     status_calls: u32,
     #[cfg(test)]
@@ -1420,11 +1444,18 @@ struct Demo {
 }
 impl Demo {
     fn status(&self) -> Status {
+        #[cfg(test)]
+        let ip = self
+            .ip
+            .clone()
+            .unwrap_or_else(|| if self.online { "192.0.2.10" } else { "" }.into());
+        #[cfg(not(test))]
+        let ip = if self.online { "192.0.2.10" } else { "" }.into();
         Status {
             online: self.online,
             service: self.service.clone(),
             user: self.user.clone(),
-            ip: if self.online { "192.0.2.10" } else { "" }.into(),
+            ip,
             message: if self.online { "在线" } else { "离线" }.into(),
         }
     }
@@ -1451,12 +1482,15 @@ impl Backend {
             Self::Demo(demo) => {
                 #[cfg(test)]
                 {
-                    let delay = {
+                    let (delay, gate) = {
                         let mut state = demo.lock().unwrap();
                         state.status_calls += 1;
                         state.status_backends.push(config.backend.clone());
-                        state.status_delay
+                        (state.status_delay, state.status_gate.clone())
                     };
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
                     tokio::time::sleep(delay).await;
                 }
                 #[cfg(test)]
@@ -1479,9 +1513,9 @@ impl Backend {
             }
         }
     }
-    async fn info(&self, config: &Config) -> Result<Value, AuthError> {
+    async fn info(&self, config: &Config) -> Result<InfoObservation, AuthError> {
         match self {
-            Self::Native => AuthClient::new(config.clone())?.info().await,
+            Self::Native => AuthClient::new(config.clone())?.info_observation().await,
             Self::Demo(demo) => {
                 #[cfg(test)]
                 {
@@ -1503,10 +1537,13 @@ impl Backend {
                 let online = demo.info_online.unwrap_or(demo.online);
                 #[cfg(not(test))]
                 let online = demo.online;
-                Ok(
-                    json!({"online":online, "fields":if online { vec![["账号", demo.user.as_str()]] } else { vec![] },
-                    "items":if online { vec![["剩余流量", "12.5 GB"]] } else { vec![] }}),
-                )
+                // Capture the actual source identity with the payload, without a second
+                // backend status call, config-owner inference or display-field parsing.
+                Ok(InfoObservation {
+                    status: demo.status(),
+                    info: json!({"online":online, "fields":if online { vec![["账号", demo.user.as_str()]] } else { vec![] },
+                        "items":if online { vec![["剩余流量", "12.5 GB"]] } else { vec![] }}),
+                })
             }
         }
     }

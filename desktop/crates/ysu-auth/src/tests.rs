@@ -1142,3 +1142,5 @@ async fn chromium_cdp_captcha_and_no_fallback_fixture() {
 mod diagnostics;
 #[path = "regression_tests.rs"]
 mod regression;
+#[path = "info_observation_integration_tests.rs"]
+mod info_observation;
