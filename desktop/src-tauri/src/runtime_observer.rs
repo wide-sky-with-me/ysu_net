@@ -1,4 +1,5 @@
 //! Passive observations share the authentication worker, but never its reconnect policy.
+//! Decision: .agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md
 use super::*;
 
 const OBSERVE_INTERVAL: Duration = Duration::from_secs(30);
@@ -118,9 +119,12 @@ impl State {
     fn accept_observed_status(&mut self, status: &Status) {
         if status.online {
             let identity = StatusIdentity::from_status(status);
-            let previous = StatusIdentity::from_value(&self.status)
-                .or_else(|| self.observed_identity.clone());
-            if previous.as_ref().is_some_and(|previous| previous != &identity) {
+            let previous =
+                StatusIdentity::from_value(&self.status).or_else(|| self.observed_identity.clone());
+            if previous
+                .as_ref()
+                .is_some_and(|previous| previous != &identity)
+            {
                 self.info = Value::Null;
                 self.info_error.clear();
             } else if self.info["online"] == false {

@@ -67,6 +67,7 @@ export interface Snapshot {
 export interface DesktopSettings { autostart: boolean; tray_available: boolean; tray_tooltip?: boolean; version: string; demo?: boolean }
 export interface CoreCommands {
   snapshot: Record<string, never>;
+  observe: Record<string, never>;
   action: { name: 'status' | 'info' | 'login' | 'logout' | 'switch' | 'set_service' | 'set_auto' | 'switch_account'; value?: string | boolean };
   save_config: ConfigChanges;
   save_account: SaveAccount;

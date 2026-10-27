@@ -28,7 +28,10 @@ async fn wait(runtime: &Runtime, predicate: impl Fn(&Value) -> bool) {
 fn assert_passive(runtime: &Runtime) {
     let demo = demo(runtime);
     let demo = demo.lock().unwrap();
-    assert_eq!(demo.info_calls, 0, "passive work must not read private info");
+    assert_eq!(
+        demo.info_calls, 0,
+        "passive work must not read private info"
+    );
     assert_eq!(demo.logins, 0, "passive work must never authenticate");
     assert_eq!(demo.logouts, 0, "passive work must never mutate a session");
 }
@@ -38,7 +41,10 @@ fn assert_passive(runtime: &Runtime) {
 // can be stopped and its admission-attempt count asserted without hanging CI.
 fn run_worker_thread(
     mut worker: Worker,
-) -> (std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<Worker>) {
+) -> (
+    std::thread::JoinHandle<()>,
+    std::sync::mpsc::Receiver<Worker>,
+) {
     let (sent, returned) = std::sync::mpsc::channel();
     let thread = std::thread::spawn(move || {
         {
@@ -138,7 +144,10 @@ fn observer_failure_backoff_and_log_limit_are_independent_of_reconnect() {
                 "advisory requests use healthy cadence, not the longer background backoff"
             );
             assert!(observation.deadline(false, now) > now + Duration::from_secs(29));
-            assert_eq!(observation.failures, failures, "requests must not reset failures");
+            assert_eq!(
+                observation.failures, failures,
+                "requests must not reset failures"
+            );
         }
     }
     assert!(observation.log_error(now));
@@ -154,7 +163,10 @@ fn failed_advisory_storm_samples_at_most_once_per_healthy_interval() {
     let now = Instant::now();
     let mut observation = Observation::new(now);
     observation.sampled(now, false);
-    assert_eq!(observation.deadline(false, now), now + Duration::from_secs(60));
+    assert_eq!(
+        observation.deadline(false, now),
+        now + Duration::from_secs(60)
+    );
     let mut attempts = Vec::new();
     for seconds in 1..=95 {
         let event = now + Duration::from_secs(seconds);
@@ -210,9 +222,15 @@ async fn real_worker_gate_denial_is_bounded_and_recovers_after_release() {
     })
     .await;
     let worker = finish_worker_thread(&runtime, thread, returned).await;
-    assert_eq!(held_snapshot, before, "gate refusal must not publish business state");
+    assert_eq!(
+        held_snapshot, before,
+        "gate refusal must not publish business state"
+    );
     assert_eq!(held_calls, 0);
-    assert!(u128::from(held_deferrals) <= maximum, "past-due timer spun on a held gate");
+    assert!(
+        u128::from(held_deferrals) <= maximum,
+        "past-due timer spun on a held gate"
+    );
     assert_eq!(worker.next_check, reconnect_due);
     assert_eq!(demo(&runtime).lock().unwrap().status_calls, 1);
     assert_eq!(runtime.snapshot()["busy"], false);
@@ -242,8 +260,14 @@ async fn real_worker_stop_exits_while_observation_gate_remains_held() {
     let attempts = deferrals.load(Ordering::Acquire);
     let gate_still_held = runtime.auth_gate.lock().unwrap().active;
     drop(held);
-    assert!(u128::from(attempts) <= maximum, "held gate caused a busy retry loop");
-    assert!(gate_still_held, "stop must not release another operation's admission");
+    assert!(
+        u128::from(attempts) <= maximum,
+        "held gate caused a busy retry loop"
+    );
+    assert!(
+        gate_still_held,
+        "stop must not release another operation's admission"
+    );
     assert_eq!(worker.next_check, reconnect_due);
     assert_eq!(runtime.snapshot(), before);
     assert_eq!(demo(&runtime).lock().unwrap().status_calls, 0);
@@ -269,7 +293,10 @@ async fn auto_off_worker_timer_refreshes_without_a_frontend_request() {
     })
     .await;
     assert_eq!(demo(&runtime).lock().unwrap().status_calls, 1);
-    assert_eq!(runtime.snapshot()["status"]["user"], "external-fixture-user");
+    assert_eq!(
+        runtime.snapshot()["status"]["user"],
+        "external-fixture-user"
+    );
     for key in ["prefs", "config", "accounts", "auto", "logs", "busy"] {
         assert_eq!(runtime.snapshot()[key], before[key]);
     }
@@ -376,18 +403,35 @@ async fn passive_auto_off_observation_is_silent_and_never_saves_external_identit
     assert_eq!(after["status"]["service"], "中国移动");
     assert_eq!(after["status"]["message"], "校园网已连接");
     assert_eq!(after["logs"], before["logs"]);
-    for key in ["config", "prefs", "accounts", "auto", "busy", "busy_message"] {
+    for key in [
+        "config",
+        "prefs",
+        "accounts",
+        "auto",
+        "busy",
+        "busy_message",
+    ] {
         assert_eq!(after[key], before[key], "passive work changed {key}");
     }
-    assert!(events.lock().unwrap().iter().all(|event| event["busy"] == false));
+    assert!(events
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|event| event["busy"] == false));
     assert_eq!(std::fs::read(&runtime.store.path).unwrap(), saved);
-    assert_eq!(serde_json::to_value(runtime.store.load_prefs()).unwrap(), prefs);
+    assert_eq!(
+        serde_json::to_value(runtime.store.load_prefs()).unwrap(),
+        prefs
+    );
     assert!(!runtime.desired.load(Ordering::Acquire));
     assert_eq!(runtime.auto_version.load(Ordering::Acquire), 0);
     assert_eq!(runtime.rotation_version.load(Ordering::Acquire), 0);
     assert_eq!(worker.next_check, reconnect_due);
     assert_eq!(worker.reconnect.failures, 3);
-    assert_eq!(worker.reconnect.blocked.as_deref(), Some("fixture paused identity"));
+    assert_eq!(
+        worker.reconnect.blocked.as_deref(),
+        Some("fixture paused identity")
+    );
     assert_passive(&runtime);
 }
 
@@ -414,7 +458,10 @@ async fn passive_browser_setting_uses_api_copy_without_changing_manual_or_auto_b
     assert_eq!(runtime.snapshot()["busy"], false);
     assert_eq!(std::fs::read(&runtime.store.path).unwrap(), saved);
     assert_eq!(runtime.snapshot()["config"]["backend"], "browser");
-    assert_eq!(demo(&runtime).lock().unwrap().status_backends, vec!["api", "api"]);
+    assert_eq!(
+        demo(&runtime).lock().unwrap().status_backends,
+        vec!["api", "api"]
+    );
     assert_passive(&runtime);
 
     // Explicit/manual and automatic work retain the user's browser backend. The Demo
@@ -452,12 +499,22 @@ async fn actual_account_service_and_ip_changes_invalidate_info_and_old_read_erro
             _ => unreachable!(),
         }
         worker.publish_status(&Ok(changed.clone()), true);
-        assert!(runtime.snapshot()["info"].is_null(), "stale info survived {field}");
+        assert!(
+            runtime.snapshot()["info"].is_null(),
+            "stale info survived {field}"
+        );
         runtime.update(|state| state.info_error = "valid same-identity read failure".into());
         worker.publish_status(&Ok(changed), true);
-        assert_eq!(runtime.snapshot()["info_error"], "valid same-identity read failure");
+        assert_eq!(
+            runtime.snapshot()["info_error"],
+            "valid same-identity read failure"
+        );
         worker.publish_status(&Ok(online()), true);
-        assert_eq!(runtime.snapshot()["info_error"], "", "old error survived {field}");
+        assert_eq!(
+            runtime.snapshot()["info_error"],
+            "",
+            "old error survived {field}"
+        );
         assert_eq!(runtime.snapshot()["config"], saved);
     }
     assert_passive(&runtime);
@@ -483,7 +540,10 @@ async fn unknown_and_offline_invalidate_info_without_fabricating_offline_or_losi
     runtime.update(|state| state.info_error = "same-identity private read failure".into());
     worker.publish_status(&Err(failure), true);
     worker.publish_status(&Ok(online()), true);
-    assert_eq!(runtime.snapshot()["info_error"], "same-identity private read failure");
+    assert_eq!(
+        runtime.snapshot()["info_error"],
+        "same-identity private read failure"
+    );
     let mut changed = online();
     changed.user = "different-external-user".into();
     worker.publish_status(&Ok(changed), true);
@@ -495,7 +555,10 @@ async fn unknown_and_offline_invalidate_info_without_fabricating_offline_or_losi
     offline.online = false;
     worker.publish_status(&Ok(offline), true);
     assert_eq!(runtime.snapshot()["status"]["online"], false);
-    assert_eq!(runtime.snapshot()["info"], json!({"online":false,"fields":[],"items":[]}));
+    assert_eq!(
+        runtime.snapshot()["info"],
+        json!({"online":false,"fields":[],"items":[]})
+    );
     assert_eq!(runtime.snapshot()["info_error"], "");
     assert_passive(&runtime);
 }
@@ -513,8 +576,16 @@ async fn passive_failures_are_unknown_redacted_and_rate_limited() {
     assert!(after["info"].is_null());
     assert_eq!(after["busy"], false);
     assert_eq!(after["logs"].as_array().unwrap().len(), 1);
-    assert!(after["status"]["message"].as_str().unwrap().contains("action=observe"));
-    for private in ["fixture query", "portal.invalid", "fixture-secret", "fixture-token"] {
+    assert!(after["status"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("action=observe"));
+    for private in [
+        "fixture query",
+        "portal.invalid",
+        "fixture-secret",
+        "fixture-token",
+    ] {
         assert!(!after.to_string().contains(private));
     }
     assert_eq!(worker.observation.lock().unwrap().failures, 3);
@@ -527,11 +598,17 @@ async fn busy_focus_burst_coalesces_and_queued_manual_authentication_wins() {
     let (runtime, receiver) = fixture();
     demo(&runtime).lock().unwrap().status_delay = Duration::from_millis(100);
     runtime.launch(receiver);
-    wait(&runtime, |_| demo(&runtime).lock().unwrap().status_calls == 1).await;
+    wait(&runtime, |_| {
+        demo(&runtime).lock().unwrap().status_calls == 1
+    })
+    .await;
     for _ in 0..128 {
         runtime.request("observe", json!({})).await.unwrap();
     }
-    runtime.request("action", json!({"name":"login"})).await.unwrap();
+    runtime
+        .request("action", json!({"name":"login"}))
+        .await
+        .unwrap();
     wait(&runtime, |_| {
         let demo = demo(&runtime);
         let demo = demo.lock().unwrap();
@@ -567,7 +644,10 @@ async fn triggers_during_a_busy_status_are_retained_without_auto_or_manual_work(
     let (runtime, receiver) = fixture();
     demo(&runtime).lock().unwrap().status_delay = Duration::from_millis(100);
     runtime.launch(receiver);
-    wait(&runtime, |_| demo(&runtime).lock().unwrap().status_calls == 1).await;
+    wait(&runtime, |_| {
+        demo(&runtime).lock().unwrap().status_calls == 1
+    })
+    .await;
     for _ in 0..128 {
         runtime.request("observe", json!({})).await.unwrap();
     }
@@ -596,7 +676,10 @@ async fn passive_network_budget_is_short_even_with_a_long_authentication_timeout
     assert!(started.elapsed() >= OBSERVE_BUDGET);
     assert_eq!(runtime.snapshot()["busy"], false);
     assert!(runtime.snapshot()["status"]["online"].is_null());
-    assert!(runtime.snapshot()["status"]["message"].as_str().unwrap().contains("reason=deadline"));
+    assert!(runtime.snapshot()["status"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("reason=deadline"));
     assert!(!runtime.auth_gate.lock().unwrap().active);
     assert_passive(&runtime);
 }
@@ -617,12 +700,25 @@ async fn passive_gate_respects_update_admission_and_shutdown_cancels_inflight_st
     let before = runtime.snapshot();
     let mut worker = Worker::new(runtime.clone(), receiver);
     let task = tokio::spawn(async move { worker.observe().await });
-    wait(&runtime, |_| demo(&runtime).lock().unwrap().status_calls == 1).await;
+    wait(&runtime, |_| {
+        demo(&runtime).lock().unwrap().status_calls == 1
+    })
+    .await;
     assert_eq!(runtime.snapshot()["busy"], false);
-    assert!(runtime.pause_for_update().is_err(), "the hidden read still owns the auth gate");
+    assert!(
+        runtime.pause_for_update().is_err(),
+        "the hidden read still owns the auth gate"
+    );
     runtime.stop.send_replace(true);
-    tokio::time::timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(1), task)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!runtime.auth_gate.lock().unwrap().active);
-    assert_eq!(runtime.snapshot(), before, "a cancelled read must not publish late state");
+    assert_eq!(
+        runtime.snapshot(),
+        before,
+        "a cancelled read must not publish late state"
+    );
     assert_passive(&runtime);
 }

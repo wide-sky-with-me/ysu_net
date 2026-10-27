@@ -72,6 +72,7 @@ NATIVE_FIXTURE = r"""(() => {
       if (command === 'plugin:event|listen') {const id = next++; listeners.set(id, {...args, id}); return id;}
       if (command === 'plugin:event|unlisten') {listeners.delete(args.eventId); return;}
       if (command === 'core_request' && args.command === 'snapshot') return structuredClone(core);
+      if (command === 'core_request' && args.command === 'observe' && Object.keys(args.args).length === 0) return structuredClone(core);
       if (command === 'get_desktop_settings') return {autostart: false, tray_available: true, version: '0.2.1', demo: false};
       if (command === 'updater_status') {
         if (window.__aboutUpdater.failNextStatus) {window.__aboutUpdater.failNextStatus = false; throw 'ipc';}

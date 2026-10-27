@@ -91,7 +91,7 @@ NATIVE += r"""
     // closed in that fixture; project links/updater/quit never reach the host.
     if (command === 'plugin:event|listen' || command === 'plugin:event|unlisten' ||
         command === 'get_desktop_settings' ||
-        (command === 'core_request' && args?.command === 'snapshot'))
+        (command === 'core_request' && ['snapshot', 'observe'].includes(args?.command)))
       return original(command, args);
     window.__aboutUnexpected.push(command);
     throw new Error('unexpected_feedback_fixture_ipc');

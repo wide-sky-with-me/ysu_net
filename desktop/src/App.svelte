@@ -16,6 +16,7 @@
   import { ambientMotion, pageMotion, stateMotion } from './lib/motion';
   import { DEFAULT_ACCENT } from './lib/accents';
   import { createTransport } from './lib/bridge';
+  import { beginStateObservation } from './lib/observation';
   import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
   import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
@@ -149,7 +150,8 @@
     media.addEventListener('change', change);
     void initialize();
     refreshDesktopSettings();
-    return () => { mounted = false; stop?.(); password = ''; media.removeEventListener('change', change); };
+    const stopObservation = beginStateObservation(transport, { window, document });
+    return () => { mounted = false; stopObservation(); stop?.(); password = ''; media.removeEventListener('change', change); };
   });
 
   async function execute(job: () => Promise<unknown>, message?: string, independent = false, onerror?: (message: string) => void) {

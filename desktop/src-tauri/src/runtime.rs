@@ -6,9 +6,9 @@ mod account_runtime;
 use account_runtime::{account_state, Rotation};
 #[path = "runtime_observer.rs"]
 mod runtime_observer;
-use runtime_observer::{Observation, StatusIdentity};
 use chrono::{SecondsFormat, Utc};
 use rand::Rng;
+use runtime_observer::{Observation, StatusIdentity};
 use serde_json::{json, Map, Value};
 use std::{
     collections::VecDeque,

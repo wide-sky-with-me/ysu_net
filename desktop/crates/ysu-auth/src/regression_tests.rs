@@ -354,9 +354,11 @@ fn api_portal_html_navigation_keeps_terminal_source_and_target_boundaries() {
 fn api_portal_html_navigation_preserves_absent_and_allowed_https_navigation() {
     let http = Transport::new(&Config::default(), false).unwrap();
     let from = http.endpoint("eportal/index.jsp").unwrap();
-    assert!(crate::protocol::next_api_portal_navigation(&http, "<p>No navigation</p>", &from)
-        .unwrap()
-        .is_none());
+    assert!(
+        crate::protocol::next_api_portal_navigation(&http, "<p>No navigation</p>", &from)
+            .unwrap()
+            .is_none()
+    );
     let expected = http
         .endpoint("portal/portal-main?sessionId=fixture-session&ssid=fixture-wifi")
         .unwrap();
