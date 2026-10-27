@@ -18,7 +18,7 @@
 
 ### 独立只读状态观察（开发源码）
 
-以下观察器与 API 导航修正已写入开发源码，尚待云端格式化 / 全回归，未新发行、未确认远端现场；正式 0.2.2 安装包不含本轮改进。选择原因和限制见[只读观察决策](../.agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md)。
+只读观察与 API 导航修正的首轮源码 `68f553a4` 已通过四平台 Native、Mock 与 Community；随后审查发现账户详情来源竞态，追加绑定修正的新完整候选仍待云端格式化 / 全回归。两阶段均未新发行、未确认远端现场，正式 0.2.2 安装包不含本轮开发改进。选择原因和限制见[只读观察决策](../.agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md)。
 
 原生 Worker 在自动重连关闭时也独立观察连接状态，托盘后台不依赖 WebView 定时器。健康周期为 30 秒；窗口获焦 / 恢复可见和 `online` / `offline` 事件只是查询提示，前端合并 300ms 内的突发事件，不从 `navigator` 或 IPC 接收确认推断在线 / 离线。界面只接受正常单调快照流中的原生结果。
 
@@ -29,6 +29,12 @@
 被动读仍持有原认证门闩：在途短读会拒绝安装准入，应在短读结束后重试，不是更新强行中断它。空闲更新置 stop / updating 后不准入新观察；退出或 force-stop 取消在途 future，由 RAII 释放门闩，不发布迟到结果。观察不为每轮设置 busy、成功浮层或成功日志；错误用固定脱敏分类，观察错误日志最多每 60 秒一条。
 
 状态身份按实际 user / service / IP 绑定；变化时旧 Info 及旧身份读取错误失效，不回写保存账号。未知清旧详情并保留最近已确认身份，供同身份恢复时保留仍有效的读取错误；确认离线清旧详情和旧读取错误。被动观察只更新状态，不自动补读账户详情。纯网页 / 前端 Demo 不发送原生观察，原生 Demo 只读内存；Windows / Linux / macOS 共用此 Rust 实现，CLI 没有桌面焦点事件，本轮不改变其后台行为。
+
+显式账户读取另做来源绑定：认证库返回 `InfoObservation { status, info }`，在同一个 session / lock / operation deadline 内执行初始 snapshot → 账户只读 → 再 snapshot，按实际 online / user / service / IP 前后配对。空字段照实比较，不猜补或增加非空 / 配置 owner 门槛；实际 tuple 变动才报 `IdentityMismatch`，后查失败用固定 code 2 / Verification 文案并保留原网络、响应或超时 Reason，不伪称已换号；初查与账户读取失败的原分类优先语义不变。确认离线仍返回原 offline JSON，且不读账户；原 `info()` 继续只返回 `info` JSON，不把来源元数据混入展示字段，也不改轮换用 `verified_info()` 的严格语义。
+
+Native 仍在账户读取后独立查询 Status；提交成功详情前再以 `matches_status` 配对该次实际状态，不匹配就拒绝旧详情写回并给出固定身份不一致错误，不把错配当作离线。独立确认离线仍优先，复查失败仍是未知；已有账户读取错误不被新增错配诊断覆盖。不解析中文 `fields` 或用保存账号当 owner 门槛，保存意图为 A 时仍可无凭据只读当前外部账号 B，不改账号、auto 或轮换设置。
+
+在线读取比旧库多一次状态查询，新增核验与原步骤共享既有预算，不叠加新的整轮时限；无登录、下线或配置写。前后采样与本机串行提交不是远端原子事务；缺字段可能掩盖实际变化，也不能保证发现采样间 A→B→A 的 ABA 变化。本轮新完整候选尚待云端回归，不把首轮通过当作来源竞态已验收。
 
 API 门户 bootstrap 另将既有窄 HTTPS 规范化接到 HTML / meta / JS 导航解析：仅对实际响应终点为精确可信入口的无 body GET、同主机、默认端口、固定目标路径及受限 sessionId 处理，不允许先发明文 HTTP，不放宽其他 TLS / POST / API / CAS 边界。当前只是已补源码的兼容缺口；远端 Win11 网页下线后报告 `redirect_blocked` 的真实目标 URL 未取得，不能认定它就是现场根因或已经修复。Browser 分支另有未纳入本次 API 修正的缺口，不建议直接切 browser 作为已验证解法。
 

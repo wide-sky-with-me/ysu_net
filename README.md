@@ -22,7 +22,7 @@
 
 **正式 v0.2.2 已发布并成为 Latest**，下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；标签源码、云端签名、公开资产复核状态及未覆盖范围见[0.2.2 发布验收](docs/desktop-release-0.2.2.md)。正式发布不等于真实校园网登录、软件内跨版本原位升级或失败回滚已通过。升级前先看[迁移说明](docs/migration.md#桌面-v022-升级)；旧版若点击检查更新就退出，可从正式 Release 手工安装，不关闭 TLS 校验或验签。
 
-当前开发源码版本仍为 0.2.2，新增的[独立只读状态观察与 API 导航兼容修正](docs/tauri-desktop.md#独立只读状态观察开发源码)已写源码但待云端格式化 / 全回归、未新发行且未确认现场，正式 0.2.2 安装包不含本轮改进。
+当前开发源码版本仍为 0.2.2，新增的[独立只读状态观察、API 导航兼容与账户详情来源绑定](docs/tauri-desktop.md#独立只读状态观察开发源码)不在正式 0.2.2 安装包中，追加来源绑定的新完整候选仍待云端回归、未新发行且未确认现场。
 
 编译、打包和产品测试只在 GitHub Actions 执行；开发构建使用独立构建分支，不打版本标签、不发布正式 Release。云端失败不回退本机编译，本机只按授权下载、校验云端产物并做安装 / 运行验收。工作流见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)，实际成绩与未覆盖范围见[桌面验收导航](docs/desktop-acceptance.md)。
 

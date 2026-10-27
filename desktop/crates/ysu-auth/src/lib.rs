@@ -278,7 +278,9 @@ impl AuthClient {
     }
 
     pub async fn info(&self) -> Result<serde_json::Value, AuthError> {
-        self.info_observation().await.map(|observation| observation.info)
+        self.info_observation()
+            .await
+            .map(|observation| observation.info)
     }
 
     /// Read-only account information with before/after identity evidence.
@@ -434,10 +436,10 @@ impl AuthClient {
 }
 
 #[cfg(test)]
+mod info_observation_tests;
+#[cfg(test)]
 mod quota_tests;
 #[cfg(test)]
 mod service_tests;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod info_observation_tests;

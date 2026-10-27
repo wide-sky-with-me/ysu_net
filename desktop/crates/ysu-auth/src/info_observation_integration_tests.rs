@@ -6,7 +6,12 @@ fn assert_info_verification_error(error: &AuthError, reason: DiagnosticReason) {
     assert_eq!(error.diagnostic().stage, DiagnosticStage::Verification);
     assert_eq!(error.diagnostic().reason, reason);
     let public = serde_json::to_string(&error.diagnostic()).unwrap();
-    for private in ["external-account", "192.0.2.1", "fixture-session", "1024 MB"] {
+    for private in [
+        "external-account",
+        "192.0.2.1",
+        "fixture-session",
+        "1024 MB",
+    ] {
         assert!(!public.contains(private));
         assert!(!error.message.contains(private));
     }
@@ -31,10 +36,16 @@ async fn library_info_observation_rechecks_actual_identity_in_the_same_session()
     assert_eq!(f.count("/eportal/network/"), 0);
     {
         let state = f.state.lock().unwrap();
-        let reads: Vec<_> = state.requests.iter().filter(|request| {
-            request.path.starts_with("/eportal/adaptor/getOnlineUserInfo")
-                || request.path.starts_with("/eportal/operator/getAccountInfo")
-        }).collect();
+        let reads: Vec<_> = state
+            .requests
+            .iter()
+            .filter(|request| {
+                request
+                    .path
+                    .starts_with("/eportal/adaptor/getOnlineUserInfo")
+                    || request.path.starts_with("/eportal/operator/getAccountInfo")
+            })
+            .collect();
         assert_eq!(reads.len(), 3);
         assert_eq!(reads[0].method, "GET");
         assert_eq!(reads[1].method, "POST");
@@ -101,7 +112,10 @@ async fn library_info_observation_offline_and_initial_failure_never_read_account
     let f = Fixture::new();
     let observation = f.client().info_observation().await.unwrap();
     assert!(!observation.status.online);
-    assert_eq!(observation.info, json!({"online":false,"fields":[],"items":[]}));
+    assert_eq!(
+        observation.info,
+        json!({"online":false,"fields":[],"items":[]})
+    );
     assert_eq!(f.count("/eportal/adaptor/getOnlineUserInfo"), 1);
     assert_eq!(f.count("/eportal/operator/getAccountInfo"), 0);
 

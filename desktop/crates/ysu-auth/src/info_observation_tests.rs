@@ -16,9 +16,17 @@ fn observation_account() -> Value {
 fn assert_observation_verification_error(error: &AuthError) {
     assert_eq!(error.code, QUERY_ERROR);
     assert_eq!(error.diagnostic().stage, DiagnosticStage::Verification);
-    assert_eq!(error.diagnostic().reason, DiagnosticReason::IdentityMismatch);
+    assert_eq!(
+        error.diagnostic().reason,
+        DiagnosticReason::IdentityMismatch
+    );
     let public = serde_json::to_string(&error.diagnostic()).unwrap();
-    for private in ["external-account", "192.0.2.1", "fixture-session", "1024 MB"] {
+    for private in [
+        "external-account",
+        "192.0.2.1",
+        "fixture-session",
+        "1024 MB",
+    ] {
         assert!(!public.contains(private));
         assert!(!error.message.contains(private));
     }
@@ -49,9 +57,12 @@ fn info_observation_rejects_each_identity_change_and_offline_transition() {
         observation_snapshot("external-account", "中国移动", "192.0.2.1"),
         observation_snapshot("external-account", "校园网", "192.0.2.2"),
     ];
-    changed.push(Snapshot::parse(json!({"data":{"portalOnlineUserInfo":{
-        "message":"dx.failed.user.offline"
-    }}})).unwrap());
+    changed.push(
+        Snapshot::parse(json!({"data":{"portalOnlineUserInfo":{
+            "message":"dx.failed.user.offline"
+        }}}))
+        .unwrap(),
+    );
     let observation = InfoObservation {
         status: before.status.clone(),
         info: Value::Null,
@@ -70,7 +81,10 @@ fn info_observation_preserves_partial_identity_without_guessing_missing_fields()
             "result":"success", "userId":"external-account", "service":"校园网",
             "userIp":"192.0.2.1"
         }}});
-        payload["data"]["portalOnlineUserInfo"].as_object_mut().unwrap().remove(missing);
+        payload["data"]["portalOnlineUserInfo"]
+            .as_object_mut()
+            .unwrap()
+            .remove(missing);
         let before = Snapshot::parse(payload.clone()).unwrap();
         let after = Snapshot::parse(payload).unwrap();
         let account = observation_account();
@@ -90,7 +104,8 @@ fn info_observation_preserves_partial_identity_without_guessing_missing_fields()
     }
     assert!(Snapshot::parse(json!({"data":{"portalOnlineUserInfo":{
         "result":"success", "userId":"external-account", "userIp":"192.0.2.1"
-    }}})).is_err());
+    }}}))
+    .is_err());
     // Exact matching itself also supports the existing Demo's blank observations.
     let blank = Status {
         online: true,
@@ -99,7 +114,10 @@ fn info_observation_preserves_partial_identity_without_guessing_missing_fields()
         ip: String::new(),
         message: String::new(),
     };
-    let observation = InfoObservation { status: blank.clone(), info: Value::Null };
+    let observation = InfoObservation {
+        status: blank.clone(),
+        info: Value::Null,
+    };
     assert!(observation.matches_status(&blank));
 }
 
@@ -107,10 +125,14 @@ fn info_observation_preserves_partial_identity_without_guessing_missing_fields()
 fn offline_info_observation_keeps_the_original_empty_json_shape() {
     let offline = Snapshot::parse(json!({"data":{"portalOnlineUserInfo":{
         "message":"dx.failed.user.offline"
-    }}})).unwrap();
+    }}}))
+    .unwrap();
     let observation = InfoObservation::offline(offline.status.clone());
     assert!(observation.matches_status(&offline.status));
-    assert_eq!(observation.info, json!({"online":false,"fields":[],"items":[]}));
+    assert_eq!(
+        observation.info,
+        json!({"online":false,"fields":[],"items":[]})
+    );
 }
 
 #[test]
@@ -134,9 +156,16 @@ fn postcheck_failures_preserve_reason_including_deadline_without_raw_materials()
         assert_eq!(error.code, QUERY_ERROR);
         assert_eq!(error.diagnostic().stage, DiagnosticStage::Verification);
         assert_eq!(error.diagnostic().reason, reason);
-        assert_ne!(error.diagnostic().reason, DiagnosticReason::IdentityMismatch);
+        assert_ne!(
+            error.diagnostic().reason,
+            DiagnosticReason::IdentityMismatch
+        );
         let public = serde_json::to_string(&error.diagnostic()).unwrap();
-        for raw in ["fixture-sensitive-message", "outside.invalid", "fixture-private-query"] {
+        for raw in [
+            "fixture-sensitive-message",
+            "outside.invalid",
+            "fixture-private-query",
+        ] {
             assert!(!error.message.contains(raw));
             assert!(!public.contains(raw));
         }

@@ -159,7 +159,10 @@ async fn info_source_change_before_verification_never_republishes_old_info_and_r
         {
             let demo = demo(&runtime);
             let mut demo = demo.lock().unwrap();
-            assert_eq!(demo.info_calls, 1, "info must precede independent verification");
+            assert_eq!(
+                demo.info_calls, 1,
+                "info must precede independent verification"
+            );
             demo.user = current.user.clone();
             demo.service = current.service.clone();
             demo.ip = Some(current.ip.clone());
@@ -175,7 +178,10 @@ async fn info_source_change_before_verification_never_republishes_old_info_and_r
         assert_eq!(rejected["status"]["user"], current.user);
         assert_eq!(rejected["status"]["service"], json!(current.service));
         assert_eq!(rejected["status"]["ip"], current.ip);
-        assert!(rejected["info"].is_null(), "late old info survived {field} change");
+        assert!(
+            rejected["info"].is_null(),
+            "late old info survived {field} change"
+        );
         let error = rejected["info_error"].as_str().unwrap();
         for category in [
             "phase=verification",
@@ -198,14 +204,20 @@ async fn info_source_change_before_verification_never_republishes_old_info_and_r
         let recovered = runtime.snapshot();
         assert_eq!(recovered["status"]["user"], current.user);
         assert_eq!(recovered["info"]["online"], true);
-        assert_eq!(recovered["info"]["fields"], json!([["账号",current.user]]));
+        assert_eq!(recovered["info"]["fields"], json!([["账号", current.user]]));
         assert!(recovered["info"].get("status").is_none());
         assert_eq!(recovered["info_error"], "");
         for key in ["config", "prefs", "accounts", "auto"] {
-            assert_eq!(recovered[key], before[key], "info changed saved intent {key}");
+            assert_eq!(
+                recovered[key], before[key],
+                "info changed saved intent {key}"
+            );
         }
         assert_eq!(std::fs::read(&runtime.store.path).unwrap(), saved);
-        assert_eq!(serde_json::to_value(runtime.store.load_prefs()).unwrap(), saved_prefs);
+        assert_eq!(
+            serde_json::to_value(runtime.store.load_prefs()).unwrap(),
+            saved_prefs
+        );
         assert_eq!(demo(&runtime).lock().unwrap().info_calls, 2);
         assert_eq!(demo(&runtime).lock().unwrap().status_calls, 3);
         assert_eq!(demo(&runtime).lock().unwrap().logins, 0);
