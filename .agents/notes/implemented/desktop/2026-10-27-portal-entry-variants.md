@@ -1,7 +1,7 @@
 # 精确门户来源变体与无地址导航诊断
 
 日期：2026-10-27<br>
-状态：已写开发源码，待云端格式化与新完整候选回归；未新发行、未部署、未确认 Win11 现场<br>
+状态：开发源码已通过新完整候选云端回归；未新发行、未部署、未确认 Win11 现场<br>
 范围：共享 Rust 导航策略及固定分类诊断，不改变认证凭据用途、TLS 信任或 CLI 导航政策
 
 ## 新证据与旧决定
@@ -27,10 +27,10 @@
 
 [导航诊断类型](../../../../desktop/crates/ysu-auth/src/navigation_diagnostic.rs)与[Native 固定格式](../../../../desktop/src-tauri/src/runtime.rs)负责无原始材料输出；政策与诊断分开，不为新增观测字段放宽导航，也不把 metadata 塞进账户 Info。
 
-已补[共享合成夹具](../../../../tests/fixtures/portal-entry-variants.json)、[Rust 策略矩阵](../../../../desktop/crates/ysu-auth/src/regression_tests.rs)、[CDP Header 序列化纯反例](../../../../desktop/crates/ysu-auth/src/browser.rs)、[Python SID 提取回归](../../../../tests/test_portal_entry_variants.py)及[导航隐私 / None 兼容反例](../../../../desktop/crates/ysu-auth/src/navigation_diagnostic_tests.rs)，Native formatter 反例仍在上述运行器文件中；新增测试尚未运行，不能表述为真实浏览器或产品已通过。
+已补[共享合成夹具](../../../../tests/fixtures/portal-entry-variants.json)、[Rust 策略矩阵](../../../../desktop/crates/ysu-auth/src/regression_tests.rs)、[CDP Header 序列化纯反例](../../../../desktop/crates/ysu-auth/src/browser.rs)、[Python SID 提取回归](../../../../tests/test_portal_entry_variants.py)及[导航隐私 / None 兼容反例](../../../../desktop/crates/ysu-auth/src/navigation_diagnostic_tests.rs)，Native formatter 反例仍在上述运行器文件中，均随新完整候选云端验证。本轮新增 Browser 导航测试只覆盖生产纯决策 / Header 序列化，未真正驱动完整 fulfill / CDP 发送或真实浏览器校园端到端；实际调用接线另经静态核对。
 
 ## 验证边界
 
 安全采样使用独立 Requests 观察器，不是 Rust / CLI 产品；111 当时已在线，没有网页下线、离线复现、凭据投递或同机 A/B。Python HTMLParser 不是 Rust scraper，同 regex 顺序和完整 631 字节样本也不证明解析器全等。
 
-既有产品 `1a81` 的云端通过只属于旧候选；本次新导航候选尚待云端格式化、编译及完整产品回归。所有产品 / 单元 / 浏览器验证只走 GitHub Actions，本机仅静态文档核对；本轮无新发行、安装部署或 Win11 现场恢复成绩。
+新产品候选 `2bb9589e` 已通过四目标 Native、Mock 与 Community，分轮证据归[当次记录](../../../../docs/portal-navigation-review-2026-10-27.md)，不把既有 `1a81` 成绩代替本轮。所有产品 / 单元 / 浏览器验证只走 GitHub Actions，本机仅静态文档核对；本轮无新发行、安装部署或 Win11 现场恢复成绩。

@@ -1,6 +1,6 @@
 # 2026-10-27 门户入口只读观察与精确来源变体
 
-状态：111 独立只读采样已完成；新导航候选尚待 CI，未新发行、未部署、未确认 Win11 现场。现行行为归[运行说明](tauri-desktop.md#门户导航与诊断开发源码)，取舍归[导航变体决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。
+状态：111 独立只读采样与新导航源码云端回归完成；未新发行、未部署、未确认 Win11 现场。现行行为归[运行说明](tauri-desktop.md#门户导航与诊断开发源码)，取舍归[导航变体决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。
 
 ## 既有交付与本轮范围
 
@@ -45,7 +45,9 @@ HTML meta 部分使用 Python HTMLParser，不是 Rust scraper；相同 regex �
 
 ## 新候选与未覆盖
 
-新候选增加精确来源与共享导航检查、受限 Browser HTTP Location 接线及无原始地址材料的闭集诊断；实现和反例入口见[决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。本轮尚未取得该完整候选的云端格式化、编译、四平台产品与 Mock 回归结果；旧 `1a81` 的通过不能代替。
+新产品候选 `2bb9589e8526f681ab4616124d8f1f10bf2ab97c` 增加精确来源、共享导航检查、受限 Browser HTTP Location 接线及闭集诊断；[四目标 Native 构建与回归](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40457529662)、[Mock](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40457529602)及[Community](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40457529590)均成功。[独立云端格式化](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40456935394)仅计格式化来源，不计产品成绩；旧 `1a81` 的通过未代替本轮。文档状态收尾单独检查，不改上述已验产品源码。
+
+本轮新增 Browser 导航回归覆盖生产纯决策与 Header 序列化，未真正驱动完整 `Browser::fulfill` / CDP 发送或系统 Chrome 校园端到端；实际调用接线只经静态核对，不能把两者合并为完整端到端成绩。
 
 本次 111 已在线，未制造网页下线 / 离线，未执行 Rust 产品、同机 CLI / Rust A/B、凭据登录或会话变更；它不是用户 Win11 网页下线后 `redirect_blocked` 的现场复现。既有诊断定位和真实响应变体是不同证据，不能据此宣称 Win11 已修复或新包已部署。
 

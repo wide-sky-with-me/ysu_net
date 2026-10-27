@@ -38,7 +38,7 @@ Native 仍在账户读取后独立查询 Status；提交成功详情前再以 `m
 
 ### 门户导航与诊断（开发源码）
 
-既有 API HTML 导航规范化与来源绑定的产品成绩只属于前述候选；根据[111 只读实测](portal-navigation-review-2026-10-27.md)新增的精确来源变体、Browser bootstrap Location 接线与分类诊断仍是待 CI 的新导航候选，未新发行、未部署、未确认 Win11 网页下线现场。选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)，不回写旧对照或用旧候选通过代替本轮验证。
+根据[111 只读实测](portal-navigation-review-2026-10-27.md)新增的精确来源变体、Browser bootstrap Location 接线与分类诊断，已由新产品候选 `2bb9589e` 通过四目标 Native、Mock 与 Community 云端验证，不再复用旧候选成绩。尚未新发行、未部署、未确认 Win11 网页下线现场；选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)，不回写旧对照。
 
 来源只增加由配置 endpoint 派生的第二个完整 Url：原无 query 的精确 redirect 入口，以及唯一精确 `mode=history` 变体；不剥除任意 query，不通配额外 / 重复 / 编码参数、域名或路径。它们才可使用原受限 HTTP 目标规范化：无 body GET、HTTPS base 默认 443、同 host 的 HTTP 默认 80、配置 endpoint 派生的固定目标路径（`portal_main` 角色），目标无 userinfo / fragment，唯一 sessionId 的解码值非空、不超过 1024 字节且无控制符；先转换为 HTTPS 再做原 allowed 检查，不发明文 HTTP、不清改目标 query。
 
