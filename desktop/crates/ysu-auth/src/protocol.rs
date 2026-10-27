@@ -160,10 +160,9 @@ impl Session {
                             browser: None,
                         });
                     }
-                    let Some(next) = next_navigation(&r.text(), &r.url) else {
+                    let Some(next) = next_api_portal_navigation(&http, &r.text(), &r.url)? else {
                         break;
                     };
-                    http.allowed(&next)?;
                     url = next;
                 }
             }
@@ -465,6 +464,22 @@ fn timestamp() -> String {
 }
 fn selector(s: &str) -> Selector {
     Selector::parse(s).expect("constant selector")
+}
+
+/// Resolve HTML navigation only during the API portal bootstrap.
+/// `from` is the terminal response URL of navigation_get's bodyless GET chain,
+/// not the original entry URL before redirects. API/CAS requests do not use this.
+pub(crate) fn next_api_portal_navigation(
+    http: &Transport,
+    body: &str,
+    from: &Url,
+) -> Result<Option<Url>, AuthError> {
+    let Some(next) = next_navigation(body, from) else {
+        return Ok(None);
+    };
+    let next = http.portal_navigation_target(from, next, &Method::GET, false);
+    http.allowed(&next)?;
+    Ok(Some(next))
 }
 
 pub(crate) fn next_navigation(body: &str, base: &Url) -> Option<Url> {

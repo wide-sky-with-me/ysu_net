@@ -163,6 +163,8 @@ jobs:
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/palettes
           uv run --no-sync python desktop/tests/about_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/about
+          uv run --no-sync python desktop/tests/state_observer_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/state-observer
           uv run --no-sync python desktop/tests/startup_feedback_preview.py --url http://127.0.0.1:1422/ \
             --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/startup-feedback
           uv run --no-sync python desktop/tests/feedback_preview.py --url http://127.0.0.1:1422/ \
@@ -347,12 +349,16 @@ jobs:
         with:
           components: rustfmt
       - name: Format public Rust source on the runner
-        run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --all
+        run: |
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --all
+          cargo fmt --manifest-path desktop/crates/ysu-auth/Cargo.toml --all
       - uses: actions/upload-artifact@v4
         with:
           name: delta-formatted-source
           if-no-files-found: error
-          path: desktop/src-tauri/src/
+          path: |
+            desktop/src-tauri/src/
+            desktop/crates/ysu-auth/src/
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

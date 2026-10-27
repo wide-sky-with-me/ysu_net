@@ -4,6 +4,9 @@ use crate::storage::{valid_accent, Prefs, RunGuard, Store, CONFIG_ERROR, EXTERNA
 #[path = "account_runtime.rs"]
 mod account_runtime;
 use account_runtime::{account_state, Rotation};
+#[path = "runtime_observer.rs"]
+mod runtime_observer;
+use runtime_observer::{Observation, StatusIdentity};
 use chrono::{SecondsFormat, Utc};
 use rand::Rng;
 use serde_json::{json, Map, Value};
@@ -75,7 +78,7 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
         return false;
     }
     match command {
-        "snapshot" | "diagnostics" => object.is_empty(),
+        "snapshot" | "diagnostics" | "observe" => object.is_empty(),
         "browser_install" => {
             object.keys().all(|k| k == "cancel")
                 && object.get("cancel").is_none_or(Value::is_boolean)
@@ -204,6 +207,7 @@ struct State {
     config: Config,
     prefs: Prefs,
     status: Value,
+    observed_identity: Option<StatusIdentity>,
     auto: Value,
     accounts: Value,
     rotation_intent: Option<bool>,
@@ -329,6 +333,7 @@ pub struct Runtime {
     sender: mpsc::Sender<Action>,
     stop: watch::Sender<bool>,
     control: watch::Sender<u64>,
+    observations: watch::Sender<u64>,
     desired: AtomicBool,
     revision: AtomicU64,
     auto_version: AtomicU64,
@@ -356,12 +361,14 @@ impl Runtime {
         let (sender, receiver) = mpsc::channel(QUEUE_SIZE);
         let (stop, _) = watch::channel(false);
         let (control, _) = watch::channel(0);
+        let (observations, _) = watch::channel(0);
         let desired = prefs.auto_reconnect;
         let mut state = State {
             sequence: 1,
             config,
             prefs,
             status: Value::Null,
+            observed_identity: None,
             auto: json!({"state":"off", "message":"自动重连已关闭"}),
             busy: false,
             busy_message: String::new(),
@@ -387,6 +394,7 @@ impl Runtime {
             sender,
             stop,
             control,
+            observations,
             desired: AtomicBool::new(desired),
             revision: AtomicU64::new(0),
             auto_version: AtomicU64::new(0),
@@ -611,6 +619,12 @@ impl Runtime {
         }
         match command {
             "snapshot" => Ok(self.snapshot()),
+            "observe" => {
+                // A watch revision coalesces bursts without consuming manual action queue slots.
+                self.observations
+                    .send_modify(|revision| *revision = revision.wrapping_add(1));
+                Ok(self.snapshot())
+            }
             "diagnostics" | "browser_install" => {
                 let demo = self.store.demo;
                 let environment = self.blocking(move || Ok(environment(demo))).await?;
@@ -742,6 +756,8 @@ struct Worker {
     receiver: mpsc::Receiver<Action>,
     stop: watch::Receiver<bool>,
     control: watch::Receiver<u64>,
+    observations: watch::Receiver<u64>,
+    observation: Mutex<Observation>,
     guard: Option<RunGuard>,
     next_check: Instant,
     reconnect: Reconnect,
@@ -752,9 +768,16 @@ struct Worker {
 
 impl Worker {
     fn new(runtime: Arc<Runtime>, receiver: mpsc::Receiver<Action>) -> Self {
+        let observations = runtime.observations.subscribe();
+        let mut observation = Observation::new(Instant::now());
+        if *observations.borrow() != 0 {
+            observation.request();
+        }
         Self {
             stop: runtime.stop.subscribe(),
             control: runtime.control.subscribe(),
+            observations,
+            observation: Mutex::new(observation),
             runtime,
             receiver,
             guard: None,
@@ -788,6 +811,10 @@ impl Worker {
             state.busy = false;
             state.busy_message.clear();
         });
+        self.run_loop().await;
+    }
+
+    async fn run_loop(&mut self) {
         loop {
             if *self.stop.borrow() {
                 break;
@@ -818,7 +845,16 @@ impl Worker {
                     }
                 }
             }
+            if self.observations.has_changed().unwrap_or(false) {
+                self.observations.borrow_and_update();
+                self.observation.lock().unwrap().request();
+            }
             let automatic = self.runtime.desired.load(Ordering::Acquire);
+            let observe_at = self
+                .observation
+                .lock()
+                .unwrap()
+                .deadline(automatic, self.next_check);
             tokio::select! {
                 biased;
                 _ = self.stop.changed() => break,
@@ -864,6 +900,8 @@ impl Worker {
                     runtime.update(|state| { state.busy = false; state.busy_message.clear(); });
                     if !runtime.desired.load(Ordering::Acquire) { self.guard.take(); }
                 }
+                _ = tokio::time::sleep_until(observe_at) => self.observe().await,
+                _ = self.observations.changed() => self.observation.lock().unwrap().request(),
             }
         }
         self.receiver.close();
@@ -926,31 +964,11 @@ impl Worker {
     }
 
     async fn status(&self, config: &Config) -> Result<Status, AuthError> {
+        // A query starting after an admitted trigger satisfies it; watch revisions that arrive
+        // during the query remain unread and request one follow-up after the busy operation.
+        self.observation.lock().unwrap().sample_started();
         let result = self.runtime.backend.status(config).await;
-        self.runtime.update(|state| match &result {
-            Ok(status) => {
-                state.status = serde_json::to_value(status).unwrap();
-                state.status["message"] = if status.online {
-                    "校园网已连接"
-                } else {
-                    "校园网未连接"
-                }
-                .into();
-                if !status.online {
-                    state.info = json!({"online":false, "fields":[], "items":[]});
-                } else if state.info["online"] == false {
-                    // A previous offline account response is no longer current after an online query.
-                    state.info = Value::Null;
-                }
-            }
-            Err(error) => {
-                let message = self.error_message(error);
-                state.status =
-                    json!({"online":null, "service":null, "user":"", "ip":"", "message":message});
-                state.info = Value::Null;
-                state.log("error", &message);
-            }
-        });
+        self.publish_status(&result, false);
         result
     }
 
@@ -1380,6 +1398,8 @@ struct Demo {
     #[cfg(test)]
     status_calls: u32,
     #[cfg(test)]
+    status_backends: Vec<String>,
+    #[cfg(test)]
     operation_error: Option<i32>,
     #[cfg(test)]
     info_error: bool,
@@ -1434,6 +1454,7 @@ impl Backend {
                     let delay = {
                         let mut state = demo.lock().unwrap();
                         state.status_calls += 1;
+                        state.status_backends.push(config.backend.clone());
                         state.status_delay
                     };
                     tokio::time::sleep(delay).await;
