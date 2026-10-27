@@ -129,8 +129,12 @@ class DeltaToolConfigurationTests(unittest.TestCase):
         self.assertIn("cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml", native)
         self.assertIn("-p 'test_*delta*.py'", native)
         release = job_block(workflow("tauri.yml"), "release")
-        for gate in ("if: startsWith(github.ref, 'refs/tags/v')", "needs: build", "packaging/tauri_delta.py --verify-only", "sha256sum -c SHA256SUMS", "gh release create"):
+        for gate in ("if: startsWith(github.ref, 'refs/tags/v')", "packaging/tauri_delta.py --verify-only", "sha256sum -c SHA256SUMS", "gh release create"):
             self.assertIn(gate, release)
+        needs = re.search(r"(?m)^    needs: \[([^\]\n]+)\]$", release)
+        self.assertIsNotNone(needs)
+        dependencies = [name.strip() for name in needs.group(1).split(",")]
+        self.assertEqual(dependencies, ["build", "browser-acceptance"])
 
 
 if __name__ == "__main__":

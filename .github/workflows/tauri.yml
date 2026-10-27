@@ -139,39 +139,6 @@ jobs:
           uv run --no-sync python -m unittest tests.test_update_manifest tests.test_update_signature -v
           # Real producer integration is mandatory on Linux Actions; no production key.
           uv run --no-sync python -m unittest discover -s tests -p 'test_*delta*.py' -v
-      - name: Built frontend browser acceptance
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p build
-          npm --prefix desktop run preview -- --port 1422 --strictPort > build/tauri-preview.log 2>&1 &
-          server=$!
-          trap 'kill "$server" 2>/dev/null || true' EXIT
-          for attempt in {1..40}; do
-            if curl --fail --silent http://127.0.0.1:1422/ > /dev/null; then break; fi
-            if [ "$attempt" -eq 40 ]; then cat build/tauri-preview.log; exit 1; fi
-            sleep 0.25
-          done
-          uv run --no-sync python packaging/tauri_web_smoke.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/compatibility
-          uv run --no-sync python desktop/tests/rust_desktop_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)"
-          uv run --no-sync python desktop/tests/multi_account_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/multi-account
-          uv run --no-sync python desktop/tests/rounded_desktop_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/rounded
-          uv run --no-sync python desktop/tests/theme_palette_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/palettes
-          uv run --no-sync python desktop/tests/about_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/about
-          uv run --no-sync python desktop/tests/state_observer_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/state-observer
-          uv run --no-sync python desktop/tests/startup_feedback_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/startup-feedback
-          uv run --no-sync python desktop/tests/feedback_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/feedback
-          uv run --no-sync python desktop/tests/connection_motion_preview.py --url http://127.0.0.1:1422/ \
-            --browser "$(command -v google-chrome)" --output dist/connection-motion-20261025/ci
-      # Reject UI regressions before expensive native bundling, without dropping gates.
       - name: Build ordinary native bundles without signing keys
         if: ${{ !startsWith(github.ref, 'refs/tags/v') || runner.os == 'Linux' }}
         run: |
@@ -339,6 +306,78 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.app.tar.gz
             desktop/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
 
+  browser-acceptance:
+    # Decision: .agents/notes/implemented/ci/2026-10-27-parallel-browser-acceptance.md
+    if: ${{ inputs.format_only != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Browser acceptance prerequisites
+        run: |
+          chrome="$(command -v google-chrome)"
+          test -x "$chrome"
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk ffmpeg
+      - run: npm ci --prefix desktop
+      - run: uv sync --locked --group desktop-test
+      - run: npm --prefix desktop run build
+      - name: Built frontend browser acceptance
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p build
+          npm --prefix desktop run preview -- --port 1422 --strictPort > build/tauri-preview.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:1422/ > /dev/null; then break; fi
+            if [ "$attempt" -eq 40 ]; then cat build/tauri-preview.log; exit 1; fi
+            sleep 0.25
+          done
+          uv run --no-sync python packaging/tauri_web_smoke.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/compatibility
+          uv run --no-sync python desktop/tests/rust_desktop_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)"
+          uv run --no-sync python desktop/tests/multi_account_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/multi-account
+          uv run --no-sync python desktop/tests/rounded_desktop_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/rounded
+          uv run --no-sync python desktop/tests/theme_palette_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/palettes
+          uv run --no-sync python desktop/tests/about_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/about
+          uv run --no-sync python desktop/tests/state_observer_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/state-observer
+          uv run --no-sync python desktop/tests/startup_feedback_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/startup-feedback
+          uv run --no-sync python desktop/tests/feedback_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/feedback
+          uv run --no-sync python desktop/tests/connection_motion_preview.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/connection-motion-20261025/ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-desktop-preview-linux-x64
+          if-no-files-found: error
+          path: |
+            dist/rust-desktop-preview/
+            dist/connection-motion-20261025/**
+            build/tauri-preview.log
+
   format-source:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.format_only == true }}
     runs-on: ubuntu-22.04
@@ -362,7 +401,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, browser-acceptance]
     runs-on: ubuntu-latest
     permissions:
       contents: write
