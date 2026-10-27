@@ -185,9 +185,8 @@ fn sid_shape(url: &Url) -> Sid {
             } else {
                 flows = flows.saturating_add(1);
             }
-            valid &= !value.is_empty()
-                && value.len() <= 1024
-                && !value.chars().any(char::is_control);
+            valid &=
+                !value.is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control);
         }
     }
     if sessions.saturating_add(flows) > 1 {

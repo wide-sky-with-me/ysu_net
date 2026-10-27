@@ -292,9 +292,16 @@ fn portal_entry_variants_fixture() -> Value {
     fixture
 }
 
-fn assert_checked_entry_blocked(http: &Transport, source: &Url, target: &Url, method: &Method, has_body: bool) {
+fn assert_checked_entry_blocked(
+    http: &Transport,
+    source: &Url,
+    target: &Url,
+    method: &Method,
+    has_body: bool,
+) {
     for kind in [NavigationKind::HttpLocation, NavigationKind::HtmlNavigation] {
-        let error = http.checked_portal_navigation_target(source, target.clone(), method, has_body, kind)
+        let error = http
+            .checked_portal_navigation_target(source, target.clone(), method, has_body, kind)
             .unwrap_err();
         assert_eq!(error.code, QUERY_ERROR);
         assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
@@ -314,14 +321,22 @@ fn checked_navigation_shares_only_the_two_observed_entry_variants() {
     for source in fixture["sources"].as_array().unwrap() {
         let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
         for kind in [NavigationKind::HttpLocation, NavigationKind::HtmlNavigation] {
-            let next = http.checked_portal_navigation_target(&source, legacy.clone(), &Method::GET, false, kind)
+            let next = http
+                .checked_portal_navigation_target(
+                    &source,
+                    legacy.clone(),
+                    &Method::GET,
+                    false,
+                    kind,
+                )
                 .unwrap();
             assert_eq!(next, expected);
             assert_eq!(next.query(), legacy.query());
         }
         for body in api_portal_html_navigation_bodies(legacy.as_str()) {
             let next = crate::protocol::next_api_portal_navigation(&http, &body, &source)
-                .unwrap().unwrap();
+                .unwrap()
+                .unwrap();
             assert_eq!(next, expected);
             assert_eq!(next.query(), legacy.query());
         }
@@ -369,7 +384,14 @@ fn history_entry_keeps_the_original_target_method_body_and_tls_boundaries() {
     let fixture = portal_entry_variants_fixture();
     let legacy = Url::parse(fixture["legacy_target"].as_str().unwrap()).unwrap();
     for verify_tls in [true, false] {
-        let http = Transport::new(&Config { verify_tls, ..Config::default() }, false).unwrap();
+        let http = Transport::new(
+            &Config {
+                verify_tls,
+                ..Config::default()
+            },
+            false,
+        )
+        .unwrap();
         for source in fixture["sources"].as_array().unwrap() {
             let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
             for target in [
@@ -393,20 +415,29 @@ fn history_entry_keeps_the_original_target_method_body_and_tls_boundaries() {
                 assert_api_portal_html_navigation_blocked(&http, &source, &target);
             }
             let long = Url::parse(&format!(
-                "http://auth1.ysu.edu.cn/portal/portal-main?sessionId={}", "s".repeat(1025)
-            )).unwrap();
+                "http://auth1.ysu.edu.cn/portal/portal-main?sessionId={}",
+                "s".repeat(1025)
+            ))
+            .unwrap();
             assert_checked_entry_blocked(&http, &source, &long, &Method::GET, false);
             for (method, has_body) in [
-                (Method::HEAD, false), (Method::POST, false),
-                (Method::POST, true), (Method::GET, true),
+                (Method::HEAD, false),
+                (Method::POST, false),
+                (Method::POST, true),
+                (Method::GET, true),
             ] {
                 assert_checked_entry_blocked(&http, &source, &legacy, &method, has_body);
             }
         }
     }
-    let http = Transport::new(&Config {
-        base: "https://auth1.ysu.edu.cn:444".into(), ..Config::default()
-    }, false).unwrap();
+    let http = Transport::new(
+        &Config {
+            base: "https://auth1.ysu.edu.cn:444".into(),
+            ..Config::default()
+        },
+        false,
+    )
+    .unwrap();
     let mut source = http.endpoint("eportal/redirect.jsp").unwrap();
     for query in [None, Some("mode=history")] {
         source.set_query(query);

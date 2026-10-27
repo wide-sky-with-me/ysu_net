@@ -200,9 +200,17 @@ fn postcheck_keeps_closed_navigation_categories_without_reintroducing_material()
     let public = serde_json::to_string(&fixed.diagnostic()).unwrap();
     let detail = navigation.detail();
     for private in [
-        "portal.invalid", "cas.invalid", "SOURCE_USER", "SOURCE_PASSWORD",
-        "SOURCE_QUERY", "SOURCE_FRAGMENT", "TARGET_USER", "TARGET_PASSWORD",
-        "TARGET_SID", "192.0.2.9", "RAW_CAUSE",
+        "portal.invalid",
+        "cas.invalid",
+        "SOURCE_USER",
+        "SOURCE_PASSWORD",
+        "SOURCE_QUERY",
+        "SOURCE_FRAGMENT",
+        "TARGET_USER",
+        "TARGET_PASSWORD",
+        "TARGET_SID",
+        "192.0.2.9",
+        "RAW_CAUSE",
     ] {
         assert!(!fixed.message.contains(private));
         assert!(!public.contains(private));

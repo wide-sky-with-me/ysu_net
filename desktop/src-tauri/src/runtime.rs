@@ -1673,7 +1673,10 @@ mod navigation_diagnostic_formatter_tests {
         let detail = diagnostic_detail("switch_service", DiagnosticStage::Verification, &error);
         assert_eq!(detail, format!("{plain} {}", navigation.detail()));
         assert_eq!(error.code, 3);
-        assert_eq!(error.diagnostic().operation, DiagnosticOperation::SwitchService);
+        assert_eq!(
+            error.diagnostic().operation,
+            DiagnosticOperation::SwitchService
+        );
         assert_eq!(error.diagnostic().stage, DiagnosticStage::CasNavigation);
         assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
         for private in [

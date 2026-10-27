@@ -16,19 +16,51 @@ fn capture(target: &str) -> NavigationDiagnostic {
 
 fn assert_fixed_detail(navigation: NavigationDiagnostic) {
     let values = [
-        "http_location", "html_navigation", "browser_document", "get", "other", "true", "false",
-        "http", "https", "portal", "cas", "captive", "root", "index", "redirect", "portal_main",
-        "cas_login", "none", "exact_history", "default", "absent", "one_valid", "multiple",
-        "invalid", "flow_only",
+        "http_location",
+        "html_navigation",
+        "browser_document",
+        "get",
+        "other",
+        "true",
+        "false",
+        "http",
+        "https",
+        "portal",
+        "cas",
+        "captive",
+        "root",
+        "index",
+        "redirect",
+        "portal_main",
+        "cas_login",
+        "none",
+        "exact_history",
+        "default",
+        "absent",
+        "one_valid",
+        "multiple",
+        "invalid",
+        "flow_only",
     ];
     let fields = [
-        "scheme", "role", "host_role", "route", "query", "port", "userinfo", "fragment", "sid",
+        "scheme",
+        "role",
+        "host_role",
+        "route",
+        "query",
+        "port",
+        "userinfo",
+        "fragment",
+        "sid",
     ];
     let detail = navigation.detail();
     assert_eq!(detail.split_whitespace().count(), 21);
     for item in detail.split_whitespace() {
         let (key, value) = item.split_once('=').expect("fixed key/token pair");
-        assert!(values.contains(&value), "unexpected navigation value {value}");
+        assert!(
+            values.contains(&value),
+            "unexpected navigation value {value}"
+        );
         let endpoint_key = key
             .strip_prefix("nav_source_")
             .or_else(|| key.strip_prefix("nav_target_"));
@@ -109,15 +141,55 @@ fn same_portal_http_and_outside_http_have_distinct_host_evidence_without_raw_hos
 #[test]
 fn only_exact_routes_queries_and_configured_origins_receive_named_categories() {
     for (target, role, route, port) in [
-        ("https://portal.fixture.invalid/", "portal", "root", "default"),
-        ("https://portal.fixture.invalid/eportal/index.jsp", "portal", "index", "default"),
-        ("https://cas.fixture.invalid/authserver/login", "cas", "cas_login", "default"),
+        (
+            "https://portal.fixture.invalid/",
+            "portal",
+            "root",
+            "default",
+        ),
+        (
+            "https://portal.fixture.invalid/eportal/index.jsp",
+            "portal",
+            "index",
+            "default",
+        ),
+        (
+            "https://cas.fixture.invalid/authserver/login",
+            "cas",
+            "cas_login",
+            "default",
+        ),
         ("https://124.124.124.124/", "captive", "root", "default"),
-        ("https://portal.fixture.invalid:8443/", "other", "root", "other"),
-        ("https://portal.fixture.invalid.outside.invalid/", "other", "root", "default"),
-        ("https://portal.fixture.invalid/dynamic/authserver/login", "portal", "other", "default"),
-        ("https://portal.fixture.invalid/portal/%70ortal-main", "portal", "other", "default"),
-        ("https://portal.fixture.invalid/portal/portal-main/private", "portal", "other", "default"),
+        (
+            "https://portal.fixture.invalid:8443/",
+            "other",
+            "root",
+            "other",
+        ),
+        (
+            "https://portal.fixture.invalid.outside.invalid/",
+            "other",
+            "root",
+            "default",
+        ),
+        (
+            "https://portal.fixture.invalid/dynamic/authserver/login",
+            "portal",
+            "other",
+            "default",
+        ),
+        (
+            "https://portal.fixture.invalid/portal/%70ortal-main",
+            "portal",
+            "other",
+            "default",
+        ),
+        (
+            "https://portal.fixture.invalid/portal/portal-main/private",
+            "portal",
+            "other",
+            "default",
+        ),
     ] {
         let navigation = capture(target);
         let value = serde_json::to_value(navigation).unwrap();
@@ -135,7 +207,10 @@ fn only_exact_routes_queries_and_configured_origins_receive_named_categories() {
         ("", "other"),
     ] {
         let navigation = capture(&format!("https://portal.fixture.invalid/?{query}"));
-        assert_eq!(serde_json::to_value(navigation).unwrap()["target"]["query"], expected);
+        assert_eq!(
+            serde_json::to_value(navigation).unwrap()["target"]["query"],
+            expected
+        );
     }
 }
 
@@ -159,12 +234,20 @@ fn sid_shapes_cover_duplicates_encoded_keys_and_control_characters_without_value
         ("flowSessionId=", "invalid"),
     ] {
         let navigation = capture(&format!("https://portal.fixture.invalid/?{query}"));
-        assert_eq!(serde_json::to_value(navigation).unwrap()["target"]["sid"], expected);
+        assert_eq!(
+            serde_json::to_value(navigation).unwrap()["target"]["sid"],
+            expected
+        );
         assert_fixed_detail(navigation);
     }
     let secret = "x".repeat(1025);
-    let navigation = capture(&format!("https://portal.fixture.invalid/?sessionId={secret}"));
-    assert_eq!(serde_json::to_value(navigation).unwrap()["target"]["sid"], "invalid");
+    let navigation = capture(&format!(
+        "https://portal.fixture.invalid/?sessionId={secret}"
+    ));
+    assert_eq!(
+        serde_json::to_value(navigation).unwrap()["target"]["sid"],
+        "invalid"
+    );
     assert!(!navigation.detail().contains(&secret));
 }
 
@@ -202,10 +285,23 @@ fn malicious_url_material_is_absent_from_serialization_debug_and_detail() {
         assert_eq!(value["has_body"], true);
         let public = format!("{} {:?} {}", value, navigation, navigation.detail());
         for private in [
-            "fixture-user", "fixture-password", "fixture-source-path", "fixture-source-ticket",
-            "fixture-target-path", "fixture-session", "fixture-ticket", "fixture-account",
-            "fixture-fragment", "fixture-method-secret", "fixture-cookie", "portal.fixture.invalid",
-            "cas.fixture.invalid", "sessionId", "userId", "Cookie", "https://",
+            "fixture-user",
+            "fixture-password",
+            "fixture-source-path",
+            "fixture-source-ticket",
+            "fixture-target-path",
+            "fixture-session",
+            "fixture-ticket",
+            "fixture-account",
+            "fixture-fragment",
+            "fixture-method-secret",
+            "fixture-cookie",
+            "portal.fixture.invalid",
+            "cas.fixture.invalid",
+            "sessionId",
+            "userId",
+            "Cookie",
+            "https://",
         ] {
             assert!(!public.contains(private), "navigation leaked {private}");
         }
@@ -285,7 +381,9 @@ async fn public_operation_wrapper_preserves_navigation_and_existing_categories()
     assert_eq!(error.diagnostic().stage, DiagnosticStage::CasNavigation);
     assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
     assert_eq!(error.diagnostic().navigation, Some(navigation));
-    assert!(!serde_json::to_string(&error.diagnostic()).unwrap().contains("fixture-"));
+    assert!(!serde_json::to_string(&error.diagnostic())
+        .unwrap()
+        .contains("fixture-"));
 }
 
 #[test]
@@ -311,7 +409,10 @@ fn optional_navigation_preserves_none_json_copy_and_original_error_categories() 
         .at(DiagnosticStage::Verification)
         .or_reason(DiagnosticReason::Network);
     assert_eq!(error.code, OPERATION_ERROR);
-    assert_eq!(error.diagnostic().operation, DiagnosticOperation::SwitchService);
+    assert_eq!(
+        error.diagnostic().operation,
+        DiagnosticOperation::SwitchService
+    );
     assert_eq!(error.diagnostic().stage, DiagnosticStage::CasNavigation);
     assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
     assert_eq!(copy_value(error.diagnostic()).navigation, Some(navigation));

@@ -36,7 +36,17 @@ Native 仍在账户读取后独立查询 Status；提交成功详情前再以 `m
 
 在线读取比旧库多一次状态查询，新增核验与原步骤共享既有预算，不叠加新的整轮时限；无登录、下线或配置写。前后采样与本机串行提交不是远端原子事务；缺字段可能掩盖实际变化，也不能保证发现采样间 A→B→A 的 ABA 变化。来源晚写反例已在新候选独立回归，不把首轮观察器成绩代替来源绑定的验证。
 
-API 门户 bootstrap 另将既有窄 HTTPS 规范化接到 HTML / meta / JS 导航解析：仅对实际响应终点为精确可信入口的无 body GET、同主机、默认端口、固定目标路径及受限 sessionId 处理，不允许先发明文 HTTP，不放宽其他 TLS / POST / API / CAS 边界。当前已验证合成兼容路径；远端 Win11 网页下线后报告 `redirect_blocked` 的真实目标 URL 未取得，不能认定它就是现场根因或已经修复。Browser 分支另有未纳入本次 API 修正的缺口，不建议直接切 browser 作为已验证解法。
+### 门户导航与诊断（开发源码）
+
+既有 API HTML 导航规范化与来源绑定的产品成绩只属于前述候选；根据[111 只读实测](portal-navigation-review-2026-10-27.md)新增的精确来源变体、Browser bootstrap Location 接线与分类诊断仍是待 CI 的新导航候选，未新发行、未部署、未确认 Win11 网页下线现场。选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)，不回写旧对照或用旧候选通过代替本轮验证。
+
+来源只增加由配置 endpoint 派生的第二个完整 Url：原无 query 的精确 redirect 入口，以及唯一精确 `mode=history` 变体；不剥除任意 query，不通配额外 / 重复 / 编码参数、域名或路径。它们才可使用原受限 HTTP 目标规范化：无 body GET、HTTPS base 默认 443、同 host 的 HTTP 默认 80、配置 endpoint 派生的固定目标路径（`portal_main` 角色），目标无 userinfo / fragment，唯一 sessionId 的解码值非空、不超过 1024 字节且无控制符；先转换为 HTTPS 再做原 allowed 检查，不发明文 HTTP、不清改目标 query。
+
+API 的 HTTP Location 和 HTML / meta / JS bootstrap 解析共用 checked 入口。Browser 只对明确 bootstrap 阶段、本主 CDP session 的主 frame Document、实际 GET 无 body 响应中的 HTTP Location 使用同一规则，来源取本次 request URL，不取旧 `last`；通过后将 HTTPS 目标真正写回 CDP 响应 Header。CAS、iframe、子资源、POST / HEAD 等不享受该例外；未证 Browser HTML / JS 来源不补，不能把切换 browser 当作已验证的现场解法。
+
+拒绝导航可附可选 `NavigationDiagnostic`：只输出闭集 enum / bool 的来源 / 目标角色与形状，不保存或输出原 URL、host、path、query 值、Cookie、票据、账号或密码。`role` 按完整配置 origin 分类，独立 `host_role` 只按精确 host 分类：同门户 HTTP 可同时是 role=other、host_role=portal，两者都不授予导航许可。None 时旧 JSON / 日志不变，原 code / reason / stage / operation 保留，Native 仅在有该 metadata 时追加固定分类，不写进账户 Info；这些 token 不是具体目标或认证根因的证明。
+
+本轮不改 TLS、CAS / API / POST 通用边界、默认入口列表、超时 / 重试、加密或凭据用途，不新增宽松 failover 或 direct SSO 分支。普通无 query 链原已覆盖，history 是新增组合实证；111 当时在线且仅跑独立 Requests 观察器，不是 Rust / CLI 产品或 Win11 离线现场复现，详细限制归[实测记录](portal-navigation-review-2026-10-27.md)。
 
 ### 窗口与系统集成
 

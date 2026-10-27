@@ -112,7 +112,10 @@ fn fulfill_response_headers(headers: &HeaderMap, body_len: usize) -> Vec<Value> 
     let mut result = Vec::new();
     for (name, value) in headers {
         // Rust decoded the body; CDP must not decode it again.
-        if matches!(name.as_str(), "content-encoding" | "transfer-encoding" | "content-length") {
+        if matches!(
+            name.as_str(),
+            "content-encoding" | "transfer-encoding" | "content-length"
+        ) {
             continue;
         }
         if let Ok(value) = value.to_str() {
@@ -962,7 +965,8 @@ mod navigation_tests {
     fn variants() -> Value {
         serde_json::from_str(include_str!(
             "../../../../tests/fixtures/portal-entry-variants.json"
-        )).unwrap()
+        ))
+        .unwrap()
     }
 
     #[test]
@@ -975,18 +979,36 @@ mod navigation_tests {
             let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
             let mut headers = HeaderMap::new();
             headers.insert(LOCATION, HeaderValue::from_str(legacy).unwrap());
-            headers.insert("set-cookie", HeaderValue::from_static("JSESSIONID=fixture-cookie"));
+            headers.insert(
+                "set-cookie",
+                HeaderValue::from_static("JSESSIONID=fixture-cookie"),
+            );
             headers.insert("content-encoding", HeaderValue::from_static("gzip"));
             let next = checked_browser_redirect(
-                &http, &source, &Method::GET, false, bootstrap_document(), &mut headers,
-            ).unwrap();
+                &http,
+                &source,
+                &Method::GET,
+                false,
+                bootstrap_document(),
+                &mut headers,
+            )
+            .unwrap();
             assert_eq!(next.as_str(), expected);
             assert_eq!(next.query(), Url::parse(legacy).unwrap().query());
             let serialized = fulfill_response_headers(&headers, 0);
-            assert!(serialized.iter().any(|header| header["name"] == "location" && header["value"] == expected));
-            assert!(serialized.iter().any(|header| header["name"] == "set-cookie" && header["value"] == "JSESSIONID=fixture-cookie"));
-            assert!(serialized.iter().any(|header| header["name"] == "Content-Length" && header["value"] == "0"));
-            assert!(!serialized.iter().any(|header| header["name"] == "content-encoding"));
+            assert!(serialized
+                .iter()
+                .any(|header| header["name"] == "location" && header["value"] == expected));
+            assert!(serialized
+                .iter()
+                .any(|header| header["name"] == "set-cookie"
+                    && header["value"] == "JSESSIONID=fixture-cookie"));
+            assert!(serialized
+                .iter()
+                .any(|header| header["name"] == "Content-Length" && header["value"] == "0"));
+            assert!(!serialized
+                .iter()
+                .any(|header| header["name"] == "content-encoding"));
             assert!(http.allowed(&Url::parse(legacy).unwrap()).is_err());
         }
     }
@@ -998,16 +1020,37 @@ mod navigation_tests {
         let legacy = fixture["legacy_target"].as_str().unwrap();
         let context = bootstrap_document();
         let excluded = [
-            BrowserNavigationContext { bootstrap: false, ..context },
-            BrowserNavigationContext { session: "child-session", ..context },
-            BrowserNavigationContext { frame: Some("child-frame"), ..context },
-            BrowserNavigationContext { frame: None, ..context },
-            BrowserNavigationContext { resource_type: Some("Script"), ..context },
-            BrowserNavigationContext { resource_type: Some("XHR"), ..context },
+            BrowserNavigationContext {
+                bootstrap: false,
+                ..context
+            },
+            BrowserNavigationContext {
+                session: "child-session",
+                ..context
+            },
+            BrowserNavigationContext {
+                frame: Some("child-frame"),
+                ..context
+            },
+            BrowserNavigationContext {
+                frame: None,
+                ..context
+            },
+            BrowserNavigationContext {
+                resource_type: Some("Script"),
+                ..context
+            },
+            BrowserNavigationContext {
+                resource_type: Some("XHR"),
+                ..context
+            },
         ];
         for source in fixture["sources"].as_array().unwrap() {
             let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
-            let mut cases: Vec<_> = excluded.iter().map(|context| (*context, Method::GET, false)).collect();
+            let mut cases: Vec<_> = excluded
+                .iter()
+                .map(|context| (*context, Method::GET, false))
+                .collect();
             cases.extend([
                 (context, Method::HEAD, false),
                 (context, Method::POST, false),
@@ -1018,11 +1061,20 @@ mod navigation_tests {
                 let mut headers = HeaderMap::new();
                 headers.insert(LOCATION, HeaderValue::from_str(legacy).unwrap());
                 let error = checked_browser_redirect(
-                    &http, &source, &method, has_body, context, &mut headers,
-                ).unwrap_err();
+                    &http,
+                    &source,
+                    &method,
+                    has_body,
+                    context,
+                    &mut headers,
+                )
+                .unwrap_err();
                 assert_eq!(error.code, crate::QUERY_ERROR);
                 assert_eq!(error.diagnostic().reason, Reason::RedirectBlocked);
-                assert_eq!(error.diagnostic().navigation.is_some(), context.resource_type == Some("Document"));
+                assert_eq!(
+                    error.diagnostic().navigation.is_some(),
+                    context.resource_type == Some("Document")
+                );
                 assert_eq!(headers.get(LOCATION).unwrap().to_str().unwrap(), legacy);
             }
         }
@@ -1035,14 +1087,17 @@ mod navigation_tests {
         let raw = "/portal/portal-main?sessionId=fixture-session";
         let mut headers = HeaderMap::new();
         headers.insert(LOCATION, HeaderValue::from_static(raw));
-        let context = BrowserNavigationContext { bootstrap: false, ..bootstrap_document() };
-        let next = checked_browser_redirect(
-            &http, &source, &Method::GET, false, context, &mut headers,
-        ).unwrap();
+        let context = BrowserNavigationContext {
+            bootstrap: false,
+            ..bootstrap_document()
+        };
+        let next =
+            checked_browser_redirect(&http, &source, &Method::GET, false, context, &mut headers)
+                .unwrap();
         assert_eq!(next, source.join(raw).unwrap());
         assert_eq!(headers.get(LOCATION).unwrap().to_str().unwrap(), raw);
-        assert!(fulfill_response_headers(&headers, 0).iter().any(|header| {
-            header["name"] == "location" && header["value"] == raw
-        }));
+        assert!(fulfill_response_headers(&headers, 0)
+            .iter()
+            .any(|header| { header["name"] == "location" && header["value"] == raw }));
     }
 }
