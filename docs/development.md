@@ -70,7 +70,7 @@ uv lock --check
 - `tests/test_node_runtime.py`：Node.js 运行时查找顺序与缺失时的报错。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
 
-[Mock tests](../.github/workflows/test.yml)负责完整 Python 回归与分发构建，[Tauri CI](../.github/workflows/tauri.yml)负责四平台前端/Rust/浏览器和包验收，[差分预检](../.github/workflows/updater-delta-preflight.yml)解析依赖锁并生成或检查公开夹具；三个入口复用相同公共工具准备。社区文档另由[社区检查](../.github/workflows/community.yml)验证。不能仅凭一条工作流成功宣称全部 CI 通过。
+[Mock tests](../.github/workflows/test.yml)负责完整 Python 回归与分发构建，[Tauri CI](../.github/workflows/tauri.yml)负责四平台原生矩阵与独立浏览器验收，[差分预检](../.github/workflows/updater-delta-preflight.yml)解析依赖锁并生成或检查公开夹具；涉及差分的三个入口复用相同公共工具准备。社区文档另由[社区检查](../.github/workflows/community.yml)验证。不能仅凭一条工作流成功宣称全部 CI 通过。
 
 Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#验证命令)，按不同栈分别报告覆盖范围。Python 两个后端的账户展示统一在 `auth/account.py` 修改；Rust 对应实现位于 `desktop/crates/ysu-auth/`，协议或展示语义变更需同时补相应回归。
 
@@ -83,6 +83,14 @@ Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#�
 中国移动已由增强版 `switch` 真实切换成功，独立查询服务与外网 HTTPS 均通过；用户级 systemd 安装、真实重连、崩溃恢复及重装保留配置也已[实测验收](deployment-test.md)。此前会话上限错误及新版切换失败恢复由分离的真实记录与模拟测试说明。可选浏览器后端、验证码/风控、其他运营商、服务器重启及长稳运行仍未实测。
 独立历史验收另见 [2026-10-20 Shell 真实复测](shell-live-2026-10-20.md)与 [2026-10-21 Windows 原生只读修复及复装验收](windows-readonly-fix-2026-10-21.md)；较新的桌面本地与远端结果集中见[桌面验收记录](tauri-desktop.md#验收记录)。历史运营商上线成绩不代表当前账号的可用会话。
 `manager/switching.py` 不持久化凭据；CLI 在成功后通过独立写锁合并服务字段。配置写锁与守护运行锁分开，避免破坏热更新或覆盖并发修改。
+
+### Tauri CI 并行门禁
+
+当前工作流源码将四目标 `build` 与独立 Linux `browser-acceptance` 并行，彼此无 needs；后者完整承接原十脚本浏览器验收，顺序、参数、输出、回环 / strictPort、有界启动与退出清理不变。新 job 自备 Node / uv、锁定依赖、前端 build、字体 / ffmpeg 和可执行 Chrome，不注入签名 Secret；独立 `rust-desktop-preview-linux-x64` artifact 以 always 保留预览证据与启动日志。
+
+原生矩阵仍执行前端 / Rust、四平台 Chrome 认证夹具、Native / 安装、签名及工具硬失败门槛。正式 `release` 仍限定 v 标签且同时 needs `[build, browser-acceptance]`，任一失败或取消都不能发布；不以 always / continue-on-error 绕过。`format_only=true` 跳过两条产品 job，只走原 `format-source`；产品 job 的 45 分钟上限不减。
+
+本阶段只改排程，没有修改 Cargo / profile / cache / target 或削减测试；新候选 `7c876513` 已通过云端 Mock、四平台 Native 与独立浏览器验收。Linux SDK 下载异常后的定向复跑污染了整体耗时对照，不据此宣称稳定提速；基线、代价与实际结果见[本轮记录](ci-parallel-acceptance-2026-10-27.md)，为何先拆关键路径见[并行决策](../.agents/notes/implemented/ci/2026-10-27-parallel-browser-acceptance.md)。
 
 ## 构建与依赖
 
@@ -101,7 +109,7 @@ Python 分发使用 Hatchling，`pyproject.toml` 声明 Python 依赖和 `ysu` �
 
 ### 桌面构建
 
-Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令均面向 GitHub Actions runner，见[Tauri 开发说明](tauri-desktop.md#构建前提)。本机不需要为下载、安装或运行云端产物准备构建 SDK，也不启动 Vite preview。`desktop-test` 依赖组仅供云端外部浏览器/进程验收，不是 GUI 构建或运行依赖。推送 `v*` 标签时，Tauri 工作流在各平台构建与验收通过后，连同 runner 上 `uv build` 生成的 wheel 与源码包一起发布，并生成 `SHA256SUMS`；开发构建使用独立分支，不打版本标签、不发布正式 Release，发行边界见[项目架构](architecture.md#构建与发行边界)。
+Windows / Linux / macOS 桌面共用 Tauri + Rust 原生构建入口，不再冻结 Python 认证旁车；平台 SDK、安装包和无 Python 构建命令均面向 GitHub Actions runner，见[Tauri 开发说明](tauri-desktop.md#构建前提)。本机不需要为下载、安装或运行云端产物准备构建 SDK，也不启动 Vite preview。`desktop-test` 依赖组仅供云端外部浏览器/进程验收，不是 GUI 构建或运行依赖。推送 `v*` 标签时，Tauri 工作流通过[上述双门禁](#tauri-ci-并行门禁)后，连同 runner 上 `uv build` 生成的 wheel 与源码包一起发布，并生成 `SHA256SUMS`；开发构建使用独立分支，不打版本标签、不发布正式 Release，发行边界见[项目架构](architecture.md#构建与发行边界)。
 
 ### 本地构建产物清理
 
