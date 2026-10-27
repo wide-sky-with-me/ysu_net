@@ -11,7 +11,8 @@ fn diagnostic(
         AuthDiagnostic {
             operation,
             stage,
-            reason
+            reason,
+            navigation: error.diagnostic().navigation,
         }
     );
     let serialized = serde_json::to_string(&error.diagnostic()).unwrap();

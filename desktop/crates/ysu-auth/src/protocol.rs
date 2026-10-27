@@ -4,7 +4,8 @@ use crate::{
     diagnostic::at,
     presentation::text,
     transport::{Operation, Reply, Transport, REDIRECT_LIMIT},
-    AuthError, Config, DiagnosticReason as Reason, DiagnosticStage as Stage, Status, SERVICES,
+    AuthError, Config, DiagnosticReason as Reason, DiagnosticStage as Stage, NavigationKind, Status,
+    SERVICES,
 };
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE, LOCATION},
@@ -477,9 +478,8 @@ pub(crate) fn next_api_portal_navigation(
     let Some(next) = next_navigation(body, from) else {
         return Ok(None);
     };
-    let next = http.portal_navigation_target(from, next, &Method::GET, false);
-    http.allowed(&next)?;
-    Ok(Some(next))
+    http.checked_portal_navigation_target(from, next, &Method::GET, false, NavigationKind::HtmlNavigation)
+        .map(Some)
 }
 
 pub(crate) fn next_navigation(body: &str, base: &Url) -> Option<Url> {

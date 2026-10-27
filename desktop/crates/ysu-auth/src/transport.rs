@@ -1,4 +1,7 @@
-use crate::{cookies::Jar, is_loopback, AuthError, Config, DiagnosticReason as Reason};
+use crate::{
+    cookies::Jar, is_loopback, AuthError, Config, DiagnosticReason as Reason, NavigationDiagnostic,
+    NavigationKind,
+};
 use reqwest::{
     cookie::CookieStore,
     header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
@@ -295,7 +298,13 @@ impl Transport {
         // The HTTPS redirect.jsp emits a legacy HTTP portal-main Location, whose
         // HTTP endpoint only upgrades back to HTTPS. Skip that cleartext hop;
         // this exception is a URL rewrite, never permission to send HTTP.
+        // Decision: .agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md
         let entry = self.endpoint("eportal/redirect.jsp").ok();
+        let history_entry = entry.as_ref().map(|url| {
+            let mut url = url.clone();
+            url.set_query(Some("mode=history"));
+            url
+        });
         let portal = self.endpoint("portal/portal-main").ok();
         let mut ids = next.query_pairs().filter(|(key, _)| key == "sessionId");
         let valid_sid = ids.next().is_some_and(|(_, value)| {
@@ -306,7 +315,7 @@ impl Transport {
             && !has_body
             && self.base.scheme() == "https"
             && self.base.port_or_known_default() == Some(443)
-            && entry.as_ref() == Some(from)
+            && (entry.as_ref() == Some(from) || history_entry.as_ref() == Some(from))
             && next.scheme() == "http"
             && next.port_or_known_default() == Some(80)
             && next.host() == self.base.host()
@@ -319,6 +328,28 @@ impl Transport {
             let _ = next.set_scheme("https");
         }
         next
+    }
+    pub(crate) fn checked_portal_navigation_target(
+        &self,
+        from: &Url,
+        next: Url,
+        method: &Method,
+        has_body: bool,
+        kind: NavigationKind,
+    ) -> Result<Url, AuthError> {
+        let diagnostic = NavigationDiagnostic::capture(
+            kind,
+            from,
+            &next,
+            &self.base,
+            &self.cas,
+            method.as_str(),
+            has_body,
+        );
+        let next = self.portal_navigation_target(from, next, method, has_body);
+        self.allowed(&next)
+            .map_err(|error| error.with_navigation(diagnostic))?;
+        Ok(next)
     }
     async fn follow_inner(
         &self,
@@ -359,11 +390,17 @@ impl Transport {
                     AuthError::query("认证重定向缺少有效地址").because(Reason::ResponseInvalid)
                 })?;
             let next = if portal_navigation {
-                self.portal_navigation_target(&url, next, &method, body.is_some())
+                self.checked_portal_navigation_target(
+                    &url,
+                    next,
+                    &method,
+                    body.is_some(),
+                    NavigationKind::HttpLocation,
+                )?
             } else {
+                self.allowed(&next)?;
                 next
             };
-            self.allowed(&next)?;
             let origin_changed = next.origin() != url.origin();
             if origin_changed && body.is_some() && matches!(r.status, 307 | 308) {
                 return Err(

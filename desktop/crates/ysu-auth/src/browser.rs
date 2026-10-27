@@ -6,11 +6,11 @@ use crate::{
     cdp_pipe::Pipe,
     protocol::{captcha_required, query},
     transport::{Operation, Transport, REDIRECT_LIMIT, RESPONSE_LIMIT},
-    AuthError, Config,
+    AuthError, Config, DiagnosticReason as Reason, NavigationDiagnostic, NavigationKind,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::{
-    header::{HeaderName, HeaderValue},
+    header::{HeaderMap, HeaderName, HeaderValue, LOCATION},
     Method,
 };
 use serde_json::{json, Value};
@@ -35,6 +35,93 @@ use url::Url;
 
 /// CDP messages carry base64 Fetch bodies, so allow twice the response limit.
 const CDP_MESSAGE_LIMIT: usize = RESPONSE_LIMIT * 2;
+
+#[derive(Clone, Copy)]
+struct BrowserNavigationContext<'a> {
+    bootstrap: bool,
+    session: &'a str,
+    main_session: &'a str,
+    frame: Option<&'a str>,
+    main_frame: &'a str,
+    resource_type: Option<&'a str>,
+}
+
+impl BrowserNavigationContext<'_> {
+    fn permits_rewrite(&self, method: &Method, has_body: bool) -> bool {
+        self.bootstrap
+            && self.session == self.main_session
+            && self.frame == Some(self.main_frame)
+            && self.resource_type == Some("Document")
+            && method == Method::GET
+            && !has_body
+    }
+}
+
+fn checked_browser_redirect(
+    http: &Transport,
+    from: &Url,
+    method: &Method,
+    has_body: bool,
+    context: BrowserNavigationContext<'_>,
+    headers: &mut HeaderMap,
+) -> Result<Url, AuthError> {
+    let next = headers
+        .get(LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| from.join(value).ok())
+        .ok_or_else(|| {
+            AuthError::query("浏览器重定向缺少有效地址").because(Reason::ResponseInvalid)
+        })?;
+    // Decision: .agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md
+    let checked = if context.permits_rewrite(method, has_body) {
+        http.checked_portal_navigation_target(
+            from,
+            next.clone(),
+            method,
+            has_body,
+            NavigationKind::BrowserDocument,
+        )?
+    } else {
+        http.allowed(&next).map_err(|error| {
+            if context.resource_type == Some("Document") {
+                error.with_navigation(NavigationDiagnostic::capture(
+                    NavigationKind::BrowserDocument,
+                    from,
+                    &next,
+                    &http.base,
+                    &http.cas,
+                    method.as_str(),
+                    has_body,
+                ))
+            } else {
+                error
+            }
+        })?;
+        next.clone()
+    };
+    if checked != next {
+        let value = HeaderValue::from_str(checked.as_str()).map_err(|_| {
+            AuthError::query("浏览器重定向地址无法编码").because(Reason::ResponseInvalid)
+        })?;
+        headers.insert(LOCATION, value);
+    }
+    Ok(checked)
+}
+
+fn fulfill_response_headers(headers: &HeaderMap, body_len: usize) -> Vec<Value> {
+    let mut result = Vec::new();
+    for (name, value) in headers {
+        // Rust decoded the body; CDP must not decode it again.
+        if matches!(name.as_str(), "content-encoding" | "transfer-encoding" | "content-length") {
+            continue;
+        }
+        if let Ok(value) = value.to_str() {
+            result.push(json!({"name":name.as_str(),"value":value}));
+        }
+    }
+    result.push(json!({"name":"Content-Length","value":body_len.to_string()}));
+    result
+}
 
 struct Process {
     child: Option<Child>,
@@ -113,6 +200,7 @@ pub(crate) struct Browser {
     initializing_children: BTreeMap<String, usize>,
     redirects: usize,
     requests: usize,
+    portal_bootstrap: bool,
     sid: Option<String>,
     last: Url,
 }
@@ -261,6 +349,7 @@ impl Browser {
             initializing_children: BTreeMap::new(),
             redirects: 0,
             requests: 0,
+            portal_bootstrap: false,
             sid: None,
         };
         let target = this
@@ -541,30 +630,37 @@ impl Browser {
         let cas_post = method == Method::POST
             && url.origin() == self.http.cas.origin()
             && url.path().ends_with("/authserver/login");
-        let r = self
+        let mut r = self
             .http
-            .once(method, url.clone(), headers, body, op)
+            .once(method.clone(), url.clone(), headers, body, op)
             .await?;
         if matches!(r.status, 301 | 302 | 303 | 307 | 308) {
             self.redirects += 1;
             if self.redirects > REDIRECT_LIMIT {
                 return Err(AuthError::query("浏览器重定向超过次数限制"));
             }
-            if let Some(location) = r.headers.get("location").and_then(|v| v.to_str().ok()) {
-                let next = url
-                    .join(location)
-                    .map_err(|_| AuthError::query("浏览器重定向地址异常"))?;
-                self.http.allowed(&next)?;
-                if has_body && next.origin() != url.origin() && matches!(r.status, 307 | 308) {
-                    return Err(AuthError::query("浏览器认证内容跨站重复提交已停止"));
-                }
-                if cas_post && matches!(r.status, 307 | 308) {
-                    return Err(AuthError::interaction(
-                        "统一认证要求重复提交，请人工处理后重试",
-                    ));
-                }
-            } else {
-                return Err(AuthError::query("浏览器重定向缺少地址"));
+            let next = checked_browser_redirect(
+                &self.http,
+                &url,
+                &method,
+                has_body,
+                BrowserNavigationContext {
+                    bootstrap: self.portal_bootstrap,
+                    session,
+                    main_session: &self.session,
+                    frame: params["frameId"].as_str(),
+                    main_frame: &self.main_frame,
+                    resource_type: params["resourceType"].as_str(),
+                },
+                &mut r.headers,
+            )?;
+            if has_body && next.origin() != url.origin() && matches!(r.status, 307 | 308) {
+                return Err(AuthError::query("浏览器认证内容跨站重复提交已停止"));
+            }
+            if cas_post && matches!(r.status, 307 | 308) {
+                return Err(AuthError::interaction(
+                    "统一认证要求重复提交，请人工处理后重试",
+                ));
             }
         }
         if cas_post && !matches!(r.status, 301 | 302 | 303) {
@@ -579,20 +675,7 @@ impl Browser {
         {
             r.ensure_success()?;
         }
-        let mut response_headers = Vec::new();
-        for (name, value) in &r.headers {
-            // reqwest already decoded gzip/brotli/deflate; CDP receives the decoded bytes.
-            if matches!(
-                name.as_str(),
-                "content-encoding" | "transfer-encoding" | "content-length"
-            ) {
-                continue;
-            }
-            if let Ok(value) = value.to_str() {
-                response_headers.push(json!({"name":name.as_str(),"value":value}));
-            }
-        }
-        response_headers.push(json!({"name":"Content-Length","value":r.body.len().to_string()}));
+        let response_headers = fulfill_response_headers(&r.headers, r.body.len());
         self.send("Fetch.fulfillRequest", json!({"requestId":id,"responseCode":r.status,"responseHeaders":response_headers,"body":STANDARD.encode(r.body)}), Some(session), op).await?;
         Ok(())
     }
@@ -640,6 +723,12 @@ impl Browser {
         }
     }
     pub async fn portal(&mut self, op: &Operation) -> Result<(String, Url), AuthError> {
+        self.portal_bootstrap = true;
+        let result = self.portal_bootstrap_inner(op).await;
+        self.portal_bootstrap = false;
+        result
+    }
+    async fn portal_bootstrap_inner(&mut self, op: &Operation) -> Result<(String, Url), AuthError> {
         for path in ["", "eportal/index.jsp", "eportal/redirect.jsp"] {
             self.navigate(self.http.endpoint(path)?, op).await?;
             // Let startup scripts execute; every pending HTTP request is still intercepted.
@@ -678,6 +767,7 @@ impl Browser {
         config: &Config,
         op: &Operation,
     ) -> Result<(), AuthError> {
+        self.portal_bootstrap = false;
         self.navigate(url, op).await?;
         let state = self.evaluate(r#"({href:location.href,blocked:/IP被冻结|风险验证|访问频繁|noSupport/.test(document.title+' '+document.body.innerText.slice(0,4096)),captcha:!!Array.from(document.querySelectorAll('#captchaDiv, input[name=captcha], input[name=otp], input[name=smscode]')).find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden')})"#, None, op).await?;
         if state["blocked"] == true {
@@ -853,3 +943,106 @@ mod lifecycle_tests {
 #[cfg(all(test, unix))]
 #[path = "cdp_tests.rs"]
 mod cdp_tests;
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    fn bootstrap_document() -> BrowserNavigationContext<'static> {
+        BrowserNavigationContext {
+            bootstrap: true,
+            session: "main-session",
+            main_session: "main-session",
+            frame: Some("main-frame"),
+            main_frame: "main-frame",
+            resource_type: Some("Document"),
+        }
+    }
+
+    fn variants() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/portal-entry-variants.json"
+        )).unwrap()
+    }
+
+    #[test]
+    fn bootstrap_location_rewrite_reaches_the_actual_fulfill_headers() {
+        let fixture = variants();
+        let http = Transport::new(&Config::default(), false).unwrap();
+        let legacy = fixture["legacy_target"].as_str().unwrap();
+        let expected = fixture["https_target"].as_str().unwrap();
+        for source in fixture["sources"].as_array().unwrap() {
+            let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
+            let mut headers = HeaderMap::new();
+            headers.insert(LOCATION, HeaderValue::from_str(legacy).unwrap());
+            headers.insert("set-cookie", HeaderValue::from_static("JSESSIONID=fixture-cookie"));
+            headers.insert("content-encoding", HeaderValue::from_static("gzip"));
+            let next = checked_browser_redirect(
+                &http, &source, &Method::GET, false, bootstrap_document(), &mut headers,
+            ).unwrap();
+            assert_eq!(next.as_str(), expected);
+            assert_eq!(next.query(), Url::parse(legacy).unwrap().query());
+            let serialized = fulfill_response_headers(&headers, 0);
+            assert!(serialized.iter().any(|header| header["name"] == "location" && header["value"] == expected));
+            assert!(serialized.iter().any(|header| header["name"] == "set-cookie" && header["value"] == "JSESSIONID=fixture-cookie"));
+            assert!(serialized.iter().any(|header| header["name"] == "Content-Length" && header["value"] == "0"));
+            assert!(!serialized.iter().any(|header| header["name"] == "content-encoding"));
+            assert!(http.allowed(&Url::parse(legacy).unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn legacy_browser_location_is_blocked_outside_the_proven_bootstrap_context() {
+        let fixture = variants();
+        let http = Transport::new(&Config::default(), false).unwrap();
+        let legacy = fixture["legacy_target"].as_str().unwrap();
+        let context = bootstrap_document();
+        let excluded = [
+            BrowserNavigationContext { bootstrap: false, ..context },
+            BrowserNavigationContext { session: "child-session", ..context },
+            BrowserNavigationContext { frame: Some("child-frame"), ..context },
+            BrowserNavigationContext { frame: None, ..context },
+            BrowserNavigationContext { resource_type: Some("Script"), ..context },
+            BrowserNavigationContext { resource_type: Some("XHR"), ..context },
+        ];
+        for source in fixture["sources"].as_array().unwrap() {
+            let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
+            let mut cases: Vec<_> = excluded.iter().map(|context| (*context, Method::GET, false)).collect();
+            cases.extend([
+                (context, Method::HEAD, false),
+                (context, Method::POST, false),
+                (context, Method::POST, true),
+                (context, Method::GET, true),
+            ]);
+            for (context, method, has_body) in cases {
+                let mut headers = HeaderMap::new();
+                headers.insert(LOCATION, HeaderValue::from_str(legacy).unwrap());
+                let error = checked_browser_redirect(
+                    &http, &source, &method, has_body, context, &mut headers,
+                ).unwrap_err();
+                assert_eq!(error.code, crate::QUERY_ERROR);
+                assert_eq!(error.diagnostic().reason, Reason::RedirectBlocked);
+                assert_eq!(error.diagnostic().navigation.is_some(), context.resource_type == Some("Document"));
+                assert_eq!(headers.get(LOCATION).unwrap().to_str().unwrap(), legacy);
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_https_locations_keep_their_original_header_including_in_cas_phase() {
+        let http = Transport::new(&Config::default(), false).unwrap();
+        let source = http.endpoint("eportal/redirect.jsp").unwrap();
+        let raw = "/portal/portal-main?sessionId=fixture-session";
+        let mut headers = HeaderMap::new();
+        headers.insert(LOCATION, HeaderValue::from_static(raw));
+        let context = BrowserNavigationContext { bootstrap: false, ..bootstrap_document() };
+        let next = checked_browser_redirect(
+            &http, &source, &Method::GET, false, context, &mut headers,
+        ).unwrap();
+        assert_eq!(next, source.join(raw).unwrap());
+        assert_eq!(headers.get(LOCATION).unwrap().to_str().unwrap(), raw);
+        assert!(fulfill_response_headers(&headers, 0).iter().any(|header| {
+            header["name"] == "location" && header["value"] == raw
+        }));
+    }
+}

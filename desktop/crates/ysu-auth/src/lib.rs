@@ -8,6 +8,7 @@ mod cookies;
 mod crypto;
 mod diagnostic;
 mod info_observation;
+mod navigation_diagnostic;
 mod presentation;
 mod protocol;
 mod quota;
@@ -22,6 +23,7 @@ use transport::{Operation, Transport};
 pub use browser::system_chromium as browser_path;
 pub use diagnostic::{AuthDiagnostic, DiagnosticOperation, DiagnosticReason, DiagnosticStage};
 pub use info_observation::InfoObservation;
+pub use navigation_diagnostic::{NavigationDiagnostic, NavigationKind};
 pub use quota::{classify_quota, Quota, QuotaState};
 pub const SERVICES: [&str; 4] = ["校园网", "中国移动", "中国联通", "中国电信"];
 pub const QUERY_ERROR: i32 = 2;
@@ -166,6 +168,10 @@ impl AuthError {
     }
     pub fn diagnostic(&self) -> AuthDiagnostic {
         self.diagnostic
+    }
+    pub(crate) fn with_navigation(mut self, navigation: NavigationDiagnostic) -> Self {
+        self.diagnostic.navigation = Some(navigation);
+        self
     }
     pub(crate) fn at(mut self, stage: DiagnosticStage) -> Self {
         if self.diagnostic.stage == DiagnosticStage::Unknown {
@@ -437,6 +443,8 @@ impl AuthClient {
 
 #[cfg(test)]
 mod info_observation_tests;
+#[cfg(test)]
+mod navigation_diagnostic_tests;
 #[cfg(test)]
 mod quota_tests;
 #[cfg(test)]

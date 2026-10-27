@@ -58,7 +58,12 @@ pub(crate) fn verification_error() -> AuthError {
 }
 
 pub(crate) fn postcheck_error(error: AuthError) -> AuthError {
-    AuthError::query("账户读取后的连接状态未能核验，请重新读取")
-        .because(error.diagnostic().reason)
-        .at(DiagnosticStage::Verification)
+    let diagnostic = error.diagnostic();
+    let fixed = AuthError::query("账户读取后的连接状态未能核验，请重新读取")
+        .because(diagnostic.reason)
+        .at(DiagnosticStage::Verification);
+    match diagnostic.navigation {
+        Some(navigation) => fixed.with_navigation(navigation),
+        None => fixed,
+    }
 }

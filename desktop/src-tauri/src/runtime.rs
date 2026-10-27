@@ -184,6 +184,7 @@ fn local_auth_error(
         operation,
         stage,
         reason,
+        navigation: None,
     };
     error
 }
@@ -192,14 +193,19 @@ fn diagnostic_detail(action: &str, phase: DiagnosticStage, error: &AuthError) ->
     // Serialize only closed enums. AuthError.message may contain server text or credentials.
     let diagnostic = serde_json::to_value(error.diagnostic()).expect("fixed diagnostic enums");
     let phase = serde_json::to_value(phase).expect("fixed diagnostic phase");
-    format!(
+    let mut detail = format!(
         "action={action} phase={} code={} operation={} stage={} reason={}",
         phase.as_str().unwrap_or("unknown"),
         error.code,
         diagnostic["operation"].as_str().unwrap_or("unknown"),
         diagnostic["stage"].as_str().unwrap_or("unknown"),
         diagnostic["reason"].as_str().unwrap_or("unknown"),
-    )
+    );
+    if let Some(navigation) = error.diagnostic().navigation {
+        detail.push(' ');
+        detail.push_str(&navigation.detail());
+    }
+    detail
 }
 
 struct State {
@@ -1625,3 +1631,66 @@ mod tests;
 #[cfg(test)]
 #[path = "runtime_review_tests.rs"]
 mod review_tests;
+
+#[cfg(test)]
+mod navigation_diagnostic_formatter_tests {
+    use super::*;
+
+    #[test]
+    fn absent_navigation_keeps_exact_legacy_log_format() {
+        let error = local_auth_error(
+            2,
+            DiagnosticOperation::Status,
+            DiagnosticStage::PortalNavigation,
+            DiagnosticReason::RedirectBlocked,
+        );
+        assert!(error.diagnostic().navigation.is_none());
+        assert_eq!(
+            diagnostic_detail("status", DiagnosticStage::OnlineState, &error),
+            concat!(
+                "action=status phase=online_state code=2 operation=status ",
+                "stage=portal_navigation reason=redirect_blocked"
+            )
+        );
+    }
+
+    #[test]
+    fn optional_navigation_appends_only_fixed_tokens_not_raw_error_material() {
+        let mut error = local_auth_error(
+            3,
+            DiagnosticOperation::SwitchService,
+            DiagnosticStage::CasNavigation,
+            DiagnosticReason::RedirectBlocked,
+        );
+        error.message = concat!(
+            "fixture-user fixture-password https://192.0.2.71/private-path",
+            "?sessionId=fixture-session&ticket=fixture-ticket"
+        )
+        .into();
+        let plain = diagnostic_detail("switch_service", DiagnosticStage::Verification, &error);
+        let navigation = ysu_auth::NavigationDiagnostic::default();
+        error.diagnostic.navigation = Some(navigation);
+        let detail = diagnostic_detail("switch_service", DiagnosticStage::Verification, &error);
+        assert_eq!(detail, format!("{plain} {}", navigation.detail()));
+        assert_eq!(error.code, 3);
+        assert_eq!(error.diagnostic().operation, DiagnosticOperation::SwitchService);
+        assert_eq!(error.diagnostic().stage, DiagnosticStage::CasNavigation);
+        assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
+        for private in [
+            "fixture-user",
+            "fixture-password",
+            "192.0.2.71",
+            "private-path",
+            "fixture-session",
+            "fixture-ticket",
+            "sessionId",
+            "ticket=",
+            "https://",
+        ] {
+            assert!(!detail.contains(private));
+        }
+        assert!(detail.contains("nav_kind=http_location"));
+        assert!(detail.contains("nav_source_scheme=other"));
+        assert!(detail.contains("nav_target_userinfo=false"));
+    }
+}

@@ -90,6 +90,7 @@ async fn fixture(failing: bool) -> (Browser, tokio::task::JoinHandle<Vec<Value>>
         initializing_children: BTreeMap::new(),
         redirects: 0,
         requests: 0,
+        portal_bootstrap: false,
         sid: None,
     };
     (browser, peer)

@@ -156,6 +156,7 @@ fn postcheck_failures_preserve_reason_including_deadline_without_raw_materials()
         assert_eq!(error.code, QUERY_ERROR);
         assert_eq!(error.diagnostic().stage, DiagnosticStage::Verification);
         assert_eq!(error.diagnostic().reason, reason);
+        assert!(error.diagnostic().navigation.is_none());
         assert_ne!(
             error.diagnostic().reason,
             DiagnosticReason::IdentityMismatch
@@ -169,5 +170,42 @@ fn postcheck_failures_preserve_reason_including_deadline_without_raw_materials()
             assert!(!error.message.contains(raw));
             assert!(!public.contains(raw));
         }
+    }
+}
+
+#[test]
+fn postcheck_keeps_closed_navigation_categories_without_reintroducing_material() {
+    let portal = url::Url::parse("https://portal.invalid").unwrap();
+    let cas = url::Url::parse("https://cas.invalid").unwrap();
+    let source = url::Url::parse("https://SOURCE_USER:SOURCE_PASSWORD@portal.invalid/eportal/redirect.jsp?ticket=SOURCE_QUERY#SOURCE_FRAGMENT").unwrap();
+    let target = url::Url::parse("http://TARGET_USER:TARGET_PASSWORD@portal.invalid/portal/portal-main?sessionId=TARGET_SID&userIp=192.0.2.9").unwrap();
+    let navigation = NavigationDiagnostic::capture(
+        NavigationKind::HttpLocation,
+        &source,
+        &target,
+        &portal,
+        &cas,
+        "GET",
+        false,
+    );
+    let original = AuthError::new(QUERY_ERROR, "RAW_CAUSE SOURCE_PASSWORD TARGET_SID")
+        .because(DiagnosticReason::RedirectBlocked)
+        .at(DiagnosticStage::OnlineState)
+        .with_navigation(navigation);
+    let fixed = crate::info_observation::postcheck_error(original);
+    assert_eq!(fixed.code, QUERY_ERROR);
+    assert_eq!(fixed.diagnostic().stage, DiagnosticStage::Verification);
+    assert_eq!(fixed.diagnostic().reason, DiagnosticReason::RedirectBlocked);
+    assert_eq!(fixed.diagnostic().navigation, Some(navigation));
+    let public = serde_json::to_string(&fixed.diagnostic()).unwrap();
+    let detail = navigation.detail();
+    for private in [
+        "portal.invalid", "cas.invalid", "SOURCE_USER", "SOURCE_PASSWORD",
+        "SOURCE_QUERY", "SOURCE_FRAGMENT", "TARGET_USER", "TARGET_PASSWORD",
+        "TARGET_SID", "192.0.2.9", "RAW_CAUSE",
+    ] {
+        assert!(!fixed.message.contains(private));
+        assert!(!public.contains(private));
+        assert!(!detail.contains(private));
     }
 }
