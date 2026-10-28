@@ -971,9 +971,13 @@ async fn successful_switch_merges_concurrent_account_changes() {
     let (runtime, receiver) = fixture();
     let mut worker = Worker::new(runtime.clone(), receiver);
     worker.execute(Action::Login).await.unwrap();
-    demo(&runtime).lock().unwrap().delay = Duration::from_millis(80);
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let backend = demo(&runtime);
+    backend.lock().unwrap().mutation_gate = Some(gate.clone());
     let changing = async {
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        // The operation must capture the old account before the concurrent write.
+        // A fixed sleep races configuration I/O on loaded Windows runners.
+        wait(&runtime, |_| backend.lock().unwrap().in_flight == 1).await;
         runtime
             .request(
                 "save_config",
@@ -981,6 +985,7 @@ async fn successful_switch_merges_concurrent_account_changes() {
             )
             .await
             .unwrap();
+        gate.notify_one();
     };
     let (result, _) = tokio::join!(worker.execute(Action::Switch("中国移动".into())), changing);
     result.unwrap();

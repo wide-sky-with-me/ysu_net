@@ -1483,6 +1483,8 @@ struct Demo {
     #[cfg(test)]
     status_gate: Option<Arc<tokio::sync::Notify>>,
     #[cfg(test)]
+    mutation_gate: Option<Arc<tokio::sync::Notify>>,
+    #[cfg(test)]
     status_calls: u32,
     #[cfg(test)]
     status_backends: Vec<String>,
@@ -1677,7 +1679,13 @@ impl Backend {
                 };
                 #[cfg(test)]
                 {
-                    let delay = demo.lock().unwrap().delay;
+                    let (delay, gate) = {
+                        let state = demo.lock().unwrap();
+                        (state.delay, state.mutation_gate.clone())
+                    };
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
                     tokio::time::sleep(delay).await;
                     flight.completed = true;
                 }

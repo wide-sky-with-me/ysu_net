@@ -24,4 +24,6 @@ Intel 日志中的 Cargo release 为 220 秒，245 秒步骤还包含其他工�
 
 ## 云端结果
 
+首轮 checks [40660729384](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40660729384) 的 preflight 为 12 秒，浏览器最小冒烟 job 为 58 秒，Linux / ARM 检查分别 164 / 159 秒，未执行安装包步骤。Windows 在既有 `successful_switch_merges_concurrent_account_changes` 回归失败：20ms / 80ms 定时假设没有保证操作先取得旧配置。保留全部原断言，改用测试后端 Notify 门闩和已进入操作的条件进行确定同步；相关字段与等待仅在 cfg(test) 下编译，不更改已发布产品逻辑。该首轮运行不作为完整通过成绩。
+
 待独立构建分支的 checks 与手动 Windows 模式验证后补充。没有新成绩前不宣称已提速。正式 v0.2.4 使用此次调整之前已验证的发布工作流；新 CI 的标签强制完整策略由合同检查，不将该次旧工作流发布冒充新流程实跑。
