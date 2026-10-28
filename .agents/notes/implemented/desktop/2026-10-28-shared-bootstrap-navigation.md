@@ -25,3 +25,5 @@
 实现：[Transport](../../../../desktop/crates/ysu-auth/src/transport.rs)、[API](../../../../desktop/crates/ysu-auth/src/protocol.rs)、[Browser](../../../../desktop/crates/ysu-auth/src/browser.rs)。回归源码：[单次解析及负例](../../../../desktop/crates/ysu-auth/src/captive_tests.rs)、[API HTML](../../../../desktop/crates/ysu-auth/src/regression_tests.rs)与 Browser 内部导航测试。单次机会预先耗尽的测试证明各入口调用同一解析器而不连接校园网；Browser 测试核对实际 302、Location、空 body 及序列化响应头。
 
 用户选择只保留源码，因此本次仅静态核对；新增测试没有执行。之后需以同一云端提交的认证库 / 探针与 Tauri 产物分别验收 Linux 真实登录链和 Windows 导航，当前不能宣称原 Windows 故障已复现或修复验收通过。
+
+2026-10-28 后续验证：共用导航回归及四平台原生 / Chromium 门禁已通过，21 API 真实闭环与 Windows API 只读导航已验证；没有将 API 成绩认作 Browser 后端现场登录。0.2.3 已正式发布，源码、运行编号、公开资产与未覆盖项归[发行记录](../../../../docs/desktop-release-0.2.3.md)。

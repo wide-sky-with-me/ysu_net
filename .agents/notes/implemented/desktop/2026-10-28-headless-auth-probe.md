@@ -28,3 +28,5 @@
 实现：[auth_probe.rs](../../../../desktop/crates/ysu-auth/examples/auth_probe.rs)；回归：[入口合同](../../../../desktop/crates/ysu-auth/examples/support/auth_probe_tests.rs)、[观察信封整链](../../../../desktop/crates/ysu-auth/src/live_contract_tests.rs)与[测试服务](../../../../desktop/crates/ysu-auth/src/tests.rs)。云端：[独立工作流](../../../../.github/workflows/rust-auth.yml)、[实际二进制输入验收与标识](../../../../packaging/auth_probe_smoke.py)；原格式作业新增收集 examples。
 
 本机只做源码、Python AST、YAML、diff 与文档静态核对；不运行 Cargo、rustfmt 或产品测试。编译和真实 Rust 结果尚未取得，不能以此前 Shell 实测或旧候选 CI 记录代替。后续按独立分支的确切 commit 下载 Linux / Windows 产物，在 21 做完整动作对照、Windows 做只读导航复现，再分别记录实际结果。
+
+2026-10-28 后续验证：四目标认证探针已在发行源码运行通过，共用 AuthClient 的 21 真实登录 / 退出及 Windows 无凭据查询也已完成。0.2.3 已正式发布，源码、运行编号、公开资产与未覆盖项归[发行记录](../../../../docs/desktop-release-0.2.3.md)。

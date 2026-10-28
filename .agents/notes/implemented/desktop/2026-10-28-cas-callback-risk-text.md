@@ -15,3 +15,5 @@
 实现位于[protocol.rs](../../../../desktop/crates/ysu-auth/src/protocol.rs)。[合同回归](../../../../desktop/crates/ysu-auth/src/live_contract_tests.rs)把正常 noSupport 脚本放入完整 CAS / 登录 / 退出夹具，另保留真实标题 / 文本 / 跨标签提示的拒绝及零服务提交断言；[夹具](../../../../desktop/crates/ysu-auth/src/tests.rs)仅新增可配置回调 body。当前文档归[桌面语义](../../../../docs/tauri-desktop.md#离线-captive-与-cas-表单)。
 
 样本来自服务器内存分类，仅导出固定布尔值，没有保存真实页面、Cookie、账号或 URL 参数。真实首轮失败已恢复原移动连接和守护；修复的云端与真实验证必须分别记录，不能用只读页面分类冒充修复后登录通过。
+
+2026-10-28 后续验证：正常脚本引用的正例与真实挑战负例已在云端通过；修复后的 21 Rust 登录 / 退出经 Shell 独立核验通过，原连接与后台已恢复。0.2.3 已正式发布，源码、运行编号、公开资产与未覆盖项归[发行记录](../../../../docs/desktop-release-0.2.3.md)。

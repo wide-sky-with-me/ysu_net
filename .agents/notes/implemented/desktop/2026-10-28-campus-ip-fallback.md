@@ -31,3 +31,5 @@ Python 可选 Playwright 同时有 Chromium 与 Node APIRequestContext 请求；
 [Rust resolver](../../../../desktop/crates/ysu-auth/src/dns.rs)、[Transport 接入](../../../../desktop/crates/ysu-auth/src/transport.rs)、[Python adapter](../../../../src/ysu_net/auth/dns_fallback.py)、[API Session 接入](../../../../src/ysu_net/auth/api.py)。[共享地址表](../../../../src/ysu_net/auth/campus-addresses.json)不含账号、会话或密钥。
 
 [Rust 回归](../../../../desktop/crates/ysu-auth/src/dns_tests.rs)包含正常多地址、失败 / 空 / 挂起解析、未知域名和两秒 HTTP 集成预算；[Python 回归](../../../../tests/test_dns_fallback.py)包含拒绝 / 超时不重连及真实回环 TLS 正反例。[Mock CI](../../../../.github/workflows/test.yml)要求 OpenSSL 并验证 wheel 资源。新回归尚未执行，真实服务器证据仅证明 curl 指定 IP 的网络与 TLS 可达性，不能代替 Rust / Python 产品验收。
+
+2026-10-28 后续验证：Python 回环 TLS、Rust resolver 与分发数据回归已在云端通过。21 / Windows 的实际认证或查询并非 123 DNS 故障下的 Rust 回退登录，原可达性样本限制保留。0.2.3 已正式发布，源码、运行编号、公开资产与未覆盖项归[发行记录](../../../../docs/desktop-release-0.2.3.md)。

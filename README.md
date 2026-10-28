@@ -20,7 +20,7 @@
 
 ### 发行与候选状态
 
-本轮版本为 **v0.2.3**，正式下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；构建、标签、签名、公开资产及未覆盖范围见[0.2.3 发布记录](docs/desktop-release-0.2.3.md)。升级前先看[迁移说明](docs/migration.md#桌面-v023-升级)；旧版若点击检查更新就退出，可从正式 Release 手工安装，不关闭 TLS 校验或验签。
+**正式 v0.2.3 已发布并成为 Latest**，下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；构建、标签、签名、公开资产及未覆盖范围见[0.2.3 发布记录](docs/desktop-release-0.2.3.md)。升级前先看[迁移说明](docs/migration.md#桌面-v023-升级)；旧版若点击检查更新就退出，可从正式 Release 手工安装，不关闭 TLS 校验或验签。
 
 0.2.3 包含只读状态观察、账户来源绑定、门户跳转、DNS 回退及账号池改进，并修复 CAS 回调将正常脚本引用误判为风控的问题。共用 Rust 认证库已在 21 完成真实登录 / 退出，Windows 原生探针完成无凭据状态查询；这些结果不代表 Windows GUI 离线登录、软件内原位升级或失败回滚已通过。各项证据分别见[发布记录](docs/desktop-release-0.2.3.md)，旧版记录保留历史范围。
 

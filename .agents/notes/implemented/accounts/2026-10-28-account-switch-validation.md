@@ -26,3 +26,5 @@ Rust 已有相同的核心动作顺序及共同总预算。保留这些条件，
 [账号运行器](../../../../desktop/src-tauri/src/account_runtime.rs)、[测试后端观察点](../../../../desktop/src-tauri/src/runtime.rs)及[原生回归](../../../../desktop/src-tauri/src/account_runtime_tests.rs)。测试观察点仅在 cfg(test) 中存在，不增加生产快照、网络、配置字段或凭据日志。
 
 Windows / Linux / macOS 共用这套 Worker；Shell 使用正式既有实现完成实测，没有修改其源码。本机只做静态源码、diff、Python / YAML 和文档核对；Rust 新回归仍需原 Tauri CI 四目标 runner 执行。独立 auth_probe 不含 Worker 账号池编排，不能以探针或 Shell 成功代替原生运行器验收。
+
+2026-10-28 后续验证：Worker 相关回归已随候选及正式标签通过四平台 Native 门禁；真实 Rust Worker 账号池、真实零额度和拒绝恢复仍未现场验证，不以 AuthClient 闭环代替。0.2.3 已正式发布，源码、运行编号、公开资产与未覆盖项归[发行记录](../../../../docs/desktop-release-0.2.3.md)。
