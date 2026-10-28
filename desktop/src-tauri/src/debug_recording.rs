@@ -132,7 +132,7 @@ impl Recording {
         let action = match action {
             "status" => TaskAction::Status, "info" => TaskAction::Info,
             "login" => TaskAction::Login, "logout" => TaskAction::Logout,
-            "switch" => TaskAction::Switch, "switch_account" => TaskAction::SwitchAccount,
+            "switch_service" => TaskAction::Switch, "switch_account" => TaskAction::SwitchAccount,
             "auto" => TaskAction::Auto, "observe" => TaskAction::Observe, _ => TaskAction::Other,
         };
         if let Some((writer, _)) = self.current.lock().unwrap().as_ref() {
