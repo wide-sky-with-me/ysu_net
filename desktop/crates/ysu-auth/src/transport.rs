@@ -1,4 +1,7 @@
-use crate::{cookies::Jar, is_loopback, AuthError, Config, DiagnosticReason as Reason};
+use crate::{
+    cookies::Jar, is_loopback, AuthError, Config, DiagnosticReason as Reason, NavigationDiagnostic,
+    NavigationKind,
+};
 use reqwest::{
     cookie::CookieStore,
     header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
@@ -6,7 +9,10 @@ use reqwest::{
 };
 use std::{
     future::Future,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tokio::time::{timeout_at, Instant};
@@ -85,6 +91,7 @@ pub(crate) struct Transport {
     pub cas: Url,
     local: bool,
     sam_session: Arc<Mutex<Option<String>>>,
+    captive_read: Arc<AtomicBool>,
 }
 impl Transport {
     pub fn new(config: &Config, local: bool) -> Result<Self, AuthError> {
@@ -97,6 +104,7 @@ impl Transport {
             .cookie_provider(jar.clone())
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
+            .dns_resolver(Arc::new(crate::dns::CampusResolver))
             .danger_accept_invalid_certs(!config.verify_tls)
             .user_agent("Mozilla/5.0 YSU-Native-Auth/0.1")
             .connect_timeout(Duration::from_secs(10))
@@ -109,6 +117,7 @@ impl Transport {
             cas: parse(&config.cas_host)?,
             local,
             sam_session: Arc::new(Mutex::new(None)),
+            captive_read: Arc::new(AtomicBool::new(false)),
         })
     }
     pub fn endpoint(&self, path: &str) -> Result<Url, AuthError> {
@@ -208,6 +217,18 @@ impl Transport {
         {
             return Err(AuthError::query("认证内容仅向门户或统一认证站点提交"));
         }
+        self.send_once(&self.client, method, url, headers, body, op)
+            .await
+    }
+    async fn send_once(
+        &self,
+        client: &reqwest::Client,
+        method: Method,
+        url: Url,
+        headers: HeaderMap,
+        body: Option<Vec<u8>>,
+        op: &Operation,
+    ) -> Result<Reply, AuthError> {
         if headers
             .iter()
             .map(|(key, value)| key.as_str().len() + value.as_bytes().len())
@@ -219,8 +240,7 @@ impl Transport {
         if body.as_ref().is_some_and(|v| v.len() > RESPONSE_LIMIT) {
             return Err(AuthError::query("请求内容超过限制"));
         }
-        let mut request = self
-            .client
+        let mut request = client
             .request(method, url.clone())
             .headers(headers)
             .timeout(op.remaining()?);
@@ -295,7 +315,13 @@ impl Transport {
         // The HTTPS redirect.jsp emits a legacy HTTP portal-main Location, whose
         // HTTP endpoint only upgrades back to HTTPS. Skip that cleartext hop;
         // this exception is a URL rewrite, never permission to send HTTP.
+        // Decision: .agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md
         let entry = self.endpoint("eportal/redirect.jsp").ok();
+        let history_entry = entry.as_ref().map(|url| {
+            let mut url = url.clone();
+            url.set_query(Some("mode=history"));
+            url
+        });
         let portal = self.endpoint("portal/portal-main").ok();
         let mut ids = next.query_pairs().filter(|(key, _)| key == "sessionId");
         let valid_sid = ids.next().is_some_and(|(_, value)| {
@@ -306,7 +332,7 @@ impl Transport {
             && !has_body
             && self.base.scheme() == "https"
             && self.base.port_or_known_default() == Some(443)
-            && entry.as_ref() == Some(from)
+            && (entry.as_ref() == Some(from) || history_entry.as_ref() == Some(from))
             && next.scheme() == "http"
             && next.port_or_known_default() == Some(80)
             && next.host() == self.base.host()
@@ -319,6 +345,119 @@ impl Transport {
             let _ = next.set_scheme("https");
         }
         next
+    }
+    pub(crate) fn checked_portal_navigation_target(
+        &self,
+        from: &Url,
+        next: Url,
+        method: &Method,
+        has_body: bool,
+        kind: NavigationKind,
+    ) -> Result<Url, AuthError> {
+        let diagnostic = NavigationDiagnostic::capture(
+            kind,
+            from,
+            &next,
+            &self.base,
+            &self.cas,
+            method.as_str(),
+            has_body,
+        );
+        let next = self.portal_navigation_target(from, next, method, has_body);
+        self.allowed(&next)
+            .map_err(|error| error.with_navigation(diagnostic))?;
+        Ok(next)
+    }
+    // Decision: .agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md
+    pub(crate) fn is_captive_bootstrap(
+        &self,
+        from: &Url,
+        next: &Url,
+        method: &Method,
+        has_body: bool,
+    ) -> bool {
+        !self.local
+            && self.base.scheme() == "https"
+            && self.base.port_or_known_default() == Some(443)
+            && self.endpoint("eportal/redirect.jsp").as_ref().ok() == Some(from)
+            && method == Method::GET
+            && !has_body
+            && next.as_str() == "http://124.124.124.124/"
+    }
+    pub(crate) async fn resolve_captive_navigation(
+        &self,
+        from: &Url,
+        next: &Url,
+        method: &Method,
+        has_body: bool,
+        op: &Operation,
+    ) -> Result<Option<Url>, AuthError> {
+        if !self.is_captive_bootstrap(from, next, method, has_body) {
+            return Ok(None);
+        }
+        if self.captive_read.swap(true, Ordering::SeqCst) {
+            return Err(AuthError::query("门户 captive 引导重复，连接状态未知")
+                .because(Reason::RedirectLimit));
+        }
+        // No cookie jar or inherited headers, and no automatic HTTP redirects.
+        let client = captive_client()?;
+        let reply = self
+            .send_once(&client, Method::GET, next.clone(), HeaderMap::new(), None, op)
+            .await?;
+        self.captive_page_target(&reply).map(Some)
+    }
+    // Decision: .agents/notes/implemented/desktop/2026-10-28-shared-bootstrap-navigation.md
+    pub(crate) async fn resolve_portal_navigation(
+        &self,
+        from: &Url,
+        next: Url,
+        method: &Method,
+        has_body: bool,
+        kind: NavigationKind,
+        op: &Operation,
+    ) -> Result<Url, AuthError> {
+        let diagnostic = NavigationDiagnostic::capture(
+            kind,
+            from,
+            &next,
+            &self.base,
+            &self.cas,
+            method.as_str(),
+            has_body,
+        );
+        if let Some(target) = self
+            .resolve_captive_navigation(from, &next, method, has_body, op)
+            .await
+            .map_err(|error| error.with_navigation(diagnostic))?
+        {
+            return Ok(target);
+        }
+        self.checked_portal_navigation_target(from, next, method, has_body, kind)
+    }
+    fn captive_page_target(&self, reply: &Reply) -> Result<Url, AuthError> {
+        // The unsigned page may only hint at a fresh HTTPS index request. Its
+        // scripts, cookies, redirect headers and session IDs are never trusted.
+        let target = (reply.status == 200)
+            .then(|| crate::protocol::next_navigation(&reply.text(), &reply.url))
+            .flatten()
+            .filter(|url| {
+                url.origin() == self.base.origin()
+                    && self
+                        .endpoint("eportal/index.jsp")
+                        .is_ok_and(|index| url.path() == index.path())
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.fragment().is_none()
+                    && !url.query_pairs().any(|(key, _)| {
+                        matches!(key.as_ref(), "sessionId" | "flowSessionId" | "ticket")
+                    })
+            })
+            .ok_or_else(|| {
+                AuthError::query("门户 captive 引导未返回可信 HTTPS 入口")
+                    .because(Reason::RedirectBlocked)
+            })?;
+        self.allowed(&target)?;
+        Ok(target)
     }
     async fn follow_inner(
         &self,
@@ -359,11 +498,19 @@ impl Transport {
                     AuthError::query("认证重定向缺少有效地址").because(Reason::ResponseInvalid)
                 })?;
             let next = if portal_navigation {
-                self.portal_navigation_target(&url, next, &method, body.is_some())
+                self.resolve_portal_navigation(
+                    &url,
+                    next,
+                    &method,
+                    body.is_some(),
+                    NavigationKind::HttpLocation,
+                    op,
+                )
+                .await?
             } else {
+                self.allowed(&next)?;
                 next
             };
-            self.allowed(&next)?;
             let origin_changed = next.origin() != url.origin();
             if origin_changed && body.is_some() && matches!(r.status, 307 | 308) {
                 return Err(
@@ -418,6 +565,15 @@ impl Transport {
         self.once(Method::POST, url, headers, Some(body), op).await
     }
 }
+fn captive_client() -> Result<reqwest::Client, AuthError> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .user_agent("Mozilla/5.0 YSU-Native-Auth/0.1")
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|_| AuthError::query("门户引导客户端初始化失败"))
+}
 fn network_error(e: reqwest::Error) -> AuthError {
     if e.is_timeout() {
         AuthError::timeout()
@@ -434,3 +590,7 @@ fn decode_cookie(s: &str) -> String {
         .map(|(_, v)| v.into_owned())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "captive_tests.rs"]
+mod captive_tests;

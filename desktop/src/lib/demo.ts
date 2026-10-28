@@ -72,7 +72,7 @@ export function createDemoTransport(search = ''): Transport {
     mode: 'demo',
     subscribe: async (handler) => { handlers.add(handler); return () => { handlers.delete(handler); }; },
     request: async <C extends keyof CoreCommands>(command: C, args: CoreCommands[C]) => {
-      if (command === 'snapshot') return snapshot();
+      if (command === 'snapshot' || command === 'observe') return snapshot();
       if (command === 'action') {
         const { name, value } = args as CoreCommands['action'];
         if (state.auto.state === 'external' && ['login', 'logout', 'switch', 'set_auto', 'switch_account'].includes(name)) throw new Error('模拟：连接由外部服务管理，请先停止后台服务');

@@ -1,5 +1,5 @@
 //! Public diagnostics contain only fixed categories, never error text or network data.
-use crate::AuthError;
+use crate::{AuthError, NavigationDiagnostic};
 use serde::Serialize;
 use std::future::Future;
 
@@ -66,6 +66,8 @@ pub struct AuthDiagnostic {
     pub operation: DiagnosticOperation,
     pub stage: DiagnosticStage,
     pub reason: DiagnosticReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation: Option<NavigationDiagnostic>,
 }
 
 pub(crate) async fn at<T>(

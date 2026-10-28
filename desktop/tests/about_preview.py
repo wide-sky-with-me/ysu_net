@@ -72,6 +72,7 @@ NATIVE_FIXTURE = r"""(() => {
       if (command === 'plugin:event|listen') {const id = next++; listeners.set(id, {...args, id}); return id;}
       if (command === 'plugin:event|unlisten') {listeners.delete(args.eventId); return;}
       if (command === 'core_request' && args.command === 'snapshot') return structuredClone(core);
+      if (command === 'core_request' && args.command === 'observe' && Object.keys(args.args).length === 0) return structuredClone(core);
       if (command === 'get_desktop_settings') return {autostart: false, tray_available: true, version: '0.2.1', demo: false};
       if (command === 'updater_status') {
         if (window.__aboutUpdater.failNextStatus) {window.__aboutUpdater.failNextStatus = false; throw 'ipc';}
@@ -256,7 +257,10 @@ def main():
             expect(page.get_by_role('heading', name=title, exact=True)).to_be_visible()
             expect(controls.get_by_role('button', name='校园网', exact=True)).to_have_attribute('aria-pressed', 'true')
             assert page.evaluate('window.__aboutConnection.saved()') == saved
-        assert page.evaluate("__aboutCalls.filter(c=>c.command==='core_request'&&c.args.command!=='snapshot')") == []
+        page.evaluate("window.dispatchEvent(new Event('focus'))")
+        page.wait_for_function("__aboutCalls.some(c=>c.command==='core_request'&&c.args.command==='observe')")
+        assert page.evaluate("__aboutCalls.filter(c=>c.command==='core_request'&&!(c.args.command==='snapshot'||(c.args.command==='observe'&&Object.keys(c.args.args).length===0)))") == []
+        assert page.evaluate('window.__aboutConnection.saved()') == saved
         assert page.evaluate('window.__aboutUnexpected') == []
         page.evaluate("window.__aboutConnection.observe(true, '中国联通')")
         expect(controls.get_by_role('button', name='中国联通', exact=True)).to_have_attribute('aria-pressed', 'true')

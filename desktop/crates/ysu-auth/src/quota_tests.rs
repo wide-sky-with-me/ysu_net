@@ -480,7 +480,8 @@ async fn original_info_keeps_credential_free_foreign_and_offline_display() {
         .iter()
         .any(|field| field[1] == "other-account"));
     assert_eq!(summary["quota"]["state"], "zero_reported");
-    assert_eq!(f.count("/eportal/adaptor/getOnlineUserInfo"), 1);
+    // info() keeps the foreign-account JSON, but now verifies identity after the read.
+    assert_eq!(f.count("/eportal/adaptor/getOnlineUserInfo"), 2);
     assert!(f.client().verified_info().await.is_err());
     f.read_only();
     let f = Fixture::new(Plan {
@@ -495,6 +496,7 @@ async fn original_info_keeps_credential_free_foreign_and_offline_display() {
         json!({"online":false,"fields":[],"items":[]})
     );
     assert_eq!(f.count("/eportal/operator/getAccountInfo"), 0);
+    assert_eq!(f.count("/eportal/adaptor/getOnlineUserInfo"), 1);
 }
 
 #[tokio::test]

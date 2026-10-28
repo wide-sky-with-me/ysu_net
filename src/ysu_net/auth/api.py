@@ -346,28 +346,29 @@ def _cookie_xsrf(sess: requests.Session) -> str | None:
 
 
 def _page_says_captcha_visible(html: str) -> bool:
+    from html.parser import HTMLParser
+
+    class CaptchaParser(HTMLParser):
+        visible = False
+
+        def handle_starttag(self, tag, attributes):
+            attrs = dict(attributes)
+            if attrs.get("id") != "captchaDiv":
+                return
+            classes = (attrs.get("class") or "").lower().split()
+            hidden = any("hide" in value or "hidden" in value for value in classes)
+            hidden = hidden or "display:none" in (attrs.get("style") or "").lower().replace(" ", "")
+            self.visible = self.visible or not (hidden or "hidden" in attrs)
+
+    # CAS reuses captchaDiv in other login methods. Keep the selected password
+    # form and standalone challenges; attribute order must not affect visibility.
+    # Decision: .agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md
     html = html or ""
-
-    # 1) 优先看 captchaDiv 的 class / style 是否显式隐藏
-    m = re.search(r'id=["\']captchaDiv["\'][^>]*>', html, flags=re.I)
-    if not m:
-        # 没有 captchaDiv，通常表示页面结构变了；不要武断认为需要验证码
-        return False
-
-    tag = m.group(0)
-
-    cls_m = re.search(r'class=["\']([^"\']+)["\']', tag, flags=re.I)
-    cls = cls_m.group(1).lower() if cls_m else ""
-    if any(x in cls for x in ("hide", "hidden")):
-        return False
-
-    style_m = re.search(r'style=["\']([^"\']+)["\']', tag, flags=re.I)
-    style = style_m.group(1).lower() if style_m else ""
-    if "display:none" in style.replace(" ", ""):
-        return False
-
-    # 走到这里：captchaDiv 存在且未标记隐藏 => 认为需要验证码
-    return True
+    form = _extract_login_form(html)
+    outside = re.sub(r"<form\b.*?</form>", "", html, flags=re.I | re.S)
+    parser = CaptchaParser()
+    parser.feed(form if form == html else form + outside)
+    return parser.visible
 
 
 def _check_need_captcha(
@@ -516,7 +517,7 @@ def cas_login(
     # captcha 判定：优先信接口，其次用 DOM 结构兜底
     need_cap_api = _check_need_captcha(sess, username, debug=debug, referer=r.url)
     need_cap_dom = _page_says_captcha_visible(html)
-    need_cap = need_cap_api if (need_cap_api is not None) else need_cap_dom
+    need_cap = need_cap_dom or need_cap_api is True
     dprint(
         debug, f"[CAS] needCaptcha(api/dom)={need_cap_api}/{need_cap_dom} -> {need_cap}"
     )
@@ -662,7 +663,10 @@ def _extract_next_url_from_124(html: str, base_url: str) -> str | None:
 
 
 def _new_portal_session() -> requests.Session:
+    from .dns_fallback import install_fallback
+
     sess = requests.Session()
+    install_fallback(sess)
     track_resource(sess.close)
     sess.verify = VERIFY_TLS
     sess.headers.update(

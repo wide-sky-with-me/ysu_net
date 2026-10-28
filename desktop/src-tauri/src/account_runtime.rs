@@ -1,4 +1,5 @@
 //! Decision: .agents/notes/proposals/accounts/2026-10-14-account-rotation.md
+//! Decision: .agents/notes/implemented/accounts/2026-10-28-account-switch-validation.md
 use super::*;
 use crate::accounts::{identity, AccountBook, AccountPlan};
 use std::collections::HashMap;
@@ -264,6 +265,7 @@ impl Worker {
             self.rotation.cooling.remove(&plan.target.username);
             self.rotation.zero = None;
         }
+        self.phase = DiagnosticStage::OnlineState;
         let original = self
             .status(&plan.source)
             .await
@@ -281,7 +283,12 @@ impl Worker {
                 if original.online {
                     let mut leaving = plan.source.clone();
                     leaving.service = original.service.clone().unwrap();
+                    self.phase = DiagnosticStage::OfflineSubmit;
                     let result = self.runtime.backend.mutate(&leaving, &Action::Logout).await;
+                    if let Err(error) = &result {
+                        self.error(error);
+                    }
+                    self.phase = DiagnosticStage::Verification;
                     let observed = self.status(&leaving).await;
                     if result.is_err() || !observed.is_ok_and(|status| !status.online) {
                         return Err("原账号下线未确认，已停止切换".into());
@@ -294,6 +301,7 @@ impl Worker {
                 {
                     return Err("自动换号已停止，请重新查询实际状态".into());
                 }
+                self.phase = DiagnosticStage::OnlineState;
                 let before = self
                     .status(&plan.target)
                     .await
@@ -301,11 +309,16 @@ impl Worker {
                 if before.online {
                     return Err("切换期间连接发生变化，已停止登录".into());
                 }
+                self.phase = DiagnosticStage::UserOnline;
                 let result = self
                     .runtime
                     .backend
                     .mutate(&plan.target, &Action::Login)
                     .await;
+                if let Err(error) = &result {
+                    self.error(error);
+                }
+                self.phase = DiagnosticStage::Verification;
                 let verified = self.status(&plan.target).await;
                 if result.is_err()
                     || !verified.is_ok_and(|status| {
@@ -317,6 +330,7 @@ impl Worker {
                     return Err("目标账号连接未独立确认".into());
                 }
             }
+            self.phase = DiagnosticStage::Config;
             let store = self.runtime.store.clone();
             let plan = plan.clone();
             self.runtime
@@ -328,6 +342,7 @@ impl Worker {
         .await;
         if let Err(error) = result {
             self.rotation.cool(&plan.target);
+            self.phase = DiagnosticStage::Recovery;
             if self.restore_account(&plan, &original).await {
                 self.runtime
                     .update(|state| state.log("info", "账号切换失败，已独立确认恢复原连接"));
@@ -479,7 +494,7 @@ impl Backend {
             Self::Native => AuthClient::new(config.clone())?.verified_info().await,
             Self::Demo(_) => {
                 let before = self.status(config).await?;
-                let info = self.info(config).await?;
+                let info = self.info(config).await?.info;
                 let after = self.status(config).await?;
                 if !before.online
                     || before.user != config.username

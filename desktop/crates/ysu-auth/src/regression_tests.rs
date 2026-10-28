@@ -237,6 +237,325 @@ fn portal_navigation_upgrades_only_the_fixed_legacy_entry_target() {
     assert!(http.allowed(&legacy).is_err());
 }
 
+fn api_portal_html_navigation_bodies(target: &str) -> [String; 5] {
+    let escaped = target.replace('&', "&amp;");
+    [
+        format!("<meta http-equiv='refresh' content='0;url={target}'>"),
+        format!("<meta http-equiv='REFRESH' content='0;url={escaped}'>"),
+        format!("<script>window.location.href = '{target}';</script>"),
+        format!("<script>location.assign('{target}');</script>"),
+        format!("<script>location.replace('{target}');</script>"),
+    ]
+}
+
+async fn assert_api_portal_html_navigation_blocked(http: &Transport, from: &Url, target: &Url) {
+    assert_eq!(
+        http.portal_navigation_target(from, target.clone(), &Method::GET, false),
+        *target
+    );
+    for body in api_portal_html_navigation_bodies(target.as_str()) {
+        let op = Operation::new(Instant::now() + Duration::from_secs(2));
+        let error = crate::protocol::next_api_portal_navigation(http, &body, from, &op)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, QUERY_ERROR);
+        assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
+    }
+}
+
+#[tokio::test]
+async fn api_portal_html_navigation_reuses_the_fixed_legacy_upgrade() {
+    // Synthetic compatibility evidence only, not a reconstruction of a new incident.
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/portal-navigation.json"
+    ))
+    .unwrap();
+    assert_eq!(fixture["version"], 1);
+    let http = Transport::new(&Config::default(), false).unwrap();
+    let from = Url::parse(fixture["redirect"].as_str().unwrap()).unwrap();
+    let legacy = Url::parse(fixture["legacy_target"].as_str().unwrap()).unwrap();
+    let expected = Url::parse(fixture["https_target"].as_str().unwrap()).unwrap();
+    for body in api_portal_html_navigation_bodies(legacy.as_str()) {
+        let op = Operation::new(Instant::now() + Duration::from_secs(2));
+        let next = crate::protocol::next_api_portal_navigation(&http, &body, &from, &op)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(next, expected);
+        assert_eq!(next.query(), legacy.query());
+        assert!(http.allowed(&next).is_ok());
+    }
+    assert!(http.allowed(&legacy).is_err());
+}
+
+fn portal_entry_variants_fixture() -> Value {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/portal-entry-variants.json"
+    ))
+    .unwrap();
+    assert_eq!(fixture["version"], 1);
+    fixture
+}
+
+fn assert_checked_entry_blocked(
+    http: &Transport,
+    source: &Url,
+    target: &Url,
+    method: &Method,
+    has_body: bool,
+) {
+    for kind in [NavigationKind::HttpLocation, NavigationKind::HtmlNavigation] {
+        let error = http
+            .checked_portal_navigation_target(source, target.clone(), method, has_body, kind)
+            .unwrap_err();
+        assert_eq!(error.code, QUERY_ERROR);
+        assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
+        let detail = error.diagnostic().navigation.unwrap().detail();
+        for private in ["fixture", "ysu.edu.cn", "outside.invalid", "user:pass"] {
+            assert!(!detail.contains(private));
+        }
+    }
+}
+
+#[tokio::test]
+async fn checked_navigation_shares_only_the_two_observed_entry_variants() {
+    let fixture = portal_entry_variants_fixture();
+    let http = Transport::new(&Config::default(), false).unwrap();
+    let legacy = Url::parse(fixture["legacy_target"].as_str().unwrap()).unwrap();
+    let expected = Url::parse(fixture["https_target"].as_str().unwrap()).unwrap();
+    for source in fixture["sources"].as_array().unwrap() {
+        let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
+        for kind in [NavigationKind::HttpLocation, NavigationKind::HtmlNavigation] {
+            let next = http
+                .checked_portal_navigation_target(
+                    &source,
+                    legacy.clone(),
+                    &Method::GET,
+                    false,
+                    kind,
+                )
+                .unwrap();
+            assert_eq!(next, expected);
+            assert_eq!(next.query(), legacy.query());
+        }
+        for body in api_portal_html_navigation_bodies(legacy.as_str()) {
+            let op = Operation::new(Instant::now() + Duration::from_secs(2));
+            let next = crate::protocol::next_api_portal_navigation(&http, &body, &source, &op)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(next, expected);
+            assert_eq!(next.query(), legacy.query());
+        }
+    }
+    assert!(http.allowed(&legacy).is_err());
+}
+
+#[tokio::test]
+async fn checked_entry_variants_reject_all_other_source_queries_and_origins() {
+    let fixture = portal_entry_variants_fixture();
+    let http = Transport::new(&Config::default(), false).unwrap();
+    let entry = http.endpoint("eportal/redirect.jsp").unwrap();
+    let legacy = Url::parse(fixture["legacy_target"].as_str().unwrap()).unwrap();
+    for query in fixture["rejected_source_queries"].as_array().unwrap() {
+        let mut source = entry.clone();
+        source.set_query(Some(query.as_str().unwrap()));
+        assert_checked_entry_blocked(&http, &source, &legacy, &Method::GET, false);
+        assert_api_portal_html_navigation_blocked(&http, &source, &legacy).await;
+    }
+    for source in [
+        "https://auth1.ysu.edu.cn/eportal/index.jsp",
+        "https://auth1.ysu.edu.cn/",
+        "https://auth1.ysu.edu.cn/eportal/redirect.jsp/other",
+        "https://auth1.ysu.edu.cn:444/eportal/redirect.jsp",
+        "https://user:pass@auth1.ysu.edu.cn/eportal/redirect.jsp",
+        "https://cer.ysu.edu.cn/eportal/redirect.jsp",
+        "https://124.124.124.124/eportal/redirect.jsp",
+        "https://outside.invalid/eportal/redirect.jsp",
+    ] {
+        let mut source = Url::parse(source).unwrap();
+        for query in [None, Some("mode=history")] {
+            source.set_query(query);
+            assert_checked_entry_blocked(&http, &source, &legacy, &Method::GET, false);
+        }
+    }
+    for source in fixture["sources"].as_array().unwrap() {
+        let mut source = Url::parse(source["url"].as_str().unwrap()).unwrap();
+        source.set_fragment(Some("fixture-fragment"));
+        assert_checked_entry_blocked(&http, &source, &legacy, &Method::GET, false);
+    }
+}
+
+#[tokio::test]
+async fn history_entry_keeps_the_original_target_method_body_and_tls_boundaries() {
+    let fixture = portal_entry_variants_fixture();
+    let legacy = Url::parse(fixture["legacy_target"].as_str().unwrap()).unwrap();
+    for verify_tls in [true, false] {
+        let http = Transport::new(
+            &Config {
+                verify_tls,
+                ..Config::default()
+            },
+            false,
+        )
+        .unwrap();
+        for source in fixture["sources"].as_array().unwrap() {
+            let source = Url::parse(source["url"].as_str().unwrap()).unwrap();
+            for target in [
+                "http://outside.invalid/portal/portal-main?sessionId=fixture-session",
+                "http://auth1.ysu.edu.cn.outside.invalid/portal/portal-main?sessionId=fixture-session",
+                "http://cer.ysu.edu.cn/portal/portal-main?sessionId=fixture-session",
+                "http://124.124.124.124/portal/portal-main?sessionId=fixture-session",
+                "http://auth1.ysu.edu.cn:8080/portal/portal-main?sessionId=fixture-session",
+                "http://user:pass@auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session",
+                "http://auth1.ysu.edu.cn/eportal/operator/getAccountInfo?sessionId=fixture-session",
+                "http://auth1.ysu.edu.cn/portal/portal-main/other?sessionId=fixture-session",
+                "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session#fragment",
+                "http://auth1.ysu.edu.cn/portal/portal-main",
+                "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=",
+                "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture&sessionId=fixture",
+                "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture%0Asession",
+                "http://auth1.ysu.edu.cn/portal/portal-main?flowSessionId=fixture-session",
+            ] {
+                let target = Url::parse(target).unwrap();
+                assert_checked_entry_blocked(&http, &source, &target, &Method::GET, false);
+                assert_api_portal_html_navigation_blocked(&http, &source, &target).await;
+            }
+            let long = Url::parse(&format!(
+                "http://auth1.ysu.edu.cn/portal/portal-main?sessionId={}",
+                "s".repeat(1025)
+            ))
+            .unwrap();
+            assert_checked_entry_blocked(&http, &source, &long, &Method::GET, false);
+            for (method, has_body) in [
+                (Method::HEAD, false),
+                (Method::POST, false),
+                (Method::POST, true),
+                (Method::GET, true),
+            ] {
+                assert_checked_entry_blocked(&http, &source, &legacy, &method, has_body);
+            }
+        }
+    }
+    let http = Transport::new(
+        &Config {
+            base: "https://auth1.ysu.edu.cn:444".into(),
+            ..Config::default()
+        },
+        false,
+    )
+    .unwrap();
+    let mut source = http.endpoint("eportal/redirect.jsp").unwrap();
+    for query in [None, Some("mode=history")] {
+        source.set_query(query);
+        assert_checked_entry_blocked(&http, &source, &legacy, &Method::GET, false);
+    }
+}
+
+#[tokio::test]
+async fn api_portal_html_navigation_keeps_terminal_source_and_target_boundaries() {
+    let from = Url::parse("https://auth1.ysu.edu.cn/eportal/redirect.jsp").unwrap();
+    let legacy =
+        Url::parse("http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session").unwrap();
+    for verify_tls in [true, false] {
+        let http = Transport::new(
+            &Config {
+                verify_tls,
+                ..Config::default()
+            },
+            false,
+        )
+        .unwrap();
+        // These are terminal response URLs, even when the original entry was redirect.jsp.
+        for source in [
+            "http://auth1.ysu.edu.cn/eportal/redirect.jsp",
+            "https://auth1.ysu.edu.cn/",
+            "https://auth1.ysu.edu.cn/eportal/index.jsp",
+            "https://auth1.ysu.edu.cn/portal/portal-main",
+            "https://auth1.ysu.edu.cn/eportal/redirect.jsp/other",
+            "https://auth1.ysu.edu.cn/eportal/redirect.jsp?other=1",
+            "https://auth1.ysu.edu.cn/eportal/redirect.jsp#fragment",
+            "https://auth1.ysu.edu.cn:444/eportal/redirect.jsp",
+            "https://cer.ysu.edu.cn/eportal/redirect.jsp",
+            "https://124.124.124.124/eportal/redirect.jsp",
+            "https://outside.invalid/eportal/redirect.jsp",
+        ] {
+            assert_api_portal_html_navigation_blocked(&http, &Url::parse(source).unwrap(), &legacy)
+                .await;
+        }
+        for target in [
+            "http://outside.invalid/portal/portal-main?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn.outside.invalid/portal/portal-main?sessionId=fixture-session",
+            "http://cer.ysu.edu.cn/portal/portal-main?sessionId=fixture-session",
+            "http://124.124.124.124/portal/portal-main?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn:8080/portal/portal-main?sessionId=fixture-session",
+            "http://user:pass@auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn/eportal/operator/getAccountInfo?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn/portal/portal-main/other?sessionId=fixture-session",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session#fragment",
+            "http://auth1.ysu.edu.cn/portal/portal-main",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture-session&sessionId=other",
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture%0Asession",
+            "http://auth1.ysu.edu.cn/portal/portal-main?flowSessionId=fixture-session",
+        ] {
+            assert_api_portal_html_navigation_blocked(&http, &from, &Url::parse(target).unwrap())
+                .await;
+        }
+        let oversized = Url::parse(&format!(
+            "http://auth1.ysu.edu.cn/portal/portal-main?sessionId={}",
+            "s".repeat(1025)
+        ))
+        .unwrap();
+        assert_api_portal_html_navigation_blocked(&http, &from, &oversized).await;
+    }
+    let custom_port = Transport::new(
+        &Config {
+            base: "https://auth1.ysu.edu.cn:444".into(),
+            ..Config::default()
+        },
+        false,
+    )
+    .unwrap();
+    let source = custom_port.endpoint("eportal/redirect.jsp").unwrap();
+    assert_api_portal_html_navigation_blocked(&custom_port, &source, &legacy).await;
+}
+
+#[tokio::test]
+async fn api_portal_html_navigation_preserves_absent_and_allowed_https_navigation() {
+    let http = Transport::new(&Config::default(), false).unwrap();
+    let from = http.endpoint("eportal/index.jsp").unwrap();
+    let op = Operation::new(Instant::now() + Duration::from_secs(2));
+    assert!(
+        crate::protocol::next_api_portal_navigation(&http, "<p>No navigation</p>", &from, &op)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let expected = http
+        .endpoint("portal/portal-main?sessionId=fixture-session&ssid=fixture-wifi")
+        .unwrap();
+    for body in api_portal_html_navigation_bodies(expected.as_str()) {
+        assert_eq!(
+            crate::protocol::next_api_portal_navigation(&http, &body, &from, &op)
+                .await
+                .unwrap(),
+            Some(expected.clone())
+        );
+    }
+    assert_eq!(
+        crate::protocol::next_api_portal_navigation(
+            &http,
+            "<script>location.assign('/portal/portal-main?sessionId=fixture-session&ssid=fixture-wifi');</script>",
+            &from,
+            &op,
+        )
+        .await
+        .unwrap(),
+        Some(expected)
+    );
+}
+
 #[test]
 fn legacy_navigation_upgrade_preserves_trust_and_credential_boundaries() {
     let from = Url::parse("https://auth1.ysu.edu.cn/eportal/redirect.jsp").unwrap();

@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "live-service-rejection",
+      "payload": {
+        "code": 200,
+        "data": {
+          "authResult": "fail",
+          "authMessage": "认证失败"
+        }
+      },
+      "code": 3
+    },
+    {
+      "id": "nested-session-limit",
+      "payload": {
+        "code": 200,
+        "data": {
+          "authResult": "fail",
+          "authMessage": "账号已达到同时在线用户数量上限"
+        }
+      },
+      "code": 4
+    },
+    {
+      "id": "nested-bad-password",
+      "payload": {
+        "data": {
+          "authResult": "fail",
+          "authMessage": "账号密码错误"
+        }
+      },
+      "code": 4
+    },
+    {
+      "id": "contradictory-inner-result",
+      "payload": {
+        "result": "success",
+        "data": {
+          "authResult": "fail"
+        }
+      },
+      "code": 3
+    },
+    {
+      "id": "unknown-auth-result",
+      "payload": {
+        "data": {
+          "authResult": "unexpected"
+        }
+      },
+      "code": 3
+    },
+    {
+      "id": "null-auth-result",
+      "payload": {
+        "data": {
+          "authResult": null
+        }
+      },
+      "code": 3
+    },
+    {
+      "id": "false-success",
+      "payload": {
+        "data": {
+          "success": false
+        }
+      },
+      "code": 3
+    },
+    {
+      "id": "explicit-online-rejection",
+      "payload": {
+        "data": {
+          "online": false,
+          "authMessage": "认证失败"
+        }
+      },
+      "code": 3
+    },
+    {
+      "id": "auth-success",
+      "payload": {
+        "code": 200,
+        "data": {
+          "authResult": "success"
+        }
+      },
+      "code": 0
+    },
+    {
+      "id": "legacy-success",
+      "payload": {
+        "result": "success"
+      },
+      "code": 0
+    }
+  ]
+}

@@ -63,7 +63,7 @@ NATIVE = NATIVE_FIXTURE.replace(MARKER, EXTENSION + MARKER) + r"""
   const original = window.__TAURI_INTERNALS__.invoke;
   window.__TAURI_INTERNALS__.invoke = async (command, args) => {
     if (command === 'plugin:event|listen' || command === 'plugin:event|unlisten' ||
-        command === 'get_desktop_settings' || (command === 'core_request' && args?.command === 'snapshot')) return original(command, args);
+        command === 'get_desktop_settings' || (command === 'core_request' && ['snapshot', 'observe'].includes(args?.command))) return original(command, args);
     if (command === 'core_request' && args?.command === 'action' && args?.args?.name === 'status' &&
         Object.keys(args.args).length === 1) {
       window.__aboutCalls.push({command, args}); return window.__connectionMotionFixture.query();

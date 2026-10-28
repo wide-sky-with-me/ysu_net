@@ -11,6 +11,8 @@ describe('native bridge', () => {
     const transport = createDesktopTransport();
     await transport.request('action', { name: 'switch', value: '中国电信' });
     expect(mocks.invoke).toHaveBeenCalledWith('core_request', { command: 'action', args: { name: 'switch', value: '中国电信' } });
+    await transport.request('observe', {});
+    expect(mocks.invoke).toHaveBeenCalledWith('core_request', { command: 'observe', args: {} });
     const handler = vi.fn(); await transport.subscribe(handler);
     expect(mocks.listen.mock.calls[0][0]).toBe('core-event');
     mocks.listen.mock.calls[0][1]({ payload: { kind: 'event', name: 'snapshot', payload: {} } });
@@ -38,6 +40,7 @@ describe('native bridge', () => {
     const transport = createTransport(''); expect(transport.mode).toBe('web');
     for (const operation of [
       () => transport.request('snapshot', {}),
+      () => transport.request('observe', {}),
       () => transport.request('action', { name: 'login' }),
       () => transport.request('save_config', { username: 'fixture-only', password: 'fixture-only' }),
       () => transport.request('rotation', { enabled: true }),
@@ -54,6 +57,9 @@ describe('native bridge', () => {
     mocks.isTauri.mockReturnValue(false);
     const transport = createTransport('?demo=1');
     expect(transport.mode).toBe('demo');
+    const initial = await transport.request('snapshot', {});
+    expect(await transport.request('observe', {})).toEqual(initial);
+    expect(await transport.request('snapshot', {})).toEqual(initial);
     const handler = vi.fn();
     const stop = await transport.subscribe(handler);
     await transport.request('save_config', { username: 'fixture-only', password: 'fixture-only' });

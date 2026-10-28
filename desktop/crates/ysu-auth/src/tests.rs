@@ -206,6 +206,9 @@ struct State {
     state_failure_at: Option<usize>,
     offline_ack_only: bool,
     rejected_service: Option<String>,
+    select_override: Option<Value>,
+    bootstrap_index_empty: bool,
+    observed_action_envelopes: bool,
     failure_owner: bool,
     failure_unknown: bool,
     wrong_service: Option<String>,
@@ -238,6 +241,9 @@ impl Default for State {
             state_failure_at: None,
             offline_ack_only: false,
             rejected_service: None,
+            select_override: None,
+            bootstrap_index_empty: false,
+            observed_action_envelopes: false,
             failure_owner: false,
             failure_unknown: false,
             wrong_service: None,
@@ -345,6 +351,9 @@ fn respond(s: &mut State, r: Request) -> Response {
     let path = url.path();
     match path {
         "/eportal/index.jsp" | "/eportal/redirect.jsp" => {
+            if path == "/eportal/index.jsp" && s.bootstrap_index_empty {
+                return Response::html("<html><body>entry without a session</body></html>");
+            }
             if s.navigation_hops > 0 || s.navigation_loop {
                 return Response::html("<script>location.assign('/nav/0');</script>");
             }
@@ -494,6 +503,9 @@ fn respond(s: &mut State, r: Request) -> Response {
             Response::html("ticket returned").cookie("JSESSIONID=portal-cookie; Path=/; HttpOnly")
         }
         "/eportal/network/serviceLogin" => {
+            if let Some(payload) = &s.select_override {
+                return Response::json(payload.clone());
+            }
             let v: Value = serde_json::from_slice(&r.body).unwrap();
             let target = v["service"].as_str().unwrap();
             if s.rejected_service.as_deref() == Some(target) {
@@ -511,7 +523,11 @@ fn respond(s: &mut State, r: Request) -> Response {
                 );
             }
             s.selected = target.into();
-            Response::json(json!({"result":"success"}))
+            Response::json(if s.observed_action_envelopes {
+                json!({"code":200,"data":{"authResult":"success"}})
+            } else {
+                json!({"result":"success"})
+            })
         }
         "/eportal/network/userOnline" => {
             s.online = Some(
@@ -519,7 +535,11 @@ fn respond(s: &mut State, r: Request) -> Response {
                     .clone()
                     .unwrap_or_else(|| s.selected.clone()),
             );
-            Response::json(json!({"result":"success"}))
+            Response::json(if s.observed_action_envelopes {
+                json!({"code":200,"data":{"online":true}})
+            } else {
+                json!({"result":"success"})
+            })
         }
         "/portal/entry/pc/terminalLoad" => Response::html("terminal loaded"),
         "/portal/entry/pc/finish;flowParams=undefined;from=" => Response::html("finish loaded"),
@@ -1140,5 +1160,9 @@ async fn chromium_cdp_captcha_and_no_fallback_fixture() {
 
 #[path = "diagnostic_tests.rs"]
 mod diagnostics;
+#[path = "info_observation_integration_tests.rs"]
+mod info_observation;
 #[path = "regression_tests.rs"]
 mod regression;
+#[path = "live_contract_tests.rs"]
+mod live_contract;

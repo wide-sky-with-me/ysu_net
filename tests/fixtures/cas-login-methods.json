@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "other-login-visible-password-hidden",
+      "html": "<form><input name=\"username\"><input name=\"execution\"><div id=\"captchaDiv\"></div></form><form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"><div class=\"hide\" id=\"captchaDiv\"></div></form>",
+      "captcha": false
+    },
+    {
+      "id": "password-visible",
+      "html": "<form><input name=\"username\"><input name=\"execution\"><div id=\"captchaDiv\"></div></form><form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"><div id=\"captchaDiv\"></div></form>",
+      "captcha": true
+    },
+    {
+      "id": "style-before-id",
+      "html": "<form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"><div style=\"display: none\" id=\"captchaDiv\"></div></form>",
+      "captcha": false
+    },
+    {
+      "id": "hidden-attribute",
+      "html": "<form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"><div hidden id=\"captchaDiv\"></div></form>",
+      "captcha": false
+    },
+    {
+      "id": "standalone-visible",
+      "html": "<form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"></form><div id=\"captchaDiv\"></div>",
+      "captcha": true
+    },
+    {
+      "id": "standalone-hidden",
+      "html": "<form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"></form><div class=\"hide\" id=\"captchaDiv\"></div>",
+      "captcha": false
+    },
+    {
+      "id": "standalone-visible-with-hidden-password",
+      "html": "<form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"><div class=\"hide\" id=\"captchaDiv\"></div></form><div id=\"captchaDiv\"></div>",
+      "captcha": true
+    },
+    {
+      "id": "other-login-only",
+      "html": "<form><input name=\"username\"><input name=\"execution\"><div id=\"captchaDiv\"></div></form><form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"></form>",
+      "captcha": false
+    },
+    {
+      "id": "absent",
+      "html": "<form action=\"/authserver/login\"><input name=\"username\"><input name=\"password\"><input name=\"execution\" value=\"fixture-execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"></form>",
+      "captcha": false
+    },
+    {
+      "id": "empty-class-is-visible",
+      "html": "<form><input name=\"username\"><input name=\"password\"><input name=\"execution\"><input id=\"pwdEncryptSalt\" value=\"0123456789abcdef\"><div class id=\"captchaDiv\"></div></form>",
+      "captcha": true
+    }
+  ]
+}

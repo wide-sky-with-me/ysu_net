@@ -4,7 +4,8 @@ use crate::{
     diagnostic::at,
     presentation::text,
     transport::{Operation, Reply, Transport, REDIRECT_LIMIT},
-    AuthError, Config, DiagnosticReason as Reason, DiagnosticStage as Stage, Status, SERVICES,
+    AuthError, Config, DiagnosticReason as Reason, DiagnosticStage as Stage, NavigationKind,
+    Status, SERVICES,
 };
 use reqwest::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE, LOCATION},
@@ -160,10 +161,10 @@ impl Session {
                             browser: None,
                         });
                     }
-                    let Some(next) = next_navigation(&r.text(), &r.url) else {
+                    let Some(next) = next_api_portal_navigation(&http, &r.text(), &r.url, op).await?
+                    else {
                         break;
                     };
-                    http.allowed(&next)?;
                     url = next;
                 }
             }
@@ -467,6 +468,30 @@ fn selector(s: &str) -> Selector {
     Selector::parse(s).expect("constant selector")
 }
 
+/// Resolve HTML navigation only during the API portal bootstrap.
+/// `from` is the terminal response URL of navigation_get's bodyless GET chain,
+/// not the original entry URL before redirects. API/CAS requests do not use this.
+pub(crate) async fn next_api_portal_navigation(
+    http: &Transport,
+    body: &str,
+    from: &Url,
+    op: &Operation,
+) -> Result<Option<Url>, AuthError> {
+    let Some(next) = next_navigation(body, from) else {
+        return Ok(None);
+    };
+    http.resolve_portal_navigation(
+        from,
+        next,
+        &Method::GET,
+        false,
+        NavigationKind::HtmlNavigation,
+        op,
+    )
+    .await
+    .map(Some)
+}
+
 pub(crate) fn next_navigation(body: &str, base: &Url) -> Option<Url> {
     let html = Html::parse_document(body);
     for e in html.select(&selector("meta[http-equiv]")) {
@@ -607,21 +632,31 @@ impl LoginForm {
                 action.query_pairs_mut().append_pair("service", &service);
             }
         }
-        let captcha = html.select(&selector("#captchaDiv")).any(|e| {
-            let attr = e.value();
-            !attr
-                .attr("class")
-                .unwrap_or("")
-                .split_whitespace()
-                .any(|s| s.contains("hide") || s.contains("hidden"))
-                && !attr
-                    .attr("style")
+        // Other login methods reuse captchaDiv on the real CAS page.
+        // Decision: .agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md
+        let captcha = html
+            .select(&selector("#captchaDiv"))
+            .filter(|e| {
+                e.ancestors()
+                    .filter_map(ElementRef::wrap)
+                    .find(|ancestor| ancestor.value().name() == "form")
+                    .is_none_or(|owner| owner.id() == form.id())
+            })
+            .any(|e| {
+                let attr = e.value();
+                !attr
+                    .attr("class")
                     .unwrap_or("")
-                    .replace(' ', "")
-                    .to_ascii_lowercase()
-                    .contains("display:none")
-                && attr.attr("hidden").is_none()
-        });
+                    .split_whitespace()
+                    .any(|s| s.contains("hide") || s.contains("hidden"))
+                    && !attr
+                        .attr("style")
+                        .unwrap_or("")
+                        .replace(' ', "")
+                        .to_ascii_lowercase()
+                        .contains("display:none")
+                    && attr.attr("hidden").is_none()
+            });
         Ok(Self {
             fields,
             salt,
@@ -777,30 +812,36 @@ pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
         if !item.is_object() {
             continue;
         }
-        let msg = item["message"].as_str().unwrap_or("");
-        if msg.contains("同时在线用户数量上限") {
-            return Err(AuthError::interaction(
-                "运营商同时在线数量已达上限，请先在其他终端下线",
-            ));
+        let messages = [item["message"].as_str(), item["authMessage"].as_str()];
+        for msg in messages.into_iter().flatten() {
+            if msg.contains("同时在线用户数量上限") {
+                return Err(AuthError::interaction(
+                    "运营商同时在线数量已达上限，请先在其他终端下线",
+                ));
+            }
+            if [
+                "账号密码错误",
+                "用户名或密码错误",
+                "验证码",
+                "风控",
+                "IP被冻结",
+            ]
+            .iter()
+            .any(|term| msg.contains(term))
+            {
+                return Err(AuthError::interaction(
+                    "运营商认证需要人工处理，请检查账号绑定、密码、验证码或风控状态",
+                ));
+            }
         }
-        if [
-            "账号密码错误",
-            "用户名或密码错误",
-            "验证码",
-            "风控",
-            "IP被冻结",
-        ]
-        .iter()
-        .any(|term| msg.contains(term))
-        {
-            return Err(AuthError::interaction(
-                "运营商认证需要人工处理，请检查账号绑定、密码、验证码或风控状态",
-            ));
-        }
+        let rejected_online = item["online"] == false
+            && messages.into_iter().flatten().any(|msg| msg.contains("认证失败"));
         if matches!(
             item["result"].as_str(),
             Some("fail" | "failed" | "failure" | "error")
-        ) || (item["online"] == false && msg.contains("认证失败"))
+        ) || item.get("authResult").is_some_and(|value| value != "success")
+            || item["success"] == false
+            || rejected_online
             || item["code"].as_i64().is_some_and(|c| c != 0 && c != 200)
         {
             return Err(AuthError::operation("门户操作未被确认").because(Reason::BusinessRejected));

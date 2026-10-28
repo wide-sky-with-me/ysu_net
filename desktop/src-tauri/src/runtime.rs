@@ -4,8 +4,11 @@ use crate::storage::{valid_accent, Prefs, RunGuard, Store, CONFIG_ERROR, EXTERNA
 #[path = "account_runtime.rs"]
 mod account_runtime;
 use account_runtime::{account_state, Rotation};
+#[path = "runtime_observer.rs"]
+mod runtime_observer;
 use chrono::{SecondsFormat, Utc};
 use rand::Rng;
+use runtime_observer::{Observation, StatusIdentity};
 use serde_json::{json, Map, Value};
 use std::{
     collections::VecDeque,
@@ -21,7 +24,7 @@ use tokio::{
 };
 use ysu_auth::{
     AuthClient, AuthDiagnostic, AuthError, Config, DiagnosticOperation, DiagnosticReason,
-    DiagnosticStage, Status, SERVICES,
+    DiagnosticStage, InfoObservation, Status, SERVICES,
 };
 
 const MAX_REQUEST: usize = 32 * 1024;
@@ -75,7 +78,7 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
         return false;
     }
     match command {
-        "snapshot" | "diagnostics" => object.is_empty(),
+        "snapshot" | "diagnostics" | "observe" => object.is_empty(),
         "browser_install" => {
             object.keys().all(|k| k == "cancel")
                 && object.get("cancel").is_none_or(Value::is_boolean)
@@ -181,6 +184,7 @@ fn local_auth_error(
         operation,
         stage,
         reason,
+        navigation: None,
     };
     error
 }
@@ -189,14 +193,19 @@ fn diagnostic_detail(action: &str, phase: DiagnosticStage, error: &AuthError) ->
     // Serialize only closed enums. AuthError.message may contain server text or credentials.
     let diagnostic = serde_json::to_value(error.diagnostic()).expect("fixed diagnostic enums");
     let phase = serde_json::to_value(phase).expect("fixed diagnostic phase");
-    format!(
+    let mut detail = format!(
         "action={action} phase={} code={} operation={} stage={} reason={}",
         phase.as_str().unwrap_or("unknown"),
         error.code,
         diagnostic["operation"].as_str().unwrap_or("unknown"),
         diagnostic["stage"].as_str().unwrap_or("unknown"),
         diagnostic["reason"].as_str().unwrap_or("unknown"),
-    )
+    );
+    if let Some(navigation) = error.diagnostic().navigation {
+        detail.push(' ');
+        detail.push_str(&navigation.detail());
+    }
+    detail
 }
 
 struct State {
@@ -204,6 +213,7 @@ struct State {
     config: Config,
     prefs: Prefs,
     status: Value,
+    observed_identity: Option<StatusIdentity>,
     auto: Value,
     accounts: Value,
     rotation_intent: Option<bool>,
@@ -329,6 +339,7 @@ pub struct Runtime {
     sender: mpsc::Sender<Action>,
     stop: watch::Sender<bool>,
     control: watch::Sender<u64>,
+    observations: watch::Sender<u64>,
     desired: AtomicBool,
     revision: AtomicU64,
     auto_version: AtomicU64,
@@ -356,12 +367,14 @@ impl Runtime {
         let (sender, receiver) = mpsc::channel(QUEUE_SIZE);
         let (stop, _) = watch::channel(false);
         let (control, _) = watch::channel(0);
+        let (observations, _) = watch::channel(0);
         let desired = prefs.auto_reconnect;
         let mut state = State {
             sequence: 1,
             config,
             prefs,
             status: Value::Null,
+            observed_identity: None,
             auto: json!({"state":"off", "message":"自动重连已关闭"}),
             busy: false,
             busy_message: String::new(),
@@ -387,6 +400,7 @@ impl Runtime {
             sender,
             stop,
             control,
+            observations,
             desired: AtomicBool::new(desired),
             revision: AtomicU64::new(0),
             auto_version: AtomicU64::new(0),
@@ -611,6 +625,12 @@ impl Runtime {
         }
         match command {
             "snapshot" => Ok(self.snapshot()),
+            "observe" => {
+                // A watch revision coalesces bursts without consuming manual action queue slots.
+                self.observations
+                    .send_modify(|revision| *revision = revision.wrapping_add(1));
+                Ok(self.snapshot())
+            }
             "diagnostics" | "browser_install" => {
                 let demo = self.store.demo;
                 let environment = self.blocking(move || Ok(environment(demo))).await?;
@@ -742,6 +762,8 @@ struct Worker {
     receiver: mpsc::Receiver<Action>,
     stop: watch::Receiver<bool>,
     control: watch::Receiver<u64>,
+    observations: watch::Receiver<u64>,
+    observation: Mutex<Observation>,
     guard: Option<RunGuard>,
     next_check: Instant,
     reconnect: Reconnect,
@@ -752,9 +774,16 @@ struct Worker {
 
 impl Worker {
     fn new(runtime: Arc<Runtime>, receiver: mpsc::Receiver<Action>) -> Self {
+        let observations = runtime.observations.subscribe();
+        let mut observation = Observation::new(Instant::now());
+        if *observations.borrow() != 0 {
+            observation.request();
+        }
         Self {
             stop: runtime.stop.subscribe(),
             control: runtime.control.subscribe(),
+            observations,
+            observation: Mutex::new(observation),
             runtime,
             receiver,
             guard: None,
@@ -788,6 +817,10 @@ impl Worker {
             state.busy = false;
             state.busy_message.clear();
         });
+        self.run_loop().await;
+    }
+
+    async fn run_loop(&mut self) {
         loop {
             if *self.stop.borrow() {
                 break;
@@ -818,7 +851,16 @@ impl Worker {
                     }
                 }
             }
+            if self.observations.has_changed().unwrap_or(false) {
+                self.observations.borrow_and_update();
+                self.observation.lock().unwrap().request();
+            }
             let automatic = self.runtime.desired.load(Ordering::Acquire);
+            let observe_at = self
+                .observation
+                .lock()
+                .unwrap()
+                .deadline(automatic, self.next_check);
             tokio::select! {
                 biased;
                 _ = self.stop.changed() => break,
@@ -864,6 +906,8 @@ impl Worker {
                     runtime.update(|state| { state.busy = false; state.busy_message.clear(); });
                     if !runtime.desired.load(Ordering::Acquire) { self.guard.take(); }
                 }
+                _ = tokio::time::sleep_until(observe_at) => self.observe().await,
+                _ = self.observations.changed() => self.observation.lock().unwrap().request(),
             }
         }
         self.receiver.close();
@@ -926,31 +970,11 @@ impl Worker {
     }
 
     async fn status(&self, config: &Config) -> Result<Status, AuthError> {
+        // A query starting after an admitted trigger satisfies it; watch revisions that arrive
+        // during the query remain unread and request one follow-up after the busy operation.
+        self.observation.lock().unwrap().sample_started();
         let result = self.runtime.backend.status(config).await;
-        self.runtime.update(|state| match &result {
-            Ok(status) => {
-                state.status = serde_json::to_value(status).unwrap();
-                state.status["message"] = if status.online {
-                    "校园网已连接"
-                } else {
-                    "校园网未连接"
-                }
-                .into();
-                if !status.online {
-                    state.info = json!({"online":false, "fields":[], "items":[]});
-                } else if state.info["online"] == false {
-                    // A previous offline account response is no longer current after an online query.
-                    state.info = Value::Null;
-                }
-            }
-            Err(error) => {
-                let message = self.error_message(error);
-                state.status =
-                    json!({"online":null, "service":null, "user":"", "ip":"", "message":message});
-                state.info = Value::Null;
-                state.log("error", &message);
-            }
-        });
+        self.publish_status(&result, false);
         result
     }
 
@@ -1026,7 +1050,10 @@ impl Worker {
                 self.phase = DiagnosticStage::AccountInfo;
                 self.busy("正在读取账户信息");
                 let result = self.runtime.backend.info(&config).await;
-                let info = result.as_ref().ok().and_then(normalize_info);
+                let info = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|observation| normalize_info(&observation.info));
                 let info_error = match &result {
                     Err(error) => Some(format!(
                         "账户信息获取失败，请稍后重试 [{}]",
@@ -1052,6 +1079,13 @@ impl Worker {
                 self.phase = DiagnosticStage::Verification;
                 self.busy("正在复查连接状态");
                 let observed = self.status(&config).await;
+                // status() may have invalidated cached info after an external identity change.
+                // Do not republish this read's older payload under that newer actual identity.
+                let matches_observed = result.as_ref().is_ok_and(|source| {
+                    observed
+                        .as_ref()
+                        .is_ok_and(|status| source.matches_status(status))
+                });
                 self.runtime.update(|state| {
                     if observed.as_ref().is_ok_and(|status| !status.online) {
                         // Only the independent status observation can confirm an offline connection.
@@ -1071,17 +1105,27 @@ impl Worker {
                     } else if let Some(message) = &info_error {
                         state.info = Value::Null;
                         state.info_error = message.clone();
-                    } else if info.as_ref().is_some_and(|info| info["online"] == true) {
+                    } else if info.as_ref().is_some_and(|info| info["online"] == true)
+                        && matches_observed
+                    {
                         state.info = info.clone().unwrap();
                     } else {
                         state.info = Value::Null;
-                        let error = self.local_error(
-                            2,
-                            DiagnosticStage::Verification,
-                            DiagnosticReason::StateUnrecognized,
-                        );
+                        let (reason, message) =
+                            if info.as_ref().is_some_and(|info| info["online"] == true) {
+                                (
+                                    DiagnosticReason::IdentityMismatch,
+                                    "账户信息读取期间实际身份已变化，请重新读取",
+                                )
+                            } else {
+                                (
+                                    DiagnosticReason::StateUnrecognized,
+                                    "账户信息与连接状态不一致，请重新读取",
+                                )
+                            };
+                        let error = self.local_error(2, DiagnosticStage::Verification, reason);
                         state.info_error = format!(
-                            "账户信息与连接状态不一致，请重新读取 [{}]",
+                            "{message} [{}]",
                             diagnostic_detail(self.action, self.phase, &error)
                         );
                         state.log("error", &state.info_error.clone());
@@ -1360,15 +1404,40 @@ enum Backend {
     Native,
     Demo(Arc<Mutex<Demo>>),
 }
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AccountEvent {
+    Status {
+        requested: String,
+        online: bool,
+        owner: String,
+        service: Option<String>,
+    },
+    Mutation {
+        action: &'static str,
+        requested: String,
+        service: String,
+    },
+}
 #[derive(Default)]
 struct Demo {
     online: bool,
     service: Option<String>,
     user: String,
     #[cfg(test)]
+    ip: Option<String>,
+    #[cfg(test)]
     quota: Option<Value>,
     #[cfg(test)]
     login_failures: std::collections::HashMap<String, i32>,
+    #[cfg(test)]
+    login_diagnostics: std::collections::HashMap<String, AuthDiagnostic>,
+    #[cfg(test)]
+    account_events: Vec<AccountEvent>,
+    #[cfg(test)]
+    status_gate_at: Option<(u32, Arc<tokio::sync::Notify>)>,
+    #[cfg(test)]
+    status_failure_at: Option<(u32, i32)>,
     #[cfg(test)]
     logouts: u32,
     #[cfg(test)]
@@ -1378,7 +1447,11 @@ struct Demo {
     #[cfg(test)]
     status_delay: Duration,
     #[cfg(test)]
+    status_gate: Option<Arc<tokio::sync::Notify>>,
+    #[cfg(test)]
     status_calls: u32,
+    #[cfg(test)]
+    status_backends: Vec<String>,
     #[cfg(test)]
     operation_error: Option<i32>,
     #[cfg(test)]
@@ -1400,11 +1473,18 @@ struct Demo {
 }
 impl Demo {
     fn status(&self) -> Status {
+        #[cfg(test)]
+        let ip = self
+            .ip
+            .clone()
+            .unwrap_or_else(|| if self.online { "192.0.2.10" } else { "" }.into());
+        #[cfg(not(test))]
+        let ip = if self.online { "192.0.2.10" } else { "" }.into();
         Status {
             online: self.online,
             service: self.service.clone(),
             user: self.user.clone(),
-            ip: if self.online { "192.0.2.10" } else { "" }.into(),
+            ip,
             message: if self.online { "在线" } else { "离线" }.into(),
         }
     }
@@ -1430,20 +1510,29 @@ impl Backend {
             Self::Native => AuthClient::new(config.clone())?.status().await,
             Self::Demo(demo) => {
                 #[cfg(test)]
-                {
-                    let delay = {
+                let call = {
+                    let (delay, gate, call) = {
                         let mut state = demo.lock().unwrap();
                         state.status_calls += 1;
-                        state.status_delay
+                        state.status_backends.push(config.backend.clone());
+                        let gate = state.status_gate_at.as_ref()
+                            .filter(|(at, _)| *at == state.status_calls)
+                            .map(|(_, gate)| gate.clone())
+                            .or_else(|| state.status_gate.clone());
+                        (state.status_delay, gate, state.status_calls)
                     };
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
                     tokio::time::sleep(delay).await;
-                }
+                    call
+                };
                 #[cfg(test)]
                 {
                     let failure = {
                         let state = demo.lock().unwrap();
-                        state
-                            .status_error
+                        state.status_failure_at.filter(|(at, _)| *at == call)
+                            .map(|(_, code)| code).or(state.status_error)
                             .map(|code| (code, state.status_diagnostic))
                     };
                     if let Some((code, diagnostic)) = failure {
@@ -1454,13 +1543,21 @@ impl Backend {
                         return Err(error);
                     }
                 }
-                Ok(demo.lock().unwrap().status())
+                let status = demo.lock().unwrap().status();
+                #[cfg(test)]
+                demo.lock().unwrap().account_events.push(AccountEvent::Status {
+                    requested: config.username.clone(),
+                    online: status.online,
+                    owner: status.user.clone(),
+                    service: status.service.clone(),
+                });
+                Ok(status)
             }
         }
     }
-    async fn info(&self, config: &Config) -> Result<Value, AuthError> {
+    async fn info(&self, config: &Config) -> Result<InfoObservation, AuthError> {
         match self {
-            Self::Native => AuthClient::new(config.clone())?.info().await,
+            Self::Native => AuthClient::new(config.clone())?.info_observation().await,
             Self::Demo(demo) => {
                 #[cfg(test)]
                 {
@@ -1482,10 +1579,13 @@ impl Backend {
                 let online = demo.info_online.unwrap_or(demo.online);
                 #[cfg(not(test))]
                 let online = demo.online;
-                Ok(
-                    json!({"online":online, "fields":if online { vec![["账号", demo.user.as_str()]] } else { vec![] },
-                    "items":if online { vec![["剩余流量", "12.5 GB"]] } else { vec![] }}),
-                )
+                // Capture the actual source identity with the payload, without a second
+                // backend status call, config-owner inference or display-field parsing.
+                Ok(InfoObservation {
+                    status: demo.status(),
+                    info: json!({"online":online, "fields":if online { vec![["账号", demo.user.as_str()]] } else { vec![] },
+                        "items":if online { vec![["剩余流量", "12.5 GB"]] } else { vec![] }}),
+                })
             }
         }
     }
@@ -1505,6 +1605,16 @@ impl Backend {
                 let mut flight = {
                     let mut state = demo.lock().unwrap();
                     state.in_flight += 1;
+                    state.account_events.push(AccountEvent::Mutation {
+                        action: match action {
+                            Action::Login => "login",
+                            Action::Logout => "logout",
+                            Action::Switch(_) => "switch_service",
+                            _ => unreachable!(),
+                        },
+                        requested: config.username.clone(),
+                        service: config.service.clone(),
+                    });
                     if matches!(action, Action::Login) {
                         state.logins += 1;
                     }
@@ -1524,7 +1634,11 @@ impl Backend {
                 if matches!(action, Action::Login) {
                     #[cfg(test)]
                     if let Some(code) = demo.login_failures.get(&config.username) {
-                        return Err(AuthError::new(*code, "fixture candidate login failure"));
+                        let mut error = AuthError::new(*code, "fixture candidate login failure");
+                        if let Some(diagnostic) = demo.login_diagnostics.get(&config.username) {
+                            error.diagnostic = *diagnostic;
+                        }
+                        return Err(error);
                     }
                 }
                 #[cfg(test)]
@@ -1567,3 +1681,69 @@ mod tests;
 #[cfg(test)]
 #[path = "runtime_review_tests.rs"]
 mod review_tests;
+
+#[cfg(test)]
+mod navigation_diagnostic_formatter_tests {
+    use super::*;
+
+    #[test]
+    fn absent_navigation_keeps_exact_legacy_log_format() {
+        let error = local_auth_error(
+            2,
+            DiagnosticOperation::Status,
+            DiagnosticStage::PortalNavigation,
+            DiagnosticReason::RedirectBlocked,
+        );
+        assert!(error.diagnostic().navigation.is_none());
+        assert_eq!(
+            diagnostic_detail("status", DiagnosticStage::OnlineState, &error),
+            concat!(
+                "action=status phase=online_state code=2 operation=status ",
+                "stage=portal_navigation reason=redirect_blocked"
+            )
+        );
+    }
+
+    #[test]
+    fn optional_navigation_appends_only_fixed_tokens_not_raw_error_material() {
+        let mut error = local_auth_error(
+            3,
+            DiagnosticOperation::SwitchService,
+            DiagnosticStage::CasNavigation,
+            DiagnosticReason::RedirectBlocked,
+        );
+        error.message = concat!(
+            "fixture-user fixture-password https://192.0.2.71/private-path",
+            "?sessionId=fixture-session&ticket=fixture-ticket"
+        )
+        .into();
+        let plain = diagnostic_detail("switch_service", DiagnosticStage::Verification, &error);
+        let navigation = ysu_auth::NavigationDiagnostic::default();
+        error.diagnostic.navigation = Some(navigation);
+        let detail = diagnostic_detail("switch_service", DiagnosticStage::Verification, &error);
+        assert_eq!(detail, format!("{plain} {}", navigation.detail()));
+        assert_eq!(error.code, 3);
+        assert_eq!(
+            error.diagnostic().operation,
+            DiagnosticOperation::SwitchService
+        );
+        assert_eq!(error.diagnostic().stage, DiagnosticStage::CasNavigation);
+        assert_eq!(error.diagnostic().reason, DiagnosticReason::RedirectBlocked);
+        for private in [
+            "fixture-user",
+            "fixture-password",
+            "192.0.2.71",
+            "private-path",
+            "fixture-session",
+            "fixture-ticket",
+            "sessionId",
+            "ticket=",
+            "https://",
+        ] {
+            assert!(!detail.contains(private));
+        }
+        assert!(detail.contains("nav_kind=http_location"));
+        assert!(detail.contains("nav_source_scheme=other"));
+        assert!(detail.contains("nav_target_userinfo=false"));
+    }
+}

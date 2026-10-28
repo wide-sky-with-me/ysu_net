@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "Synthetic reconstruction of the two fixed entry shapes observed read-only on 111 on 2026-10-27; no live URL query values or product-login claim.",
+  "base": "https://auth1.ysu.edu.cn",
+  "sources": [
+    {"id": "plain", "url": "https://auth1.ysu.edu.cn/eportal/redirect.jsp"},
+    {"id": "history", "url": "https://auth1.ysu.edu.cn/eportal/redirect.jsp?mode=history"}
+  ],
+  "legacy_target": "http://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture%2Bsession&userIp=192.0.2.1&ssid=fixture-wifi&redirectUrl=http%3A%2F%2Fexample.invalid%2F",
+  "https_target": "https://auth1.ysu.edu.cn/portal/portal-main?sessionId=fixture%2Bsession&userIp=192.0.2.1&ssid=fixture-wifi&redirectUrl=http%3A%2F%2Fexample.invalid%2F",
+  "session_id": "fixture+session",
+  "rejected_source_queries": [
+    "",
+    "mode=",
+    "mode=other",
+    "mode=history&other=1",
+    "other=1&mode=history",
+    "mode=history&mode=history",
+    "mode=history&",
+    "MODE=history",
+    "mode=History",
+    "mode=hist%6Fry",
+    "m%6Fde=history",
+    "sessionId=fixture-session"
+  ]
+}

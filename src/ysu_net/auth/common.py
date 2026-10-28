@@ -80,17 +80,19 @@ def check_action(status, payload, action):
     for item in (payload, payload.get("data")):
         if not isinstance(item, dict):
             continue
-        message = item.get("message")
-        explicit_failure = isinstance(message, str) and (
-            "认证失败" in message or "同时在线用户数量上限" in message
-        )
+        messages = [item[key] for key in ("message", "authMessage")
+                    if isinstance(item.get(key), str)]
+        explicit_failure = any("认证失败" in message or "同时在线用户数量上限" in message
+                               for message in messages)
         failed = (item.get("result") in ("fail", "failed", "failure", "error")
+                  or ("authResult" in item and item["authResult"] != "success")
+                  or item.get("success") is False
                   or (item.get("online") is False and explicit_failure))
         if failed:
-            if isinstance(message, str) and "同时在线用户数量上限" in message:
+            if any("同时在线用户数量上限" in message for message in messages):
                 raise InteractionRequired("运营商同时在线数量已达上限，请先在其他终端正常下线后重试")
-            if isinstance(message, str) and any(term in message for term in
-                                               ("账号密码错误", "用户名或密码错误", "验证码")):
+            if any(term in message for message in messages for term in
+                   ("账号密码错误", "用户名或密码错误", "验证码", "风控", "IP被冻结")):
                 raise InteractionRequired("运营商认证需要人工处理，请检查账号绑定、密码或验证码")
             raise OperationFailed(f"{action} 被服务器拒绝")
 

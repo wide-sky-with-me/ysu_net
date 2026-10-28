@@ -102,6 +102,7 @@ async fn manual_status_error_clears_old_online_and_publishes_safe_diagnostic() {
             operation: DiagnosticOperation::Status,
             stage: DiagnosticStage::PortalNavigation,
             reason: DiagnosticReason::Network,
+            navigation: None,
         });
     }
     let before = runtime.snapshot();
@@ -286,6 +287,7 @@ async fn info_success_with_failed_independent_status_is_unknown_not_stale_online
             operation: DiagnosticOperation::Status,
             stage: DiagnosticStage::OnlineState,
             reason: DiagnosticReason::ResponseInvalid,
+            navigation: None,
         });
     }
     let mut worker = Worker::new(runtime.clone(), receiver);

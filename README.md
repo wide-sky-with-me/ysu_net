@@ -22,6 +22,8 @@
 
 **正式 v0.2.2 已发布并成为 Latest**，下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；标签源码、云端签名、公开资产复核状态及未覆盖范围见[0.2.2 发布验收](docs/desktop-release-0.2.2.md)。正式发布不等于真实校园网登录、软件内跨版本原位升级或失败回滚已通过。升级前先看[迁移说明](docs/migration.md#桌面-v022-升级)；旧版若点击检查更新就退出，可从正式 Release 手工安装，不关闭 TLS 校验或验签。
 
+当前正准备 **v0.2.3**，包含只读状态观察、账户来源绑定、门户跳转、DNS 回退及账号池改进；[本轮构建与发布记录](docs/desktop-release-0.2.3.md)区分云端、Shell 对照和真实 Rust 验收。尚未发布前，正式 0.2.2 安装包不含这些开发改进。
+
 编译、打包和产品测试只在 GitHub Actions 执行；开发构建使用独立构建分支，不打版本标签、不发布正式 Release。云端失败不回退本机编译，本机只按授权下载、校验云端产物并做安装 / 运行验收。工作流见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)，实际成绩与未覆盖范围见[桌面验收导航](docs/desktop-acceptance.md)。
 
 原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 标签和 Qt 附件保留历史，不作为新版下载入口。Windows 旧 Inno 版与当前用户 NSIS 版不互相替换；旧 0.2.1 候选也不能等待同版本自动升级，应按[迁移说明](docs/migration.md#桌面-v021-及旧候选包)手动安装正式版。Linux `.deb` 继续按系统包升级，macOS 13.5+ 按 Apple 芯片 / Intel 分包；更新包签名不等于 Windows 发布者签名或 Apple 签名 / 公证。安装前提见[桌面客户端](docs/wiki/Desktop-Client.md)。

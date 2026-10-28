@@ -16,6 +16,74 @@
 
 [多账号与流量换号](accounts.md)提供独立账号簿、确认后热切换与默认关闭的零流量轮换。前端不负责轮换调度；原生后台以同账号/服务绑定的独立查询为依据。关闭自动重连或下线同时关闭轮换，状态未知、额度缺失及业务失败不触发换号。
 
+### 独立只读状态观察（开发源码）
+
+只读观察、API HTML 导航规范化与 Info 来源配对的开发源码已通过四平台 Native 及 Mock 云端回归；分轮证据、CLI / 固定参考认证链差异和未覆盖项见[本次对照与验收](auth-flow-review-2026-10-27.md)。尚未新发行、未确认远端现场，正式 0.2.2 安装包不含本轮开发改进。选择原因和限制见[只读观察决策](../.agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md)。
+
+原生 Worker 在自动重连关闭时也独立观察连接状态，托盘后台不依赖 WebView 定时器。健康周期为 30 秒；窗口获焦 / 恢复可见和 `online` / `offline` 事件只是查询提示，前端合并 300ms 内的突发事件，不从 `navigator` 或 IPC 接收确认推断在线 / 离线。界面只接受正常单调快照流中的原生结果。
+
+观察使用缓存配置的临时 API 副本，单次 Status 预算为 `min(operation_timeout, 2秒)`；不启动浏览器、不读取私有 Info、不登录 / 下线、不保存账号或配置。即使保存的 backend 是 browser，被动读也不启动 Chromium；手动操作与自动认证仍尊重用户保存的 backend。API 不能确认时记未知，不据此自动认证，也不把本轮修正解释为应直接改用 browser。
+
+原生成功采样后以 2 秒冷却合并提示，可复用手动 / auto 已取得的状态；失败后台按 60 / 120 / 240 / 300 秒退避。失败后的显式提示最早在该采样结束 30 秒后再查，不清失败计数，也不重置自动重连 / 轮换的计划或退避。手动队列优先且观察不占其容量；工作门闩拒绝时保留待处理提示，将观察准入至少后移 2 秒，避免过期计时器自旋。
+
+被动读仍持有原认证门闩：在途短读会拒绝安装准入，应在短读结束后重试，不是更新强行中断它。空闲更新置 stop / updating 后不准入新观察；退出或 force-stop 取消在途 future，由 RAII 释放门闩，不发布迟到结果。观察不为每轮设置 busy、成功浮层或成功日志；错误用固定脱敏分类，观察错误日志最多每 60 秒一条。
+
+状态身份按实际 user / service / IP 绑定；变化时旧 Info 及旧身份读取错误失效，不回写保存账号。未知清旧详情并保留最近已确认身份，供同身份恢复时保留仍有效的读取错误；确认离线清旧详情和旧读取错误。被动观察只更新状态，不自动补读账户详情。纯网页 / 前端 Demo 不发送原生观察，原生 Demo 只读内存；Windows / Linux / macOS 共用此 Rust 实现，CLI 没有桌面焦点事件，本轮不改变其后台行为。
+
+显式账户读取另做来源绑定：认证库返回 `InfoObservation { status, info }`，在同一个 session / lock / operation deadline 内执行初始 snapshot → 账户只读 → 再 snapshot，按实际 online / user / service / IP 前后配对。空字段照实比较，不猜补或增加非空 / 配置 owner 门槛；实际 tuple 变动才报 `IdentityMismatch`，后查失败用固定 code 2 / Verification 文案并保留原网络、响应或超时 Reason，不伪称已换号；初查与账户读取失败的原分类优先语义不变。确认离线仍返回原 offline JSON，且不读账户；原 `info()` 继续只返回 `info` JSON，不把来源元数据混入展示字段，也不改轮换用 `verified_info()` 的严格语义。
+
+Native 仍在账户读取后独立查询 Status；提交成功详情前再以 `matches_status` 配对该次实际状态，不匹配就拒绝旧详情写回并给出固定身份不一致错误，不把错配当作离线。独立确认离线仍优先，复查失败仍是未知；已有账户读取错误不被新增错配诊断覆盖。不解析中文 `fields` 或用保存账号当 owner 门槛，保存意图为 A 时仍可无凭据只读当前外部账号 B，不改账号、auto 或轮换设置。
+
+在线读取比旧库多一次状态查询，新增核验与原步骤共享既有预算，不叠加新的整轮时限；无登录、下线或配置写。前后采样与本机串行提交不是远端原子事务；缺字段可能掩盖实际变化，也不能保证发现采样间 A→B→A 的 ABA 变化。来源晚写反例已在新候选独立回归，不把首轮观察器成绩代替来源绑定的验证。
+
+### 门户导航与诊断（开发源码）
+
+根据[111 只读实测](portal-navigation-review-2026-10-27.md)新增的精确来源变体、Browser bootstrap Location 接线与分类诊断，已由新产品候选 `2bb9589e` 通过四目标 Native、Mock 与 Community 云端验证，不再复用旧候选成绩。尚未新发行、未部署、未确认 Win11 网页下线现场；选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)，不回写旧对照。
+
+来源只增加由配置 endpoint 派生的第二个完整 Url：原无 query 的精确 redirect 入口，以及唯一精确 `mode=history` 变体；不剥除任意 query，不通配额外 / 重复 / 编码参数、域名或路径。它们才可使用原受限 HTTP 目标规范化：无 body GET、HTTPS base 默认 443、同 host 的 HTTP 默认 80、配置 endpoint 派生的固定目标路径（`portal_main` 角色），目标无 userinfo / fragment，唯一 sessionId 的解码值非空、不超过 1024 字节且无控制符；先转换为 HTTPS 再做原 allowed 检查，不发明文 HTTP、不清改目标 query。
+
+API 的 HTTP Location 和 HTML / meta / JS bootstrap 解析共用 checked 入口。Browser 只对明确 bootstrap 阶段、本主 CDP session 的主 frame Document、实际 GET 无 body 响应中的 HTTP Location 使用同一规则，来源取本次 request URL，不取旧 `last`；通过后将 HTTPS 目标真正写回 CDP 响应 Header。CAS、iframe、子资源、POST / HEAD 等不享受该例外；未证 Browser HTML / JS 来源不补，不能把切换 browser 当作已验证的现场解法。
+
+拒绝导航可附可选 `NavigationDiagnostic`：只输出闭集 enum / bool 的来源 / 目标角色与形状，不保存或输出原 URL、host、path、query 值、Cookie、票据、账号或密码。`role` 按完整配置 origin 分类，独立 `host_role` 只按精确 host 分类：同门户 HTTP 可同时是 role=other、host_role=portal，两者都不授予导航许可。None 时旧 JSON / 日志不变，原 code / reason / stage / operation 保留，Native 仅在有该 metadata 时追加固定分类，不写进账户 Info；这些 token 不是具体目标或认证根因的证明。
+
+上述 history 阶段未改 TLS、CAS / API / POST 通用边界、默认入口列表、超时 / 重试、加密或凭据用途。111 当时在线且仅跑独立 Requests 观察器，详细限制归[当次记录](portal-navigation-review-2026-10-27.md)；123 离线后新发现的 captive 引导另见下节。
+
+### 离线 captive 与 CAS 表单（开发源码，云端待验）
+
+123 的受控下线实测发现，无 query 的 HTTPS redirect 入口会返回固定 `http://124.124.124.124/`；该地址的 HTTPS 证书校验失败。当前新增专用匿名 GET 解析器：仅精确来源、精确根目标、GET 无 body，且每个 Transport 及其克隆合计一次。使用无 Cookie jar、无继承请求头、禁代理及禁自动重定向的独立客户端；复用现有响应大小和绝对 deadline，不运行页面 JS，不采用其中的 SID、Cookie 或 Location。
+
+匿名页面只可提供配置门户同源、固定 index 路径的 HTTPS 导航提示，拒绝 userinfo、fragment 和 sessionId / flowSessionId / ticket；后续由 HTTPS 门户重新产生会话并查询状态。通用 allowed / API / CAS / POST 仍拒绝 HTTP；原有同门户旧地址 HTTPS 规范化继续有效。API 的 HTTP Location 与 HTML 导航共用同一异步解析入口；Browser 仅在 bootstrap、主 session / 主 frame Document、GET 无 body 的同等上下文接入 Location。对于 200 text/html 中已许可的静态 HTTP 跳转，Browser 生成受控 302 HTTPS Location 并清空 body，仍计入原重定向预算；Chromium 不加载或执行明文 captive 页面。普通 HTTPS HTML、CAS、iframe 和子资源保持原处理。接线取舍见[共用导航决策](../.agents/notes/implemented/desktop/2026-10-28-shared-bootstrap-navigation.md)，Shell 两条实际路径及证据限制见[对照记录](portal-redirect-parity-2026-10-28.md)。
+
+CAS API 的 captchaDiv 检查仅接受所选密码表单与无所属 form 的独立挑战，忽略其他登录方式复用的 ID；验证码接口要求为 true 时仍停止。Browser 保留已有实际布局可见性检查。Python CLI 同步限定密码表单与独立挑战，并解析完整标签属性，避免 class / style 位于 id 前时误判；可见挑战不被接口 false 覆盖。
+
+Rust 与 Python 的动作响应同时检查外层及 data 的 authResult / authMessage：authResult 存在时仅接受字符串 success，其他值停止；success=false 也停止。服务选择被拒后不再请求 userOnline，后续成功仍以实际账号与服务独立核验为准。固定错误分类不输出服务器原文。
+
+以上尚未发行或部署，尚未执行新源码云端回归或真实 Rust 登录。123 的采样请求通过 CAS 后被校园网服务拒绝；2026-10-28 安装正式 v0.2.2 Python CLI 后，同一测试输入也重现该拒绝，不能直接归因于配置无效或 Rust 专属问题。新装正式 CLI 不含本节开发改动，123 尚未恢复在线。证据与剩余工作见[123 实测记录及正式 CLI 补证](portal-123-review-2026-10-27.md#2026-10-28-正式-python-cli-对照补证)，取舍见[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)。
+
+同日[21 换机对照](portal-21-review-2026-10-28.md)已用现有客户端与相同正式 v0.2.2 wheel 完成真实离线登录及在线退出，并恢复原连接和后台。21 使用本机中国移动配置且 DNS 正常，和 123 的输入 / 网络条件不同；这是 Shell 正常链的补证，不是 Rust 或本节新源码验收。
+
+### DNS 失败时的备用 IP（开发源码，云端待验）
+
+认证 URL 继续使用配置中的 HTTPS 域名。系统 DNS 能及时返回地址时优先采用；失败、无地址或等待超过 500 毫秒时，仅对[共享地址表](../src/ysu_net/auth/campus-addresses.json)中的两个精确校园域名使用备用 IP。只改变 TCP 连接地址，HTTP Host、TLS SNI、证书域名校验、Cookie、Origin 与跳转许可仍按原 URL 处理。自定义域名、后缀相似域名及其他站点没有此回退。
+
+500 毫秒包含在操作原有的绝对 deadline 内，不延长单次任务，也为总预算 2 秒的被动观察保留网络时间；不能保证全部门户请求在剩余预算内完成。取消等待不保证立即终止底层系统 DNS 工作线程，但它不能继续发送 HTTP。TCP 失败、TLS 失败、HTTP 或业务拒绝不触发备用 IP 重试，不重放已提交的请求。
+
+| 入口 | 接入范围 |
+| --- | --- |
+| Windows / Linux / macOS 原生桌面 API 与 Browser | 共用 Rust Transport 的 resolver；CDP 页面流量由 Rust 接管 |
+| Python CLI 默认 API | 自有 Requests Session 的 HTTPS adapter；系统解析报 DNS 错误后回退，等待时长由系统解析器决定，仍受 CLI 子进程总时限约束 |
+| Python 可选 Playwright Browser | 尚未接入；其浏览器及 Node APIRequestContext 仍依赖系统 DNS，需要先修复系统解析 |
+
+地址表由 Python 包内 JSON 唯一维护，Rust 编译时嵌入；Python 分发必须携带同一文件。Python 不修改全局 socket、其他 Session 或代理管理器；使用环境代理时仍由原代理路径处理，不保证本机备用地址生效。原生客户端继续采用已有的直连策略。无需新增配置或把 `base` / `cas_host` 改为 IP。
+
+2026-10-28 在 123 用校园 DNS 复核地址，并保持原域名、开启证书校验连接备用 IP，两个入口均返回 200；这只是网络可达性验证，不是新产品或登录验收。[本次证据](portal-ip-fallback-2026-10-28.md)与[选择原因](../.agents/notes/implemented/desktop/2026-10-28-campus-ip-fallback.md)说明范围。源码和回归已补，云端编译、格式、产品测试及部署尚未执行；正式 0.2.2 不含此改动，备用地址未来失效仍需更新，正常 DNS 返回不可达地址也不会改用备用 IP。
+
+### 无界面认证验证（开发源码，云端待验）
+
+认证链也可脱离界面定位：开发用[无界面 Rust 验证入口](rust-auth-probe.md)直接调用本桌面的 AuthClient，校验真正离线登录、在线退出与独立前后状态，并保留固定导航诊断。入口和独立四平台认证工作流源码已补，尚未云端构建或真实运行；它不覆盖 Worker / WebView / 窗口集成，Shell 的成功记录也不替代 Rust 验收。
+
+### 窗口与系统集成
+
 关闭窗口只有在系统托盘实际可用且启用驻留时保留后台；否则退出。主窗口销毁后可重建，认证和重连不依赖 WebView 存活。关闭自动重连不下线，忙碌时仍可关闭重连或退出；显式下线同时停止重连；退出取消本客户端任务并释放锁，不主动下线已建立的连接。`--minimized` 在无托盘环境显示窗口，避免应用隐身。
 
 托盘与主窗口共用核心快照与串行任务入口。固定中文品牌标题带状态角标，点击即打开主窗口；连接状态与账号/运营商共用紧凑摘要，上次流量独立展示，IP 与最近结果放入“连接详情”。连接/断开和刷新、自动化开关、退出分别分组。状态未知时只查询，不从托盘猜测登录；缺少凭据时引导打开窗口设置。额度缺失或账号/运营商不匹配时显示待核验。
@@ -24,7 +92,7 @@
 
 自启使用 Tauri 原生插件，只在用户登录桌面后运行；“自启后进入托盘”默认开启，关闭后登录自启显示窗口，手动打开始终显示窗口。新自启项使用 `--autostart` 按偏好决定启动方式；旧 `--minimized` 保留强制托盘含义，无可用托盘或宿主时仍显示窗口，原生自检始终显示。更改启动方式只在原自启项已启用时先更新其参数、回读确认后保存偏好，不启用原已关闭的自启，不立即隐藏当前窗口；保存失败保留旧偏好，状态读取不修复或重写启动项。重复后台启动不抢焦点，手动再次打开仍唤起原实例、不更换配置。Linux 无桌面运行继续使用 CLI/systemd；迁移时先关闭旧客户端自启，当前不自动删除旧启动项。新旧包身份与发行限制见[架构边界](architecture.md#构建与发行边界)。
 
-软件内更新的入口、平台差异与信任边界统一见[签名在线更新](updates.md)：正式0.2.1采用签名整包，当前开发树支持满足条件时的签名差分传输，仍还原并验证完整安装载荷；合入主线不是新正式发行。现行主题、字段对齐、“关于”、反馈浮层及连接光环规则归属[设计说明](rust-desktop-design.md)；历次构建与部署证据见[桌面验收导航](desktop-acceptance.md)，不由界面或流程定义推断实际升级已经通过。
+软件内更新的入口、整包 / 条件差分传输、平台差异与信任边界统一见[签名在线更新](updates.md)，不以合入主线或支持能力推断新正式发行、实际附件或真实安装已经通过。现行主题、字段对齐、“关于”、反馈浮层及连接光环规则归属[设计说明](rust-desktop-design.md)；历次构建与部署证据见[桌面验收导航](desktop-acceptance.md)。
 
 “关于”同时展示离线更新日志、GitHub 地址和贡献者名单。日志只从唯一维护的 [release-notes.md](../packaging/release-notes.md) 派生转义文本，不读取可能落后的默认分支，也不把 feed 中的占位 notes 当完整日志。贡献者只使用[公开 API 核实快照](../desktop/src/lib/project-info.json)，显示快照日期，不推导邮箱、加载网络头像或在打开页面时抓取 GitHub；本地未发布改动不写进已发布日志。
 

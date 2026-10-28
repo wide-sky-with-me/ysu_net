@@ -1,0 +1,62 @@
+name: Headless Rust authentication
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths: ["desktop/crates/ysu-auth/**", "src/ysu_net/auth/campus-addresses.json", "tests/fixtures/**", "packaging/auth_probe_smoke.py", ".github/workflows/rust-auth.yml"]
+  pull_request:
+    paths: ["desktop/crates/ysu-auth/**", "src/ysu_net/auth/campus-addresses.json", "tests/fixtures/**", "packaging/auth_probe_smoke.py", ".github/workflows/rust-auth.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: rust-auth-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x64
+          - os: windows-2022
+            name: windows-x64
+          - os: macos-15
+            name: macos-arm64
+          - os: macos-15-intel
+            name: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: "2"
+      PYTHONUTF8: "1"
+      MACOSX_DEPLOYMENT_TARGET: "13.5"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/crates/ysu-auth
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Authentication library and probe regressions
+        run: |
+          cargo fmt --manifest-path desktop/crates/ysu-auth/Cargo.toml --all --check
+          cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml
+          cargo test --locked --manifest-path desktop/crates/ysu-auth/Cargo.toml --example auth_probe
+      - name: Build standalone probe without GUI or fixture features
+        run: cargo build --locked --release --no-default-features --manifest-path desktop/crates/ysu-auth/Cargo.toml --example auth_probe
+      - name: Validate input rejection and retain identified binary
+        run: python packaging/auth_probe_smoke.py --output build/auth-probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ysu-auth-probe-${{ matrix.name }}
+          path: build/auth-probe/
+          if-no-files-found: error
+          retention-days: 7
