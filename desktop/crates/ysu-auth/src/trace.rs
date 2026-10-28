@@ -139,11 +139,18 @@ pub(crate) struct RequestGuard {
     context: Context, id: u64, pub(crate) bytes: usize, failure: Option<NetworkFailure>, finished: bool,
 }
 impl RequestGuard {
-    pub(crate) fn network<T>(&mut self, result: Result<T, reqwest::Error>, phase: NetworkPhase) -> Result<T, AuthError> {
-        result.map_err(|error| {
-            self.failure = Some(NetworkFailure::capture(&error, phase));
-            crate::transport::network_error(error)
-        })
+    pub(crate) fn network<T>(&mut self, result: Result<Result<T, reqwest::Error>, AuthError>, phase: NetworkPhase) -> Result<T, AuthError> {
+        match result {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) => {
+                self.failure = Some(NetworkFailure::capture(&error, phase));
+                Err(crate::transport::network_error(error))
+            }
+            Err(error) => {
+                self.failure = Some(NetworkFailure { phase, class: NetworkClass::Timeout, io_class: None, os_code: None });
+                Err(error)
+            }
+        }
     }
     pub(crate) fn headers(&self, status: u16) { self.context.emit(TraceEvent::ResponseHeaders { request: self.id, status }); }
     pub(crate) fn finish<T>(&mut self, result: &Result<T, AuthError>) {

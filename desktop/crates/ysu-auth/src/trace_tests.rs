@@ -11,7 +11,7 @@ fn recording() -> (Trace, Arc<Mutex<Vec<Value>>>) {
 }
 
 #[tokio::test]
-async fn response_body_failure_is_distinct_from_connection_failure_without_private_data() {
+async fn response_body_failure_is_distinct_from_send_failure_without_private_data() {
     for partial_response in [false, true] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();

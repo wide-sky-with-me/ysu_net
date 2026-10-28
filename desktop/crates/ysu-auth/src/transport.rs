@@ -252,7 +252,7 @@ impl Transport {
         if let Some(body) = body {
             request = request.body(body);
         }
-        let mut r = trace.network(op.run(request.send()).await?, crate::trace::NetworkPhase::Send)?;
+        let mut r = trace.network(op.run(request.send()).await, crate::trace::NetworkPhase::Send)?;
         let status = r.status().as_u16();
         trace.headers(status);
         let headers = r.headers().clone();
@@ -286,7 +286,7 @@ impl Transport {
             }
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = trace.network(op.run(r.chunk()).await?, crate::trace::NetworkPhase::ReadBody)? {
+        while let Some(chunk) = trace.network(op.run(r.chunk()).await, crate::trace::NetworkPhase::ReadBody)? {
             if bytes.len().saturating_add(chunk.len()) > RESPONSE_LIMIT {
                 return Err(AuthError::query("门户响应超过大小限制"));
             }

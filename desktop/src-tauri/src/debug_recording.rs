@@ -24,7 +24,7 @@ enum TaskAction { Status, Info, Login, Logout, Switch, SwitchAccount, Auto, Obse
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Event {
-    Started { version: &'static str, platform: &'static str, architecture: &'static str },
+    Started { version: &'static str, platform: &'static str, architecture: &'static str, source_commit: Option<&'static str> },
     Authentication { record: TraceRecord },
     Stopped { reason: StopReason },
     Task { action: TaskAction, phase: ysu_auth::DiagnosticStage, code: Option<i32>, diagnostic: Option<ysu_auth::AuthDiagnostic> },
@@ -118,7 +118,7 @@ impl Recording {
         let mut writer = Writer { file, lock, name: path.file_name().ok_or(ERROR)?.to_string_lossy().into_owned(),
             bytes: 0, sequence: 0, started: Instant::now(), state: "recording" };
         writer.line(&Event::Started { version: env!("CARGO_PKG_VERSION"), platform: std::env::consts::OS,
-            architecture: std::env::consts::ARCH }).map_err(|_| ERROR)?;
+            architecture: std::env::consts::ARCH, source_commit: option_env!("GITHUB_SHA").filter(|v| v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit())) }).map_err(|_| ERROR)?;
         writer.file.sync_data().map_err(|_| ERROR)?;
         let writer = Arc::new(Mutex::new(writer));
         let sink = writer.clone();

@@ -72,6 +72,7 @@ export function createDemoTransport(search = ''): Transport {
     mode: 'demo',
     subscribe: async (handler) => { handlers.add(handler); return () => { handlers.delete(handler); }; },
     request: async <C extends keyof CoreCommands>(command: C, args: CoreCommands[C]) => {
+      if (['debug_status', 'debug_start', 'debug_stop', 'debug_open'].includes(command)) throw new Error('演示模式不写入调试文件');
       if (command === 'snapshot' || command === 'observe') return snapshot();
       if (command === 'action') {
         const { name, value } = args as CoreCommands['action'];
