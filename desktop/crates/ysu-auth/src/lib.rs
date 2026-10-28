@@ -274,7 +274,8 @@ impl AuthClient {
         &'a self,
         kind: DiagnosticOperation,
         future: impl std::future::Future<Output = Result<T, AuthError>> + Send + 'a,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, AuthError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, AuthError>> + Send + 'a>>
+    {
         // Native account switching nests several operations. Keep their futures on the
         // heap so optional tracing does not multiply the worker's stack footprint.
         let future = Box::pin(future);
