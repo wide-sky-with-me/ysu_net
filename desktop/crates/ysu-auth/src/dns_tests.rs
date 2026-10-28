@@ -111,9 +111,7 @@ impl Resolve for FixtureResolver {
 
 #[tokio::test]
 async fn reqwest_keeps_original_host_url_port_and_sends_the_body_once() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();

@@ -61,22 +61,37 @@ async fn hot_switch_verifies_identity_and_persists_only_after_login() {
 }
 
 async fn mobile_source_and_campus_target(runtime: &Runtime, id: &str) {
-    runtime.save_config(json!({"service":"中国移动"}).as_object().unwrap().clone())
-        .await.unwrap();
-    runtime.request("save_account", json!({"id":id,"username":"fixture-b","password":"",
-        "label":"Backup","service":"校园网","backend":"api","enabled":true}))
-        .await.unwrap();
+    runtime
+        .save_config(json!({"service":"中国移动"}).as_object().unwrap().clone())
+        .await
+        .unwrap();
+    runtime
+        .request(
+            "save_account",
+            json!({"id":id,"username":"fixture-b","password":"",
+        "label":"Backup","service":"校园网","backend":"api","enabled":true}),
+        )
+        .await
+        .unwrap();
     online(runtime);
     demo(runtime).lock().unwrap().service = Some("中国移动".into());
 }
 
 fn state_event(requested: &str, owner: &str, service: Option<&str>) -> AccountEvent {
-    AccountEvent::Status { requested: requested.into(), online: service.is_some(),
-        owner: owner.into(), service: service.map(str::to_owned) }
+    AccountEvent::Status {
+        requested: requested.into(),
+        online: service.is_some(),
+        owner: owner.into(),
+        service: service.map(str::to_owned),
+    }
 }
 
 fn mutation_event(action: &'static str, requested: &str, service: &str) -> AccountEvent {
-    AccountEvent::Mutation { action, requested: requested.into(), service: service.into() }
+    AccountEvent::Mutation {
+        action,
+        requested: requested.into(),
+        service: service.into(),
+    }
 }
 
 #[tokio::test]
@@ -90,7 +105,9 @@ async fn observed_pool_order_holds_config_until_independent_target_verification(
             while demo(&runtime).lock().unwrap().status_calls < 4 {
                 tokio::task::yield_now().await;
             }
-        }).await.expect("target verification reached its gate");
+        })
+        .await
+        .expect("target verification reached its gate");
         assert_eq!(demo(&runtime).lock().unwrap().user, "fixture-b");
         let persisted = runtime.store.load_config(false).unwrap();
         assert_eq!(persisted.username, "20260001");
@@ -103,14 +120,17 @@ async fn observed_pool_order_holds_config_until_independent_target_verification(
     let persisted = runtime.store.load_config(false).unwrap();
     assert_eq!(persisted.username, "fixture-b");
     assert_eq!(persisted.service, "校园网");
-    assert_eq!(demo(&runtime).lock().unwrap().account_events, vec![
-        state_event("20260001", "20260001", Some("中国移动")),
-        mutation_event("logout", "20260001", "中国移动"),
-        state_event("20260001", "", None),
-        state_event("fixture-b", "", None),
-        mutation_event("login", "fixture-b", "校园网"),
-        state_event("fixture-b", "fixture-b", Some("校园网")),
-    ]);
+    assert_eq!(
+        demo(&runtime).lock().unwrap().account_events,
+        vec![
+            state_event("20260001", "20260001", Some("中国移动")),
+            mutation_event("logout", "20260001", "中国移动"),
+            state_event("20260001", "", None),
+            state_event("fixture-b", "", None),
+            mutation_event("login", "fixture-b", "校园网"),
+            state_event("fixture-b", "fixture-b", Some("校园网")),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -127,14 +147,21 @@ async fn target_verification_failure_keeps_old_config_and_restores_original_acco
     assert!(state.online);
     assert_eq!(state.user, "20260001");
     assert_eq!(state.service.as_deref(), Some("中国移动"));
-    let mutations = state.account_events.iter().filter(|event| matches!(event, AccountEvent::Mutation { .. }))
-        .cloned().collect::<Vec<_>>();
-    assert_eq!(mutations, vec![
-        mutation_event("logout", "20260001", "中国移动"),
-        mutation_event("login", "fixture-b", "校园网"),
-        mutation_event("logout", "fixture-b", "校园网"),
-        mutation_event("login", "20260001", "中国移动"),
-    ]);
+    let mutations = state
+        .account_events
+        .iter()
+        .filter(|event| matches!(event, AccountEvent::Mutation { .. }))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        mutations,
+        vec![
+            mutation_event("logout", "20260001", "中国移动"),
+            mutation_event("login", "fixture-b", "校园网"),
+            mutation_event("logout", "fixture-b", "校园网"),
+            mutation_event("login", "20260001", "中国移动"),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -145,22 +172,30 @@ async fn account_switch_preserves_typed_portal_failure_after_successful_recovery
         let state = demo(&runtime);
         let mut state = state.lock().unwrap();
         state.login_failures.insert("fixture-b".into(), 2);
-        state.login_diagnostics.insert("fixture-b".into(), AuthDiagnostic {
-            operation: DiagnosticOperation::Login,
-            stage: DiagnosticStage::PortalNavigation,
-            reason: DiagnosticReason::RedirectBlocked,
-            ..AuthDiagnostic::default()
-        });
+        state.login_diagnostics.insert(
+            "fixture-b".into(),
+            AuthDiagnostic {
+                operation: DiagnosticOperation::Login,
+                stage: DiagnosticStage::PortalNavigation,
+                reason: DiagnosticReason::RedirectBlocked,
+                ..AuthDiagnostic::default()
+            },
+        );
     }
     assert!(worker.execute(Action::SwitchAccount(id)).await.is_err());
-    assert_eq!(runtime.store.load_config(false).unwrap().username, "20260001");
+    assert_eq!(
+        runtime.store.load_config(false).unwrap().username,
+        "20260001"
+    );
     let snapshot = runtime.snapshot();
     assert!(snapshot["logs"].as_array().unwrap().iter().any(|entry| {
         let message = entry["message"].as_str().unwrap();
         message.contains("action=switch_account phase=user_online code=2 operation=login")
             && message.contains("stage=portal_navigation reason=redirect_blocked")
     }));
-    assert!(!snapshot.to_string().contains("fixture candidate login failure"));
+    assert!(!snapshot
+        .to_string()
+        .contains("fixture candidate login failure"));
     assert!(!snapshot.to_string().contains("fixture-b-secret"));
 }
 
@@ -336,10 +371,20 @@ async fn total_switch_deadline_covers_logout_login_and_independent_queries() {
     assert_eq!(runtime.snapshot()["status"]["online"], Value::Null);
     assert_eq!(runtime.snapshot()["config"]["username"], "20260001");
     assert_eq!(demo(&runtime).lock().unwrap().cancelled, 1);
-    assert!(runtime.snapshot()["logs"].as_array().unwrap().iter().any(|entry| {
-        entry["message"].as_str().unwrap().contains("phase=user_online")
-            && entry["message"].as_str().unwrap().contains("reason=deadline")
-    }));
+    assert!(runtime.snapshot()["logs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| {
+            entry["message"]
+                .as_str()
+                .unwrap()
+                .contains("phase=user_online")
+                && entry["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("reason=deadline")
+        }));
 }
 
 #[test]

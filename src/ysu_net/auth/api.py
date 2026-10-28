@@ -663,7 +663,7 @@ def _extract_next_url_from_124(html: str, base_url: str) -> str | None:
 
 
 def _new_portal_session() -> requests.Session:
-    from .dns_fallback import install_fallback
+    from ysu_net.auth.dns_fallback import install_fallback
 
     sess = requests.Session()
     install_fallback(sess)

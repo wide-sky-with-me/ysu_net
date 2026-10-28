@@ -94,9 +94,8 @@ async fn rewrite_bootstrap_html(
             op,
         )
         .await?;
-    let location = HeaderValue::from_str(target.as_str()).map_err(|_| {
-        AuthError::query("门户引导地址无法编码").because(Reason::ResponseInvalid)
-    })?;
+    let location = HeaderValue::from_str(target.as_str())
+        .map_err(|_| AuthError::query("门户引导地址无法编码").because(Reason::ResponseInvalid))?;
     reply.status = 302;
     reply.headers.insert(LOCATION, location);
     reply.body.clear();
@@ -717,7 +716,8 @@ impl Browser {
                         .await?;
                     if resolved != target {
                         let location = HeaderValue::from_str(resolved.as_str()).map_err(|_| {
-                            AuthError::query("门户引导地址无法编码").because(Reason::ResponseInvalid)
+                            AuthError::query("门户引导地址无法编码")
+                                .because(Reason::ResponseInvalid)
                         })?;
                         r.headers.insert(LOCATION, location);
                     }
@@ -1190,13 +1190,7 @@ mod navigation_tests {
                 .insert("content-type", HeaderValue::from_static(content_type));
             let original_body = reply.body.clone();
             assert!(!rewrite_bootstrap_html(
-                &http,
-                &source,
-                &method,
-                has_body,
-                context,
-                &mut reply,
-                &op,
+                &http, &source, &method, has_body, context, &mut reply, &op,
             )
             .await
             .unwrap());
@@ -1207,10 +1201,7 @@ mod navigation_tests {
         // Ordinary HTTPS navigation still executes in Chromium; unknown HTTP
         // scripts stay subject to Fetch's usual URL check if the page requests it.
         for (source, target) in [
-            (
-                source.clone(),
-                fixture["https_target"].as_str().unwrap(),
-            ),
+            (source.clone(), fixture["https_target"].as_str().unwrap()),
             (source.clone(), "http://outside.invalid/"),
             (http.endpoint("eportal/index.jsp").unwrap(), legacy),
             (http.cas.clone(), legacy),

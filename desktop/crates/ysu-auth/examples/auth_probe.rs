@@ -1,7 +1,10 @@
 //! Headless live validation of the desktop's actual AuthClient, not a second protocol.
 //! Decision: .agents/notes/implemented/desktop/2026-10-28-headless-auth-probe.md
 use serde::Serialize;
-use std::{io::{self, IsTerminal, Read}, time::Duration};
+use std::{
+    io::{self, IsTerminal, Read},
+    time::Duration,
+};
 use ysu_auth::{AuthClient, AuthDiagnostic, AuthError, Config, Status};
 use zeroize::Zeroizing;
 
@@ -9,11 +12,17 @@ const INPUT_LIMIT: u64 = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Action { Status, Login, Logout }
+enum Action {
+    Status,
+    Login,
+    Logout,
+}
 
 impl Action {
     fn parse(arguments: &[String]) -> Option<Self> {
-        if arguments.len() != 1 { return None; }
+        if arguments.len() != 1 {
+            return None;
+        }
         match arguments[0].as_str() {
             "status" => Some(Self::Status),
             "login" => Some(Self::Login),
@@ -26,13 +35,26 @@ impl Action {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Outcome {
-    InvalidInput, Observed, Verified, ExpectedOffline, ExpectedOnline,
-    IdentityMismatch, ServiceMismatch, PostconditionFailed, AuthError, Deadline,
+    InvalidInput,
+    Observed,
+    Verified,
+    ExpectedOffline,
+    ExpectedOnline,
+    IdentityMismatch,
+    ServiceMismatch,
+    PostconditionFailed,
+    AuthError,
+    Deadline,
 }
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Phase { Input, Before, Action, After }
+enum Phase {
+    Input,
+    Before,
+    Action,
+    After,
+}
 
 #[derive(Debug, Serialize)]
 struct Proof {
@@ -54,9 +76,11 @@ impl Proof {
                 None => "absent",
                 _ => "unknown",
             },
-            owner_matches_config: status.online && !config.username.is_empty()
+            owner_matches_config: status.online
+                && !config.username.is_empty()
                 && status.user == config.username,
-            service_matches_config: status.online && status.service.as_deref() == Some(&config.service),
+            service_matches_config: status.online
+                && status.service.as_deref() == Some(&config.service),
         }
     }
 }
@@ -75,8 +99,16 @@ struct Report {
 
 impl Report {
     fn new(action: Option<Action>) -> Self {
-        Self { schema: 1, action, phase: Phase::Input, outcome: Outcome::InvalidInput, code: 2,
-            before: None, after: None, diagnostic: None }
+        Self {
+            schema: 1,
+            action,
+            phase: Phase::Input,
+            outcome: Outcome::InvalidInput,
+            code: 2,
+            before: None,
+            after: None,
+            diagnostic: None,
+        }
     }
     fn fail(&mut self, error: AuthError) {
         self.code = error.code;
@@ -87,11 +119,14 @@ impl Report {
 }
 
 fn decode(input: &[u8], action: Action) -> Option<Config> {
-    if input.len() as u64 > INPUT_LIMIT { return None; }
+    if input.len() as u64 > INPUT_LIMIT {
+        return None;
+    }
     let config: Config = serde_json::from_slice(input).ok()?;
     config.validate().ok()?;
-    if !config.verify_tls || (action != Action::Status
-        && (config.username.is_empty() || config.password.is_empty())) {
+    if !config.verify_tls
+        || (action != Action::Status && (config.username.is_empty() || config.password.is_empty()))
+    {
         return None;
     }
     Some(config)
@@ -119,7 +154,10 @@ async fn execute(client: &AuthClient, config: &Config, action: Action, report: &
     report.phase = Phase::Before;
     let before = match client.status().await {
         Ok(status) => Proof::from_status(&status, config),
-        Err(error) => { report.fail(error); return; }
+        Err(error) => {
+            report.fail(error);
+            return;
+        }
     };
     let blocked = precondition(action, &before);
     let online = before.online;
@@ -140,17 +178,27 @@ async fn execute(client: &AuthClient, config: &Config, action: Action, report: &
         Action::Logout => client.logout().await,
         Action::Status => unreachable!(),
     };
-    if let Err(error) = changed { report.fail(error); return; }
+    if let Err(error) = changed {
+        report.fail(error);
+        return;
+    }
     // Every public status() creates a fresh Transport/Jar. A successful action
     // alone is insufficient evidence of the resulting connection state.
     report.phase = Phase::After;
     let after = match client.status().await {
         Ok(status) => Proof::from_status(&status, config),
-        Err(error) => { report.fail(error); return; }
+        Err(error) => {
+            report.fail(error);
+            return;
+        }
     };
     let passed = verified(action, &after);
     report.after = Some(after);
-    report.outcome = if passed { Outcome::Verified } else { Outcome::PostconditionFailed };
+    report.outcome = if passed {
+        Outcome::Verified
+    } else {
+        Outcome::PostconditionFailed
+    };
     report.code = if passed { 0 } else { 3 };
 }
 
@@ -160,12 +208,23 @@ async fn main() {
     let mut report = Report::new(action);
     if let Some(action) = action.filter(|_| !io::stdin().is_terminal()) {
         let mut input = Zeroizing::new(Vec::new());
-        if io::stdin().lock().take(INPUT_LIMIT + 1).read_to_end(&mut input).is_ok() {
+        if io::stdin()
+            .lock()
+            .take(INPUT_LIMIT + 1)
+            .read_to_end(&mut input)
+            .is_ok()
+        {
             if let Some(config) = decode(&input, action) {
                 let budget = Duration::from_secs(config.operation_timeout);
                 match AuthClient::new(config.clone()) {
                     Ok(client) => {
-                        if tokio::time::timeout(budget, execute(&client, &config, action, &mut report)).await.is_err() {
+                        if tokio::time::timeout(
+                            budget,
+                            execute(&client, &config, action, &mut report),
+                        )
+                        .await
+                        .is_err()
+                        {
                             report.code = 2;
                             report.outcome = Outcome::Deadline;
                         }
@@ -175,7 +234,10 @@ async fn main() {
             }
         }
     }
-    println!("{}", serde_json::to_string(&report).expect("only fixed JSON fields"));
+    println!(
+        "{}",
+        serde_json::to_string(&report).expect("only fixed JSON fields")
+    );
     std::process::exit(report.code);
 }
 

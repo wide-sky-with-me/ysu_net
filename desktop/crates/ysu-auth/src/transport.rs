@@ -402,7 +402,14 @@ impl Transport {
         // No cookie jar or inherited headers, and no automatic HTTP redirects.
         let client = captive_client()?;
         let reply = self
-            .send_once(&client, Method::GET, next.clone(), HeaderMap::new(), None, op)
+            .send_once(
+                &client,
+                Method::GET,
+                next.clone(),
+                HeaderMap::new(),
+                None,
+                op,
+            )
             .await?;
         self.captive_page_target(&reply).map(Some)
     }

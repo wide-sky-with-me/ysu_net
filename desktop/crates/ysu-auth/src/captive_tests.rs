@@ -36,7 +36,12 @@ fn anonymous_bootstrap_requires_the_observed_full_source_and_target() {
         "https://cer.ysu.edu.cn/eportal/redirect.jsp",
         "http://auth1.ysu.edu.cn/eportal/redirect.jsp",
     ] {
-        assert!(!http.is_captive_bootstrap(&Url::parse(source).unwrap(), &target, &Method::GET, false));
+        assert!(!http.is_captive_bootstrap(
+            &Url::parse(source).unwrap(),
+            &target,
+            &Method::GET,
+            false
+        ));
     }
     for target in [
         "http://124.124.124.124/?mode=history",
@@ -48,7 +53,12 @@ fn anonymous_bootstrap_requires_the_observed_full_source_and_target() {
         "http://124.124.124.125/",
         "https://124.124.124.124/",
     ] {
-        assert!(!http.is_captive_bootstrap(&source, &Url::parse(target).unwrap(), &Method::GET, false));
+        assert!(!http.is_captive_bootstrap(
+            &source,
+            &Url::parse(target).unwrap(),
+            &Method::GET,
+            false
+        ));
     }
 }
 
@@ -74,7 +84,9 @@ fn captive_hint_only_returns_a_fresh_same_origin_https_index() {
         assert!(http.captive_page_target(&reply).is_err(), "{target}");
     }
     assert!(http.captive_page_target(&page(302, "")).is_err());
-    assert!(http.captive_page_target(&page(200, "unrecognized")).is_err());
+    assert!(http
+        .captive_page_target(&page(200, "unrecognized"))
+        .is_err());
 }
 
 #[tokio::test]
@@ -97,26 +109,52 @@ async fn anonymous_client_never_inherits_cookies_or_follows_http_redirects() {
     let cookie = HeaderValue::from_static("portal=private-fixture; Path=/");
     http.jar.set_cookies(&mut std::iter::once(&cookie), &url);
     let op = Operation::new(Instant::now() + Duration::from_secs(3));
-    let reply = http.send_once(&captive_client().unwrap(), Method::GET, url.clone(), HeaderMap::new(), None, &op).await.unwrap();
+    let reply = http
+        .send_once(
+            &captive_client().unwrap(),
+            Method::GET,
+            url.clone(),
+            HeaderMap::new(),
+            None,
+            &op,
+        )
+        .await
+        .unwrap();
     assert_eq!(reply.status, 302);
     let sent = server.await.unwrap();
-    for header in ["cookie:", "authorization:", "referer:", "origin:", "x-xsrf-token:"] {
+    for header in [
+        "cookie:",
+        "authorization:",
+        "referer:",
+        "origin:",
+        "x-xsrf-token:",
+    ] {
         assert!(!sent.contains(header), "{header}");
     }
-    assert!(!http.jar.cookies(&url).unwrap().to_str().unwrap().contains("captive="));
+    assert!(!http
+        .jar
+        .cookies(&url)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("captive="));
 }
 
 #[tokio::test]
 async fn repeated_captive_bootstrap_stops_before_any_network_request() {
     let http = http();
     http.captive_read.store(true, Ordering::SeqCst);
-    let error = http.clone().resolve_captive_navigation(
-        &http.endpoint("eportal/redirect.jsp").unwrap(),
-        &Url::parse("http://124.124.124.124/").unwrap(),
-        &Method::GET,
-        false,
-        &Operation::new(Instant::now() + Duration::from_secs(2)),
-    ).await.unwrap_err();
+    let error = http
+        .clone()
+        .resolve_captive_navigation(
+            &http.endpoint("eportal/redirect.jsp").unwrap(),
+            &Url::parse("http://124.124.124.124/").unwrap(),
+            &Method::GET,
+            false,
+            &Operation::new(Instant::now() + Duration::from_secs(2)),
+        )
+        .await
+        .unwrap_err();
     assert_eq!(error.diagnostic().reason, Reason::RedirectLimit);
 }
 
@@ -129,7 +167,10 @@ async fn location_and_api_html_use_the_same_one_shot_captive_resolver() {
     let source = http.endpoint("eportal/redirect.jsp").unwrap();
     let target = Url::parse("http://124.124.124.124/").unwrap();
     let op = Operation::new(Instant::now() + Duration::from_secs(2));
-    for kind in [NavigationKind::HttpLocation, NavigationKind::BrowserDocument] {
+    for kind in [
+        NavigationKind::HttpLocation,
+        NavigationKind::BrowserDocument,
+    ] {
         let error = http
             .resolve_portal_navigation(&source, target.clone(), &Method::GET, false, kind, &op)
             .await

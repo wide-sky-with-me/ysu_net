@@ -161,7 +161,8 @@ impl Session {
                             browser: None,
                         });
                     }
-                    let Some(next) = next_api_portal_navigation(&http, &r.text(), &r.url, op).await?
+                    let Some(next) =
+                        next_api_portal_navigation(&http, &r.text(), &r.url, op).await?
                     else {
                         break;
                     };
@@ -835,11 +836,16 @@ pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
             }
         }
         let rejected_online = item["online"] == false
-            && messages.into_iter().flatten().any(|msg| msg.contains("认证失败"));
+            && messages
+                .into_iter()
+                .flatten()
+                .any(|msg| msg.contains("认证失败"));
         if matches!(
             item["result"].as_str(),
             Some("fail" | "failed" | "failure" | "error")
-        ) || item.get("authResult").is_some_and(|value| value != "success")
+        ) || item
+            .get("authResult")
+            .is_some_and(|value| value != "success")
             || item["success"] == false
             || rejected_online
             || item["code"].as_i64().is_some_and(|c| c != 0 && c != 200)

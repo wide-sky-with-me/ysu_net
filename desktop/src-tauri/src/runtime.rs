@@ -1515,7 +1515,9 @@ impl Backend {
                         let mut state = demo.lock().unwrap();
                         state.status_calls += 1;
                         state.status_backends.push(config.backend.clone());
-                        let gate = state.status_gate_at.as_ref()
+                        let gate = state
+                            .status_gate_at
+                            .as_ref()
                             .filter(|(at, _)| *at == state.status_calls)
                             .map(|(_, gate)| gate.clone())
                             .or_else(|| state.status_gate.clone());
@@ -1531,8 +1533,11 @@ impl Backend {
                 {
                     let failure = {
                         let state = demo.lock().unwrap();
-                        state.status_failure_at.filter(|(at, _)| *at == call)
-                            .map(|(_, code)| code).or(state.status_error)
+                        state
+                            .status_failure_at
+                            .filter(|(at, _)| *at == call)
+                            .map(|(_, code)| code)
+                            .or(state.status_error)
                             .map(|code| (code, state.status_diagnostic))
                     };
                     if let Some((code, diagnostic)) = failure {
@@ -1545,12 +1550,15 @@ impl Backend {
                 }
                 let status = demo.lock().unwrap().status();
                 #[cfg(test)]
-                demo.lock().unwrap().account_events.push(AccountEvent::Status {
-                    requested: config.username.clone(),
-                    online: status.online,
-                    owner: status.user.clone(),
-                    service: status.service.clone(),
-                });
+                demo.lock()
+                    .unwrap()
+                    .account_events
+                    .push(AccountEvent::Status {
+                        requested: config.username.clone(),
+                        online: status.online,
+                        owner: status.user.clone(),
+                        service: status.service.clone(),
+                    });
                 Ok(status)
             }
         }
