@@ -21,7 +21,7 @@
 
 ### 发行与候选状态
 
-**正式 v0.2.3 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.3.md)。主分支源码、开发产物与正式安装包按各自提交区分。
+**正式 v0.2.3 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.3.md)。主分支源码、开发产物与正式安装包按各自提交区分。开发源码另有[可离线保留的链路调试记录](docs/debug-recording.md)，正式 0.2.3 尚不包含该入口。
 
 | 系统 | 安装包 |
 | --- | --- |

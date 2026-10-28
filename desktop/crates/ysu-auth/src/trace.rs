@@ -1,4 +1,5 @@
 //! Opt-in, typed tracing. Raw URLs, messages, headers and payloads never enter events.
+//! Decision: .agents/notes/implemented/desktop/2026-10-28-opt-in-auth-recording.md
 use crate::{AuthDiagnostic, AuthError, DiagnosticOperation, DiagnosticStage, NavigationDiagnostic};
 use serde::Serialize;
 use std::{error::Error, future::Future, sync::{Arc, atomic::{AtomicU64, Ordering}}, time::Instant};
@@ -61,6 +62,7 @@ pub enum TraceEvent {
     OperationStarted { browser: bool, verify_tls: bool, timeout_secs: u64 },
     OperationFinished { outcome: TraceOutcome, code: Option<i32>, diagnostic: Option<AuthDiagnostic> },
     Stage { stage: DiagnosticStage },
+    OnlineState { online: bool, service_known: bool },
     RequestStarted { request: u64, endpoint: NavigationDiagnostic, post: bool },
     ResponseHeaders { request: u64, status: u16 },
     RequestFinished { request: u64, outcome: TraceOutcome, bytes: usize, failure: Option<NetworkFailure> },

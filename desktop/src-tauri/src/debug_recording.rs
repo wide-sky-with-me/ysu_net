@@ -1,4 +1,5 @@
 //! Session-scoped, bounded JSONL recording. Only ysu-auth's typed events are accepted.
+//! Decision: .agents/notes/implemented/desktop/2026-10-28-opt-in-auth-recording.md
 use chrono::{SecondsFormat, Utc};
 use fs2::FileExt;
 use serde::Serialize;

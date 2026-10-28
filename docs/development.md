@@ -49,6 +49,8 @@ uv run --extra browser python -m ysu_net.auth.browser --help
 
 ## 测试
 
+新增链路记录回归涵盖发送 / 响应体读取失败、取消终止与脱敏，以及文件实时读取、代际隔离、容量、保留数量、写入失败和权限。实现与验证合同见[调试记录](debug-recording.md)；这些新增回归须由本次云端运行确认，不沿用此前发布成绩。
+
 以下产品测试仅在 GitHub Actions runner 执行。全量 `tests/` 包含真实差分 CLI 验签集成，Linux runner 除 uv 环境外还须准备 qbsdiff/qbspatch 与 Minisign；统一由[公共差分工具 action](../.github/actions/setup-delta-tools/action.yml)固定版本、来源与摘要，缺失仍硬失败，不通过跳过测试掩盖依赖问题。
 
 ```bash

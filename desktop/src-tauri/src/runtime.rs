@@ -967,6 +967,7 @@ impl Worker {
 
     fn config_failed(&self, account_only: bool) {
         let error = self.local_error(2, DiagnosticStage::Config, DiagnosticReason::ConfigInvalid);
+        self.runtime.recording.task(self.action, DiagnosticStage::Config, Some(&error));
         let message = format!(
             "{CONFIG_ERROR} [{}]",
             diagnostic_detail(self.action, DiagnosticStage::Config, &error)
@@ -995,6 +996,7 @@ impl Worker {
 
     fn operation_timed_out(&self, account_only: bool) {
         let error = self.local_error(2, self.phase, DiagnosticReason::Deadline);
+        self.runtime.recording.task(self.action, self.phase, Some(&error));
         let message = format!(
             "操作超过时限，请重新查询实际状态 [{}]",
             diagnostic_detail(self.action, self.phase, &error)

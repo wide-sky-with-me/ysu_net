@@ -26,6 +26,8 @@
 
 CLI 的命令和退出码见[使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)，平台与浏览器限制见[桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md)。需要开发构建时走[云端路线](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)，不为排障在本机编译或跑产品测试。
 
+需要保留断网前后的链路时，可使用开发构建的[桌面调试记录](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/debug-recording.md)。正式 0.2.3 尚无该入口；先开启记录，再复现，断网后文件仍保留在本机。
+
 ## 形成可处理的反馈
 
 用法疑问到 [Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a)，可复现故障到 [Issue 表单](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=bug_report.yml)。先阅读已有问题及最新回复，历史报告只对应当时版本与环境。
