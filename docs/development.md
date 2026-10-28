@@ -59,7 +59,7 @@ uv lock --check
 ```
 
 - `tests/test_protocol.py`：API 和浏览器认证、CAS 跳转、在线状态、退出码及资源清理。
-- `tests/test_dns_fallback.py` 与 Rust `dns_tests.rs`：DNS 成功优先、精确域名、失败 / 超时回退和原 Host / URL / 端口；Python 另用临时自签证书及回环 TLS 服务验证 SNI、Cookie、Origin、单次 POST 与错误域名证书拒绝。此文件的 TLS 类仅连接回环，不继承禁止一切 socket 的基类；其他类仍禁止联网。Mock runner 必须提供 OpenSSL，构建后检查 wheel 内共享 JSON 与源码逐字节一致。本轮新增测试尚未云端运行。
+- `tests/test_dns_fallback.py` 与 Rust `dns_tests.rs`：DNS 成功优先、精确域名、失败 / 超时回退和原 Host / URL / 端口；Python 另用临时自签证书及回环 TLS 服务验证 SNI、Cookie、Origin、单次 POST 与错误域名证书拒绝。此文件的 TLS 类仅连接回环，不继承禁止一切 socket 的基类；其他类仍禁止联网。Mock runner 必须提供 OpenSSL，构建后检查 wheel 内共享 JSON 与源码逐字节一致。相关回归已在 0.2.3 云端执行，实际运行见[发布记录](desktop-release-0.2.3.md)。
 - `tests/test_manager.py`：配置、重连、进程、CLI、安装卸载、systemd 单元及命令包装器。
 - `tests/test_switching.py`：服务一致性、切换失败恢复、配置并发更新和脱敏错误分类。
 - `tests/test_account_info.py`：共享账户实现、嵌套响应、缺失值与零值、原始 JSON 兼容及诊断。
@@ -67,18 +67,18 @@ uv lock --check
 - `tests/test_repository.py`：在临时 Git 仓库验证敏感文件忽略规则，不修改项目索引。
 - `tests/test_layout.py`：包入口、项目外调用，以及 user/system 三个包装命令对同名模块和包的启动隔离。
 - `tests/fixtures/online-service.json`：Python/Rust 共用服务字段兼容样本，覆盖缺失、`null`、未知值、类型异常、冲突及账号证据的严格校验。
-- `tests/fixtures/cas-login-methods.json` 与 `portal-action-results.json`：123 采样后重建的合成表单 / 业务拒绝合同；Python `test_live_contracts.py` 与 Rust `live_contract_tests.rs` 共用，验证其他登录方式的验证码不误判、服务拒绝后不激活。源码已补，云端待验，真实边界见[123 记录](portal-123-review-2026-10-27.md)。
+- `tests/fixtures/cas-login-methods.json` 与 `portal-action-results.json`：123 采样后重建的合成表单 / 业务拒绝合同；Python `test_live_contracts.py` 与 Rust `live_contract_tests.rs` 共用，验证其他登录方式的验证码不误判、服务拒绝后不激活。回归已在云端执行，真实采样边界见[123 记录](portal-123-review-2026-10-27.md)。
 - [`tests/fixtures/portal-navigation.json`](../tests/fixtures/portal-navigation.json)：旧门户引导的 Python/Rust 共享样本；Rust 在专用 GET 引导中规范化可信旧地址，不发送 HTTP，也不放宽通用 API/CAS/POST 边界。精确条件和负例见 [`transport.rs::portal_navigation_target`](../desktop/crates/ysu-auth/src/transport.rs) 与认证库回归。
-- Rust `captive_tests.rs`、`regression_tests.rs` 与 `browser.rs` 内部导航回归：共用 Location / HTML 解析、匿名 captive 单次限制，以及交给 Chromium 的受控 HTTPS 重定向和上下文负例；新增测试待云端执行，依据及真实采样限制见[Shell 跳转对照](portal-redirect-parity-2026-10-28.md)。
+- Rust `captive_tests.rs`、`regression_tests.rs` 与 `browser.rs` 内部导航回归：共用 Location / HTML 解析、匿名 captive 单次限制，以及交给 Chromium 的受控 HTTPS 重定向和上下文负例；对应云端运行见[发布记录](desktop-release-0.2.3.md)，依据及原采样限制见[Shell 跳转对照](portal-redirect-parity-2026-10-28.md)。
 - `tests/test_system_browser.py`：系统浏览器查找、Snap 排除与启动回退。
 - `tests/test_node_runtime.py`：Node.js 运行时查找顺序与缺失时的报错。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
 
 [Mock tests](../.github/workflows/test.yml)负责完整 Python 回归与分发构建，[Tauri CI](../.github/workflows/tauri.yml)负责四平台原生矩阵与独立浏览器验收，[差分预检](../.github/workflows/updater-delta-preflight.yml)解析依赖锁并生成或检查公开夹具；涉及差分的三个入口复用相同公共工具准备。社区文档另由[社区检查](../.github/workflows/community.yml)验证。不能仅凭一条工作流成功宣称全部 CI 通过。
 
-开发源码另有[无界面 Rust 认证入口及独立 CI](rust-auth-probe.md)：直接调用共用 AuthClient，在四目标 runner 运行认证库、example 单元测试和实际二进制输入拒绝验收后保留带摘要的开发产物。无需 Tauri / WebView 即可在真实机器定位导航与动作，但本轮工作流和新源码尚未运行；它不替代 Tauri 的 Chromium、原生安装或界面门禁。
+开发源码另有[无界面 Rust 认证入口及独立 CI](rust-auth-probe.md)：直接调用共用 AuthClient，在四目标 runner 运行认证库、example 单元测试和实际二进制输入拒绝验收后保留带摘要的开发产物。无需 Tauri / WebView 即可在真实机器定位导航与动作，四目标工作流已通过，并已用于 21 真实 Rust 登录 / 退出和 Windows 无凭据查询；它不替代 Tauri 的 Chromium、原生安装或界面门禁。
 
-[21 账号池实测](account-pool-21-review-2026-10-28.md)验证 Shell 直接与守护热切换。Rust 对应的 `account_runtime_tests.rs` 直接运行 Worker / Store，用测试后端事件及查询门闩核对跨服务顺序、核验前配置未提交、失败恢复和固定诊断保留；这些新回归尚未执行，归 Tauri CI，不归只调用 AuthClient 的独立探针。
+[21 账号池实测](account-pool-21-review-2026-10-28.md)验证 Shell 直接与守护热切换。Rust 对应的 `account_runtime_tests.rs` 直接运行 Worker / Store，用测试后端事件及查询门闩核对跨服务顺序、核验前配置未提交、失败恢复和固定诊断保留；这些 Worker 回归已在四平台 Native 作业执行通过，整线结果归[发布记录](desktop-release-0.2.3.md)；它们不归只调用 AuthClient 的独立探针。
 
 Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#验证命令)，按不同栈分别报告覆盖范围。Python 两个后端的账户展示统一在 `auth/account.py` 修改；Rust 对应实现位于 `desktop/crates/ysu-auth/`，协议或展示语义变更需同时补相应回归。
 

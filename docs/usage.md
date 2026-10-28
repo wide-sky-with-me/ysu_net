@@ -115,7 +115,7 @@ ysu daemon              # 保持终端打开；Ctrl+C 停止守护
 
 账号和密码通过 `ysu config account` 输入，不接受 `config set password ...`。
 
-开发源码为默认 API 增加了[DNS 失败时的备用 IP](tauri-desktop.md#dns-失败时的备用-ip开发源码云端待验)，尚未云端验收或发行。`base` / `cas_host` 保留 HTTPS 域名，`verify_tls` 保持开启；直接填写 IP 会改变证书校验和站点身份。可选 Python Browser 尚无此回退，仍需可用的系统 DNS。
+开发源码为默认 API 增加了[DNS 失败时的备用 IP](tauri-desktop.md#dns-失败时的备用-ip)，尚未云端验收或发行。`base` / `cas_host` 保留 HTTPS 域名，`verify_tls` 保持开启；直接填写 IP 会改变证书校验和站点身份。可选 Python Browser 尚无此回退，仍需可用的系统 DNS。
 
 ```bash
 ysu config set check_interval 15

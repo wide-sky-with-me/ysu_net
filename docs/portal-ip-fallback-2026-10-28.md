@@ -25,7 +25,7 @@ curl --noproxy '*' --resolve "$host:443:$address" \
 
 ## 源码范围与待执行项
 
-Rust Transport 与 Python 默认 API 的备用连接逻辑、回归和 wheel 数据检查已补；当前规则见[网络语义](tauri-desktop.md#dns-失败时的备用-ip开发源码云端待验)，原因见[决策](../.agents/notes/implemented/desktop/2026-10-28-campus-ip-fallback.md)。Python 可选 Browser 未接入。正式 v0.2.2 CLI / 桌面尚无该能力。
+Rust Transport 与 Python 默认 API 的备用连接逻辑、回归和 wheel 数据检查已补；当前规则见[网络语义](tauri-desktop.md#dns-失败时的备用-ip)，原因见[决策](../.agents/notes/implemented/desktop/2026-10-28-campus-ip-fallback.md)。Python 可选 Browser 未接入。正式 v0.2.2 CLI / 桌面尚无该能力。
 
 本机仅做源码 / JSON / 文档静态检查，不运行 Cargo、产品测试或打包。待授权将已审查的修改提交、推送至独立开发构建分支后，执行 GitHub Actions 格式、Mock 与四平台 Native 验证，再下载校验云端产物，并在 123 的原系统 DNS 条件下只读核验。之前已通过的候选成绩不能作为本轮新增代码的通过证据。
 

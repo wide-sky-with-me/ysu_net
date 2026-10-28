@@ -30,7 +30,7 @@
 
 ## 源码修正与覆盖
 
-[运行语义](tauri-desktop.md#离线-captive-与-cas-表单开发源码云端待验)维护当前精确行为；[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)解释新增匿名 HTTP 的范围、代价及局部替代关系。
+[运行语义](tauri-desktop.md#离线-captive-与-cas-表单)维护当前精确行为；[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)解释新增匿名 HTTP 的范围、代价及局部替代关系。
 
 三平台共用 Rust Transport，API 与 Browser 的主导航接入同一解析器，通用请求仍拒绝 HTTP。Rust API 限定验证码所属 form；Browser 保留实际布局可见性检查。Python CLI 修正属性解析与表单范围，两端同步检查服务的 authResult / authMessage，拒绝后不再上线。
 

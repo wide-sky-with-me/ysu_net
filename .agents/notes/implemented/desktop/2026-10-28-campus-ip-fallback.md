@@ -2,7 +2,7 @@
 
 日期：2026-10-28。状态：开发源码已实施，云端编译 / 格式 / 回归待执行；未部署、未发行。
 
-范围：三平台 Rust API / CDP 共用网络层、Python CLI 默认 API。运行语义与后端覆盖唯一维护在[桌面网络说明](../../../../docs/tauri-desktop.md#dns-失败时的备用-ip开发源码云端待验)。
+范围：三平台 Rust API / CDP 共用网络层、Python CLI 默认 API。运行语义与后端覆盖唯一维护在[桌面网络说明](../../../../docs/tauri-desktop.md#dns-失败时的备用-ip)。
 
 ## 背景
 

@@ -37,7 +37,7 @@ ysu_net/
 
 两种语言不再共享同一认证执行器；变更协议时必须同时评估 Python 与 Rust，通过对应回归维护相同状态、账户和失败恢复语义。未知状态不当作离线，认证成功不以提交表单或收到 IPC 确认为依据。行为细节见[桌面运行语义](tauri-desktop.md#运行语义)与[CLI 开发](development.md)。
 
-DNS 回退的已核验域名与地址由[包内 JSON](../src/ysu_net/auth/campus-addresses.json)统一维护，Rust 编译时嵌入，Python 默认 API 随包读取；解析、TLS 与各后端覆盖范围集中见[网络语义](tauri-desktop.md#dns-失败时的备用-ip开发源码云端待验)。该开发改动尚未云端验收或发行。
+DNS 回退的已核验域名与地址由[包内 JSON](../src/ysu_net/auth/campus-addresses.json)统一维护，Rust 编译时嵌入，Python 默认 API 随包读取；解析、TLS 与各后端覆盖范围集中见[网络语义](tauri-desktop.md#dns-失败时的备用-ip)。该能力纳入 0.2.3，云端与真实环境验证分别见[发布记录](desktop-release-0.2.3.md)。
 
 ## 配置与进程
 

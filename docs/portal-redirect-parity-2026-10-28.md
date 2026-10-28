@@ -23,7 +23,7 @@
 
 本次在[共用 Transport](../desktop/crates/ysu-auth/src/transport.rs)增加统一异步导航解析，接入 API Location、[API HTML](../desktop/crates/ysu-auth/src/protocol.rs)与[Browser](../desktop/crates/ysu-auth/src/browser.rs)。Browser 对 bootstrap 主 Document 内已许可的静态 HTTP 跳转生成 302 HTTPS Location、清空页面 body，再交给原重定向检查和 CDP；Chromium 不运行匿名 HTTP 页。普通 HTTPS 页面和 CAS 继续原有处理。
 
-已补回归源码：API 的 meta refresh / location href / assign / replace；共用解析器的单次限制、导航类型和方法 / 来源负例；Browser 的实际响应头、空 body、Cookie 保留及非主文档 / 非 HTML / POST 不改写。行为唯一说明归[桌面运行语义](tauri-desktop.md#离线-captive-与-cas-表单开发源码云端待验)，取舍归[决策](../.agents/notes/implemented/desktop/2026-10-28-shared-bootstrap-navigation.md)。
+已补回归源码：API 的 meta refresh / location href / assign / replace；共用解析器的单次限制、导航类型和方法 / 来源负例；Browser 的实际响应头、空 body、Cookie 保留及非主文档 / 非 HTML / POST 不改写。行为唯一说明归[桌面运行语义](tauri-desktop.md#离线-captive-与-cas-表单)，取舍归[决策](../.agents/notes/implemented/desktop/2026-10-28-shared-bootstrap-navigation.md)。
 
 ## 验证与限制
 

@@ -71,4 +71,4 @@ Rust 图形版不消费 Python 文件控制通道。其后台正在持锁时，C
 
 Shell 菜单由 [Shell 回归](../tests/test_shell_accounts.py)覆盖，桌面交互由 [多账号浏览器回归](../desktop/tests/multi_account_preview.py)与[原生状态机回归](../desktop/src-tauri/src/account_runtime_tests.rs)覆盖。共同规则由 [Python 账号存储](../src/ysu_net/manager/accounts.py)、[原生账号存储](../desktop/src-tauri/src/accounts.rs)及[共享流量样本](../tests/fixtures/account-quota.json)约束。
 
-2026-10-28 的[21 实测](account-pool-21-review-2026-10-28.md)已验证正式 Shell v0.2.2 的直接 / 守护持锁双向换号和两项保护。真实零流量触发及认证拒绝恢复尚未实测。Rust 开发源码补齐账号切换阶段和底层固定错误日志，并增加核验前不提交 / 失败恢复的回归；尚未云端格式、编译或执行，不能按 Shell 成绩宣称 Rust 已通过。
+2026-10-28 的[21 实测](account-pool-21-review-2026-10-28.md)已验证正式 Shell v0.2.2 的直接 / 守护持锁双向换号和两项保护。Rust 补齐切换阶段和底层固定错误日志，核验前不提交 / 失败恢复的 Worker 回归已在四平台 Native 作业执行通过，整线结果见[0.2.3 发布记录](desktop-release-0.2.3.md)。真实零流量触发、认证拒绝恢复及 Rust Worker 的真实账号池切换仍未实测；共用 AuthClient 的真实登录 / 退出不替代这些场景。

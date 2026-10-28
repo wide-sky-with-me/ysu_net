@@ -1,6 +1,6 @@
 # 2026-10-27 门户入口只读观察与精确来源变体
 
-状态：111 独立只读采样与新导航源码云端回归完成；未新发行、未部署、未确认 Win11 现场。现行行为归[运行说明](tauri-desktop.md#门户导航与诊断开发源码)，取舍归[导航变体决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。
+状态：111 独立只读采样与新导航源码云端回归完成；未新发行、未部署、未确认 Win11 现场。现行行为归[运行说明](tauri-desktop.md#门户导航与诊断)，取舍归[导航变体决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。
 
 ## 既有交付与本轮范围
 
@@ -35,7 +35,7 @@
 
 两组均实际观察到唯一公开 `mode=history` query 的 HTTPS redirect 来源，随后也是上述同门户旧 HTTP 目标；只请求 HTTPS 等价后得到 200，状态查询确认 online。旧完整来源比较只接受无 query 入口，所以两份 history 收据均标记旧 rewrite shape 为 false。
 
-这次有“实际来源 query + 实际 Location 目标”的组合证据，不再只是从外部工具默认入口推断。永久对照采用本文的角色形状与[本轮合成夹具](../tests/fixtures/portal-entry-variants.json)：使用公开配置 endpoint 和合成 SID 重建两来源，不包含采样中的原 URL / SID。修正只增加第二个完整来源值，不移除任意 query、不扩大域名 / 路径 / 端口或 HTTP 许可；细节以[唯一运行说明](tauri-desktop.md#门户导航与诊断开发源码)为准。
+这次有“实际来源 query + 实际 Location 目标”的组合证据，不再只是从外部工具默认入口推断。永久对照采用本文的角色形状与[本轮合成夹具](../tests/fixtures/portal-entry-variants.json)：使用公开配置 endpoint 和合成 SID 重建两来源，不包含采样中的原 URL / SID。修正只增加第二个完整来源值，不移除任意 query、不扩大域名 / 路径 / 端口或 HTTP 许可；细节以[唯一运行说明](tauri-desktop.md#门户导航与诊断)为准。
 
 ## index parser 补证与限制
 

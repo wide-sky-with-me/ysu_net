@@ -2,7 +2,7 @@
 
 日期：2026-10-28。状态：开发源码已实施；格式、编译、回归及真实 Rust 验收待执行，未提交或部署。
 
-范围：Rust 认证库 API 与 Chromium/CDP 后端。现行条件归[桌面运行语义](../../../../docs/tauri-desktop.md#离线-captive-与-cas-表单开发源码云端待验)，实际轨迹和限制归[Shell 跳转对照](../../../../docs/portal-redirect-parity-2026-10-28.md)。
+范围：Rust 认证库 API 与 Chromium/CDP 后端。现行条件归[桌面运行语义](../../../../docs/tauri-desktop.md#离线-captive-与-cas-表单)，实际轨迹和限制归[Shell 跳转对照](../../../../docs/portal-redirect-parity-2026-10-28.md)。
 
 ## 背景
 

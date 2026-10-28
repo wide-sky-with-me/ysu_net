@@ -2,7 +2,7 @@
 
 日期：2026-10-27。状态：开发源码已实施，云端验证待执行；未发行、未部署。
 
-范围：三平台共用 Rust API / Browser 导航及动作检查，Python CLI 的表单与动作语义。现行行为唯一维护在[桌面运行语义](../../../../docs/tauri-desktop.md#离线-captive-与-cas-表单开发源码云端待验)。
+范围：三平台共用 Rust API / Browser 导航及动作检查，Python CLI 的表单与动作语义。现行行为唯一维护在[桌面运行语义](../../../../docs/tauri-desktop.md#离线-captive-与-cas-表单)。
 
 ## 背景与真实证据
 

@@ -16,13 +16,13 @@
 
 认证、诊断与平台限制见[Tauri 运行语义](docs/tauri-desktop.md#运行语义)；当次成绩与历史现场证据见[桌面验收导航](docs/desktop-acceptance.md)，不把已有在线会话读取、离线 Demo 或旧版成绩当作当前登录与升级成功。
 
-0.2.2 集中侧栏“关于”、随包日志、连接光环与操作浮层，修复检查更新时的 TLS provider 初始化崩溃；在线运营商显示和自启 / 设置反馈以核心及原生回读为准。客户端支持有条件的差分传输，但**本次 0.2.2 公开资产只有完整包，没有差分附件**；无可信基线首更仍走整包，后续补丁与还原整包都须通过原公钥和受签名版本验证，失败仅下载阶段最多回退一次整包。交互规则见[设计说明](docs/rust-desktop-design.md)，平台、缓存和信任边界见[软件更新](docs/updates.md)。
+侧栏“关于”集中软件更新与随包日志，在线状态、自启及设置反馈以核心和原生回读为准。客户端支持有条件的差分传输；无可信基线首更直接下载整包，补丁与还原整包均须通过原公钥和受签名版本验证。实际附件以对应发行记录为准，交互规则见[设计说明](docs/rust-desktop-design.md)，平台、缓存和信任边界见[软件更新](docs/updates.md)。
 
 ### 发行与候选状态
 
-**正式 v0.2.2 已发布并成为 Latest**，下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；标签源码、云端签名、公开资产复核状态及未覆盖范围见[0.2.2 发布验收](docs/desktop-release-0.2.2.md)。正式发布不等于真实校园网登录、软件内跨版本原位升级或失败回滚已通过。升级前先看[迁移说明](docs/migration.md#桌面-v022-升级)；旧版若点击检查更新就退出，可从正式 Release 手工安装，不关闭 TLS 校验或验签。
+本轮版本为 **v0.2.3**，正式下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；构建、标签、签名、公开资产及未覆盖范围见[0.2.3 发布记录](docs/desktop-release-0.2.3.md)。升级前先看[迁移说明](docs/migration.md#桌面-v023-升级)；旧版若点击检查更新就退出，可从正式 Release 手工安装，不关闭 TLS 校验或验签。
 
-当前正准备 **v0.2.3**，包含只读状态观察、账户来源绑定、门户跳转、DNS 回退及账号池改进；[本轮构建与发布记录](docs/desktop-release-0.2.3.md)区分云端、Shell 对照和真实 Rust 验收。尚未发布前，正式 0.2.2 安装包不含这些开发改进。
+0.2.3 包含只读状态观察、账户来源绑定、门户跳转、DNS 回退及账号池改进，并修复 CAS 回调将正常脚本引用误判为风控的问题。共用 Rust 认证库已在 21 完成真实登录 / 退出，Windows 原生探针完成无凭据状态查询；这些结果不代表 Windows GUI 离线登录、软件内原位升级或失败回滚已通过。各项证据分别见[发布记录](docs/desktop-release-0.2.3.md)，旧版记录保留历史范围。
 
 编译、打包和产品测试只在 GitHub Actions 执行；开发构建使用独立构建分支，不打版本标签、不发布正式 Release。云端失败不回退本机编译，本机只按授权下载、校验云端产物并做安装 / 运行验收。工作流见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)，实际成绩与未覆盖范围见[桌面验收导航](docs/desktop-acceptance.md)。
 

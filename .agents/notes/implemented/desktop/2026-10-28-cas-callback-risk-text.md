@@ -12,6 +12,6 @@
 
 ## 实现与验证
 
-实现位于[protocol.rs](../../../../desktop/crates/ysu-auth/src/protocol.rs)。[合同回归](../../../../desktop/crates/ysu-auth/src/live_contract_tests.rs)把正常 noSupport 脚本放入完整 CAS / 登录 / 退出夹具，另保留真实标题 / 文本 / 跨标签提示的拒绝及零服务提交断言；[夹具](../../../../desktop/crates/ysu-auth/src/tests.rs)仅新增可配置回调 body。当前文档归[桌面语义](../../../../docs/tauri-desktop.md#离线-captive-与-cas-表单开发源码云端待验)。
+实现位于[protocol.rs](../../../../desktop/crates/ysu-auth/src/protocol.rs)。[合同回归](../../../../desktop/crates/ysu-auth/src/live_contract_tests.rs)把正常 noSupport 脚本放入完整 CAS / 登录 / 退出夹具，另保留真实标题 / 文本 / 跨标签提示的拒绝及零服务提交断言；[夹具](../../../../desktop/crates/ysu-auth/src/tests.rs)仅新增可配置回调 body。当前文档归[桌面语义](../../../../docs/tauri-desktop.md#离线-captive-与-cas-表单)。
 
 样本来自服务器内存分类，仅导出固定布尔值，没有保存真实页面、Cookie、账号或 URL 参数。真实首轮失败已恢复原移动连接和守护；修复的云端与真实验证必须分别记录，不能用只读页面分类冒充修复后登录通过。

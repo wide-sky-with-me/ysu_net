@@ -23,7 +23,7 @@
 
 ## 实现与归属
 
-现行完整限制只在[运行说明](../../../../docs/tauri-desktop.md#门户导航与诊断开发源码)维护。[共享导航检查](../../../../desktop/crates/ysu-auth/src/transport.rs)、[API HTML resolver](../../../../desktop/crates/ysu-auth/src/protocol.rs)、[Browser 响应分派](../../../../desktop/crates/ysu-auth/src/browser.rs)与[错误诊断](../../../../desktop/crates/ysu-auth/src/diagnostic.rs)是对应实现入口。
+现行完整限制只在[运行说明](../../../../docs/tauri-desktop.md#门户导航与诊断)维护。[共享导航检查](../../../../desktop/crates/ysu-auth/src/transport.rs)、[API HTML resolver](../../../../desktop/crates/ysu-auth/src/protocol.rs)、[Browser 响应分派](../../../../desktop/crates/ysu-auth/src/browser.rs)与[错误诊断](../../../../desktop/crates/ysu-auth/src/diagnostic.rs)是对应实现入口。
 
 [导航诊断类型](../../../../desktop/crates/ysu-auth/src/navigation_diagnostic.rs)与[Native 固定格式](../../../../desktop/src-tauri/src/runtime.rs)负责无原始材料输出；政策与诊断分开，不为新增观测字段放宽导航，也不把 metadata 塞进账户 Info。
 

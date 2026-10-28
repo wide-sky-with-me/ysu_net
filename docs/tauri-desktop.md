@@ -16,9 +16,9 @@
 
 [多账号与流量换号](accounts.md)提供独立账号簿、确认后热切换与默认关闭的零流量轮换。前端不负责轮换调度；原生后台以同账号/服务绑定的独立查询为依据。关闭自动重连或下线同时关闭轮换，状态未知、额度缺失及业务失败不触发换号。
 
-### 独立只读状态观察（开发源码）
+### 独立只读状态观察
 
-只读观察、API HTML 导航规范化与 Info 来源配对的开发源码已通过四平台 Native 及 Mock 云端回归；分轮证据、CLI / 固定参考认证链差异和未覆盖项见[本次对照与验收](auth-flow-review-2026-10-27.md)。尚未新发行、未确认远端现场，正式 0.2.2 安装包不含本轮开发改进。选择原因和限制见[只读观察决策](../.agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md)。
+只读观察、API HTML 导航规范化与 Info 来源配对纳入 0.2.3，共用源码的云端与真实验证见[本轮记录](desktop-release-0.2.3.md)；早期开发候选的分轮证据仍归[历史对照](auth-flow-review-2026-10-27.md)。选择原因和限制见[只读观察决策](../.agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md)。
 
 原生 Worker 在自动重连关闭时也独立观察连接状态，托盘后台不依赖 WebView 定时器。健康周期为 30 秒；窗口获焦 / 恢复可见和 `online` / `offline` 事件只是查询提示，前端合并 300ms 内的突发事件，不从 `navigator` 或 IPC 接收确认推断在线 / 离线。界面只接受正常单调快照流中的原生结果。
 
@@ -36,9 +36,9 @@ Native 仍在账户读取后独立查询 Status；提交成功详情前再以 `m
 
 在线读取比旧库多一次状态查询，新增核验与原步骤共享既有预算，不叠加新的整轮时限；无登录、下线或配置写。前后采样与本机串行提交不是远端原子事务；缺字段可能掩盖实际变化，也不能保证发现采样间 A→B→A 的 ABA 变化。来源晚写反例已在新候选独立回归，不把首轮观察器成绩代替来源绑定的验证。
 
-### 门户导航与诊断（开发源码）
+### 门户导航与诊断
 
-根据[111 只读实测](portal-navigation-review-2026-10-27.md)新增的精确来源变体、Browser bootstrap Location 接线与分类诊断，已由新产品候选 `2bb9589e` 通过四目标 Native、Mock 与 Community 云端验证，不再复用旧候选成绩。尚未新发行、未部署、未确认 Win11 网页下线现场；选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)，不回写旧对照。
+精确来源变体、Browser bootstrap Location 接线与分类诊断纳入 0.2.3，最新验证归[本轮记录](desktop-release-0.2.3.md)。早期候选 `2bb9589e` 的四目标 Native、Mock 与 Community 成绩及 111 只读样本仍归[历史记录](portal-navigation-review-2026-10-27.md)，不将其作为新登录或 Win11 网页下线的证明；选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。
 
 来源只增加由配置 endpoint 派生的第二个完整 Url：原无 query 的精确 redirect 入口，以及唯一精确 `mode=history` 变体；不剥除任意 query，不通配额外 / 重复 / 编码参数、域名或路径。它们才可使用原受限 HTTP 目标规范化：无 body GET、HTTPS base 默认 443、同 host 的 HTTP 默认 80、配置 endpoint 派生的固定目标路径（`portal_main` 角色），目标无 userinfo / fragment，唯一 sessionId 的解码值非空、不超过 1024 字节且无控制符；先转换为 HTTPS 再做原 allowed 检查，不发明文 HTTP、不清改目标 query。
 
@@ -48,7 +48,7 @@ API 的 HTTP Location 和 HTML / meta / JS bootstrap 解析共用 checked 入口
 
 上述 history 阶段未改 TLS、CAS / API / POST 通用边界、默认入口列表、超时 / 重试、加密或凭据用途。111 当时在线且仅跑独立 Requests 观察器，详细限制归[当次记录](portal-navigation-review-2026-10-27.md)；123 离线后新发现的 captive 引导另见下节。
 
-### 离线 captive 与 CAS 表单（开发源码，云端待验）
+### 离线 captive 与 CAS 表单
 
 CAS 风险提示检查文档文本，排除脚本 / 样式 / 模板 / noscript 与属性引用，避免正常门户资源中的 noSupport 被当成拒绝；它不计算完整 CSS 可见性。回调仍要求门户同源、成功 HTTP 响应，并在后续流程节点及独立状态中确认身份 / 服务。来源异常与实际提示拒绝的诊断分开，原因见[回调风险文本决策](../.agents/notes/implemented/desktop/2026-10-28-cas-callback-risk-text.md)。本轮结果归[0.2.3 记录](desktop-release-0.2.3.md)。
 
@@ -60,11 +60,11 @@ CAS API 的 captchaDiv 检查仅接受所选密码表单与无所属 form 的独
 
 Rust 与 Python 的动作响应同时检查外层及 data 的 authResult / authMessage：authResult 存在时仅接受字符串 success，其他值停止；success=false 也停止。服务选择被拒后不再请求 userOnline，后续成功仍以实际账号与服务独立核验为准。固定错误分类不输出服务器原文。
 
-以上尚未发行或部署，尚未执行新源码云端回归或真实 Rust 登录。123 的采样请求通过 CAS 后被校园网服务拒绝；2026-10-28 安装正式 v0.2.2 Python CLI 后，同一测试输入也重现该拒绝，不能直接归因于配置无效或 Rust 专属问题。新装正式 CLI 不含本节开发改动，123 尚未恢复在线。证据与剩余工作见[123 实测记录及正式 CLI 补证](portal-123-review-2026-10-27.md#2026-10-28-正式-python-cli-对照补证)，取舍见[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)。
+本节能力纳入 0.2.3。Rust 共用 AuthClient 已在 21 完成真实离线登录、在线退出与 Shell 独立核验，Windows 原生探针也完成无凭据在线查询，证据及边界归[本轮记录](desktop-release-0.2.3.md)。123 的 CAS 后服务拒绝曾在正式 v0.2.2 Python CLI 上以相同测试输入复现，不能作为 Rust 专属导航故障或配置无效的证明；原采样与当时状态见[123 记录](portal-123-review-2026-10-27.md#2026-10-28-正式-python-cli-对照补证)，协议选择见[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)。
 
 同日[21 换机对照](portal-21-review-2026-10-28.md)已用现有客户端与相同正式 v0.2.2 wheel 完成真实离线登录及在线退出，并恢复原连接和后台。21 使用本机中国移动配置且 DNS 正常，和 123 的输入 / 网络条件不同；这是 Shell 正常链的补证，不是 Rust 或本节新源码验收。
 
-### DNS 失败时的备用 IP（开发源码，云端待验）
+### DNS 失败时的备用 IP
 
 认证 URL 继续使用配置中的 HTTPS 域名。系统 DNS 能及时返回地址时优先采用；失败、无地址或等待超过 500 毫秒时，仅对[共享地址表](../src/ysu_net/auth/campus-addresses.json)中的两个精确校园域名使用备用 IP。只改变 TCP 连接地址，HTTP Host、TLS SNI、证书域名校验、Cookie、Origin 与跳转许可仍按原 URL 处理。自定义域名、后缀相似域名及其他站点没有此回退。
 
@@ -78,11 +78,11 @@ Rust 与 Python 的动作响应同时检查外层及 data 的 authResult / authM
 
 地址表由 Python 包内 JSON 唯一维护，Rust 编译时嵌入；Python 分发必须携带同一文件。Python 不修改全局 socket、其他 Session 或代理管理器；使用环境代理时仍由原代理路径处理，不保证本机备用地址生效。原生客户端继续采用已有的直连策略。无需新增配置或把 `base` / `cas_host` 改为 IP。
 
-2026-10-28 在 123 用校园 DNS 复核地址，并保持原域名、开启证书校验连接备用 IP，两个入口均返回 200；这只是网络可达性验证，不是新产品或登录验收。[本次证据](portal-ip-fallback-2026-10-28.md)与[选择原因](../.agents/notes/implemented/desktop/2026-10-28-campus-ip-fallback.md)说明范围。源码和回归已补，云端编译、格式、产品测试及部署尚未执行；正式 0.2.2 不含此改动，备用地址未来失效仍需更新，正常 DNS 返回不可达地址也不会改用备用 IP。
+备用地址的 DNS / TLS 可达性采样见[当次证据](portal-ip-fallback-2026-10-28.md)，来源和取舍见[决策](../.agents/notes/implemented/desktop/2026-10-28-campus-ip-fallback.md)。相关 resolver、Python 回环 TLS 和分发数据回归已纳入 0.2.3 云端检查，实际运行归[发布记录](desktop-release-0.2.3.md)。21 真实 Rust 对照及 Windows 查询使用各自网络条件，不是 123 DNS 故障下的新 Rust 登录证明。备用地址失效仍需更新，正常 DNS 返回不可达地址时不会改用备用 IP。
 
-### 无界面认证验证（开发源码，云端待验）
+### 无界面认证验证
 
-认证链也可脱离界面定位：开发用[无界面 Rust 验证入口](rust-auth-probe.md)直接调用本桌面的 AuthClient，校验真正离线登录、在线退出与独立前后状态，并保留固定导航诊断。入口和独立四平台认证工作流源码已补，尚未云端构建或真实运行；它不覆盖 Worker / WebView / 窗口集成，Shell 的成功记录也不替代 Rust 验收。
+认证链也可脱离界面定位：[无界面 Rust 验证入口](rust-auth-probe.md)直接调用本桌面的 AuthClient，校验真正离线登录、在线退出与独立前后状态，并保留固定导航诊断。四目标认证工作流已通过，云端产物已用于 21 真实闭环及 Windows 无凭据查询；它不覆盖 Worker / WebView / 窗口集成，Shell 的成功记录也不替代 Rust 验收。
 
 ### 窗口与系统集成
 

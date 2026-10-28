@@ -17,7 +17,7 @@
 - 使用缓存 Config 的临时 API 副本，不读取配置磁盘、不保存临时 backend，不启 Chromium、不拉私有 Info。按保存的 browser backend 被动查询会启动浏览器且无法满足短预算，故不采用；手动 / auto 仍保留用户选择。API 无法确认就未知，不自动转认证或建议切 browser 规避。
 - 不每轮读取账户详情：按实际 user / service / IP 作废旧缓存与旧身份错误，未知保留最近身份，确认离线清详情及错误。不修改保存账号；新详情需显式查询，并按下节将返回值绑定到其实际观测来源，不能只依赖之后被动观察碰巧清理。
 - 手动任务优先，观察不占手动队列容量，并复用已有状态采样。门闩拒绝后保留提示、推迟观察期限，避免过期计时器忙等；观察与认证仍不能并发。安装准入遇在途短读会拒绝，读完再试，不强行打断；空闲更新阻止新观察。退出 / force-stop 取消在途 future、RAII 释放门闩，不迟发结果。
-- 不为每次被动读设 busy、成功浮层或成功日志；失败使用固定脱敏分类和限频日志。代价是用户主要通过状态变化感知观察，不能以没有提示解释为网络已确认。具体周期、预算与退避数值仅在[运行语义](../../../../docs/tauri-desktop.md#独立只读状态观察开发源码)维护。
+- 不为每次被动读设 busy、成功浮层或成功日志；失败使用固定脱敏分类和限频日志。代价是用户主要通过状态变化感知观察，不能以没有提示解释为网络已确认。具体周期、预算与退避数值仅在[运行语义](../../../../docs/tauri-desktop.md#独立只读状态观察)维护。
 
 ## 账户来源绑定与残余竞态
 
@@ -39,4 +39,4 @@ API HTML resolver 复用原有窄规范化，不增加 HTTP 许可：只处理�
 
 开发候选 `1a81aac9` 已通过四目标 Native 与 Mock 云端回归，包含[库级组合测试](../../../../desktop/crates/ysu-auth/src/info_observation_tests.rs)、[同 session 整链反例](../../../../desktop/crates/ysu-auth/src/info_observation_integration_tests.rs)、[Native 晚写回反例](../../../../desktop/src-tauri/src/runtime_observer_tests.rs)、[TS 合并 / 清理](../../../../desktop/src/lib/observation.test.ts)、[预览回归](../../../../desktop/tests/state_observer_preview.py)与[API 导航反例](../../../../desktop/crates/ysu-auth/src/regression_tests.rs)。首轮未覆盖来源竞态、追加回归的失败与复测分开见[当次对照验收](../../../../docs/auth-flow-review-2026-10-27.md)。全部产品测试与构建只走 GitHub Actions；Demo / Web、合成事件及回环夹具都不证明真实校园网或系统网络变化已验收。
 
-本次只做源码与文档静态核对，不连接校园网、不改本机配置或凭据、不运行本机产品。现行运行说明归[桌面运行语义](../../../../docs/tauri-desktop.md#独立只读状态观察开发源码)，历史诊断与更新门闩理由继续见[既有决策](2026-10-22-diagnostics-and-update-lifecycle.md)，不改其历史结论。
+本次只做源码与文档静态核对，不连接校园网、不改本机配置或凭据、不运行本机产品。现行运行说明归[桌面运行语义](../../../../docs/tauri-desktop.md#独立只读状态观察)，历史诊断与更新门闩理由继续见[既有决策](2026-10-22-diagnostics-and-update-lifecycle.md)，不改其历史结论。
