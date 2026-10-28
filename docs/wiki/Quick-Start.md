@@ -9,6 +9,10 @@
 
 正式桌面安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 的 Assets；当前正式 / 候选状态统一见[首页](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)，本页不另维护 Latest 版本号。不要把 Source code ZIP 当安装程序，也不要用旧 Qt 附件代替 Tauri。需要开发产物时走[独立分支的云端构建](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)，不在本机编译或运行产品测试。旧安装迁移见[桌面客户端](Desktop-Client.md)。
 
+## 桌面初次连接
+
+安装对应系统 / 架构的正式附件后，在“设置 → 校园网账号”保存账号和服务，再到“连接”页登录并核对独立查询结果。需要持续重连时再开启“自动重连”；账户只读查询无需先断开。配图与完整步骤见[桌面客户端](Desktop-Client.md#连接与日常使用)。
+
 ## Linux 命令行初次安装
 
 ```bash

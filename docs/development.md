@@ -88,7 +88,7 @@ Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#�
 
 **默认 API 后端的校园网认证闭环已通过真实校内网络验收。** 覆盖 CAS 登录、独立在线查询、账户查询、下线、自动重连及单轮守护入口，详见[真实网络验收记录](live-test.md)。离线识别以实测协议中的
 `portalOnlineUserInfo.message == "dx.failed.user.offline"` 为准，未知响应仍按查询失败处理。
-中国移动已由增强版 `switch` 真实切换成功，独立查询服务与外网 HTTPS 均通过；用户级 systemd 安装、真实重连、崩溃恢复及重装保留配置也已[实测验收](deployment-test.md)。此前会话上限错误及新版切换失败恢复由分离的真实记录与模拟测试说明。可选浏览器后端、验证码/风控、其他运营商、服务器重启及长稳运行仍未实测。
+中国移动已由增强版 `switch` 真实切换成功，独立查询服务与外网 HTTPS 均通过；用户级 systemd 安装、真实重连、崩溃恢复及重装保留配置也已[实测验收](deployment-test.md)。此前会话上限错误及新版切换失败恢复由分离的真实记录与模拟测试说明。截至该历史记录，可选浏览器后端、验证码/风控、其他运营商、服务器重启及长稳运行未实测；后续移动 / 校园网双账号结果见[21 账号池记录](account-pool-21-review-2026-10-28.md)，不能据此扩大到其他服务和场景。
 独立历史验收另见 [2026-10-20 Shell 真实复测](shell-live-2026-10-20.md)与 [2026-10-21 Windows 原生只读修复及复装验收](windows-readonly-fix-2026-10-21.md)；较新的桌面本地与远端结果集中见[桌面验收记录](tauri-desktop.md#验收记录)。历史运营商上线成绩不代表当前账号的可用会话。
 2026-10-28 的[21 同机 Shell 对照](portal-21-review-2026-10-28.md)补齐现有客户端及正式 v0.2.2 云端包的移动服务离线登录 / 在线退出；它没有覆盖新 Rust 或 DNS 回退源码，也未复现 123 的相同配置条件。
 `manager/switching.py` 不持久化凭据；CLI 在成功后通过独立写锁合并服务字段。配置写锁与守护运行锁分开，避免破坏热更新或覆盖并发修改。
@@ -99,7 +99,7 @@ Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#�
 
 原生矩阵仍执行前端 / Rust、四平台 Chrome 认证夹具、Native / 安装、签名及工具硬失败门槛。正式 `release` 仍限定 v 标签且同时 needs `[build, browser-acceptance]`，任一失败或取消都不能发布；不以 always / continue-on-error 绕过。`format_only=true` 跳过两条产品 job，只走原 `format-source`；产品 job 的 45 分钟上限不减。
 
-本阶段只改排程，没有修改 Cargo / profile / cache / target 或削减测试；新候选 `7c876513` 已通过云端 Mock、四平台 Native 与独立浏览器验收。Linux SDK 下载异常后的定向复跑污染了整体耗时对照，不据此宣称稳定提速；基线、代价与实际结果见[本轮记录](ci-parallel-acceptance-2026-10-27.md)，为何先拆关键路径见[并行决策](../.agents/notes/implemented/ci/2026-10-27-parallel-browser-acceptance.md)。
+这次拆分只改变排程，没有修改 Cargo / profile / cache / target 或削减测试；选择原因见[并行决策](../.agents/notes/implemented/ci/2026-10-27-parallel-browser-acceptance.md)。[10-27 验收](ci-parallel-acceptance-2026-10-27.md)保留初次候选及 SDK 下载异常后的复跑，不能据此宣称稳定提速。后续正式版本的实际门禁结果从[发布验收导航](desktop-acceptance.md#正式发布与更早基线)进入。
 
 ## 构建与依赖
 

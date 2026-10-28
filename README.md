@@ -98,7 +98,7 @@ sudo env PATH="$PATH" bash install.sh --system  # 系统级安装
 
 | 主题 | 文档 |
 | --- | --- |
-| 新用户入门 | [Wiki](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) |
+| 文档总览与入门 | [文档导航](docs/README.md) · [Wiki](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) |
 | 安装与日常使用 | [使用说明](docs/usage.md) · [多账号管理](docs/accounts.md) |
 | 升级与版本验证 | [迁移指南](docs/migration.md) · [软件更新](docs/updates.md) · [验收记录](docs/desktop-acceptance.md) |
 | 项目结构与开发 | [项目架构](docs/architecture.md) · [开发与验证](docs/development.md) |

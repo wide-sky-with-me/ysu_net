@@ -115,7 +115,7 @@ ysu daemon              # 保持终端打开；Ctrl+C 停止守护
 
 账号和密码通过 `ysu config account` 输入，不接受 `config set password ...`。
 
-开发源码为默认 API 增加了[DNS 失败时的备用 IP](tauri-desktop.md#dns-失败时的备用-ip)，尚未云端验收或发行。`base` / `cas_host` 保留 HTTPS 域名，`verify_tls` 保持开启；直接填写 IP 会改变证书校验和站点身份。可选 Python Browser 尚无此回退，仍需可用的系统 DNS。
+自 0.2.3 起，默认 API 包含[DNS 失败时的备用 IP](tauri-desktop.md#dns-失败时的备用-ip)，云端回归与真实验证范围见[发布记录](desktop-release-0.2.3.md)。`base` / `cas_host` 保留 HTTPS 域名，`verify_tls` 保持开启；直接填写 IP 会改变证书校验和站点身份。可选 Python Browser 尚无此回退，仍需可用的系统 DNS。
 
 ```bash
 ysu config set check_interval 15
@@ -142,8 +142,8 @@ systemd 不会自动继承交互终端导出的环境变量，后台使用持久
 超时或停止守护时会清理整个认证进程组，包含 Playwright 子进程。
 同一配置的守护进程和手动登录/下线通过文件锁互斥。
 
-TLS 证书校验默认开启。确需兼容校园网证书问题时可显式设置
-`ysu config set verify_tls false`，更推荐通过 `REQUESTS_CA_BUNDLE` 为 API 方式配置可信 CA。
+TLS 证书校验默认开启，排障时保持 `verify_tls=true`。API 方式如需额外可信 CA，可通过
+`REQUESTS_CA_BUNDLE` 配置；DNS 或门户跳转失败不通过改 IP、关闭 TLS 校验处理。
 不要将真实账号配置提交到仓库。认证模块的 `--debug` 输出可能含会话信息，分享前需脱敏；
 管理命令后台日志只记录固定状态消息，不记录原始认证响应。
 
@@ -188,6 +188,8 @@ uv run --extra browser python -m ysu_net.auth.browser login --service 校园网
 | `systemctl --user` 无法连接总线 | 登录用户会话后重试，或使用 `bash install.sh --no-service` 和 `ysu daemon` |
 | `ysu on` 提示完成，但还未联网 | 表示后台服务启动成功；认证结果用 `ysu status` 和 `ysu logs -f` 查询 |
 | 查询失败、状态未知 | 先确认接入校园网，再运行 `ysu doctor`；需要实际网络诊断时用 `ysu doctor --network` |
+| 域名解析失败 | 0.2.3 默认 API 对包内精确校园域名提供回退；自定义域名、代理解析及 Python Browser 仍需单独检查 DNS，保留 HTTPS 域名和证书校验 |
+| 门户跳转失败或 CAS 回调异常 | 核对版本、认证方式和固定错误阶段，按[排障指南](wiki/Troubleshooting.md)区分导航、CAS 与服务登录；HTTP 200 或表单提交成功不足以证明已上线 |
 | 提示已有守护进程运行 | 先 `ysu stop`；若运行的是前台守护，在对应终端按 Ctrl+C |
 | 认证暂停、密码错误或要求验证码 | 停止守护，检查账号，使用 `ysu login` 手动处理，再 `ysu on` |
 | 修改配置后未立即生效 | 守护在下一轮检查时读取配置，可用 `ysu restart` 立即重启 |

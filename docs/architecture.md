@@ -53,11 +53,12 @@ CLI 的 Linux systemd 服务面向无桌面运行；图形版的托盘和用户�
 | --- | --- | --- |
 | Python CLI 分发 | runner 生成 wheel / 源码包；保留现有安装器和依赖 | [pyproject.toml](../pyproject.toml)、runner 中的 `uv build` |
 | Rust 桌面构建 | 对应平台 runner 构建原生程序及安装包，不冻结 Python | [desktop.mjs](../desktop/scripts/desktop.mjs)、[Tauri CI](../.github/workflows/tauri.yml) |
+| Rust 认证探针 | 四平台无界面工具，复用认证库；不替代 GUI / Worker 验收 | [验证合同](rust-auth-probe.md)、[Headless CI](../.github/workflows/rust-auth.yml) |
 
-Tauri CI 定义四平台构建和离线验收；Linux `.deb` 与 Windows NSIS 安装包还会在运行器上实际安装，核对安装位置、卸载登记、菜单入口与图标，从安装位置运行原生冒烟后卸载并确认清理；macOS arm64 / x64 分别挂载 `.dmg`，核对应用与“应用程序”快捷方式，复制到 /Applications 后核对包标识、版本、最低系统、图标与本机架构，运行原生冒烟后删除。推送 `v*` 标签时，Release 作业依赖四个平台构建、原生与安装验收全部成功，再发布 Tauri 安装包、独立 Python 分发包和 `SHA256SUMS`。定义存在不代表本轮对应系统已经跑通，实际结果以对应 CI 运行为准。
+Tauri CI 定义四平台构建和离线验收；Linux `.deb` 与 Windows NSIS 安装包还会在运行器上实际安装，核对安装位置、卸载登记、菜单入口与图标，从安装位置运行原生冒烟后卸载并确认清理；macOS arm64 / x64 分别挂载 `.dmg`，核对应用与“应用程序”快捷方式，复制到 /Applications 后核对包标识、版本、最低系统、图标与本机架构，运行原生冒烟后删除。推送 `v*` 标签时，Release 作业依赖四个平台构建、原生 / 安装及独立浏览器验收全部成功，再发布 Tauri 安装包、独立 Python 分发包和 `SHA256SUMS`。定义存在不代表本轮对应系统已经跑通，实际结果以对应 CI 运行为准。
 
-Linux 包名仍为 `ysu-net`，0.2.0 高于旧 Qt 0.1.0，正常升级无需 `--reinstall`。Windows 旧 Inno Setup 与新版当前用户 NSIS 不会互相替换，先关闭旧自启、退出并卸载旧版；macOS 13.5+ 按 arm64 / x64 分包。Windows / macOS 安装包未签名，完整迁移要求见[迁移说明](migration.md#桌面-v020-升级)。
+Linux 包名仍为 `ysu-net`，0.2.0 高于旧 Qt 0.1.0，正常升级无需 `--reinstall`。Windows 旧 Inno Setup 与新版当前用户 NSIS 不会互相替换，先关闭旧自启、退出并卸载旧版；macOS 13.5+ 按 arm64 / x64 分包。Windows Authenticode 发布者签名与 Apple 签名 / 公证尚未提供；它们与[软件内更新包签名](updates.md#信任与云端发布)分别核对，完整迁移要求见[迁移说明](migration.md)。
 
 ## 文档归属
 
-首页负责两个产品的导航，架构页负责边界，桌面说明负责云端构建和运行语义，[设计说明](rust-desktop-design.md)负责视觉依据，[桌面验收导航](desktop-acceptance.md)串联各阶段证据与未覆盖范围。带日期的验收只对应当时源码与样本；此前 Python 图形版的校内成绩和旧旁车包不作为 Rust 桌面验收证据。
+[文档导航](README.md)负责按任务选择指南；首页负责两个产品的导航，架构页负责边界，桌面说明负责云端构建和运行语义，[设计说明](rust-desktop-design.md)负责视觉依据，[桌面验收导航](desktop-acceptance.md)串联各阶段证据与未覆盖范围。带日期的验收只对应当时源码与样本；此前 Python 图形版的校内成绩和旧旁车包不作为 Rust 桌面验收证据。

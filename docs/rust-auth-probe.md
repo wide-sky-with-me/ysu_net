@@ -18,6 +18,22 @@
 
 stdout 仅一份 schema=1 JSON：action、phase、outcome、code、before / after 证明与可选固定 diagnostic。phase 区分 input / before / action / after；状态证明只含 online、闭集 service token、owner_matches_config、service_matches_config，不输出账号、IP、任意服务名或响应消息。库错误只输出原 operation / stage / reason / navigation 固定分类，不输出 AuthError.message。
 
+## 运行下载的探针
+
+先核对下节的 artifact 来源、commit 与摘要。只读状态查询可以不带凭据：
+
+```bash
+printf '%s\n' '{"backend":"api","verify_tls":true,"operation_timeout":20}' | ./ysu-auth-probe status
+```
+
+Windows PowerShell：
+
+```powershell
+'{"backend":"api","verify_tls":true,"operation_timeout":20}' | .\ysu-auth-probe.exe status
+```
+
+这些命令运行已下载的二进制，不在本机构建。空账号配置的在线结果可能为 `owner_matches_config=false`，不能据此判定配置账号已登录。实际登录 / 下线使用受控管道传入本机配置，不把真实凭据写入命令参数、文档或公开输出。
+
 ## 云端构建与离线回归
 
 独立的[Headless Rust authentication](../.github/workflows/rust-auth.yml)在 Linux x64、Windows x64、macOS arm64 / x64 上执行认证库、验证入口单元回归和实际二进制输入验收，再构建普通 release example，不启用 local-fixtures，也不需要 GTK / WebView / 前端生产构建。原 Tauri 产品门禁保留，真实 Chromium 夹具仍由 Tauri CI 执行；独立探针成功不能代替全部产品 CI。
@@ -38,7 +54,7 @@ cargo build --locked --release --no-default-features --manifest-path desktop/cra
 - 既有[导航来源回归](../desktop/crates/ysu-auth/src/regression_tests.rs)、[captive 解析与匿名请求](../desktop/crates/ysu-auth/src/captive_tests.rs)、[表单样本](../tests/fixtures/cas-login-methods.json)和 Browser CDP 回归继续约束已观察到的跳转及验证码范围。成功整链夹具使用回环 HTTP，不能冒称真实 TLS / captive 固定地址的整链验收。
 - [`auth_probe_smoke.py`](../packaging/auth_probe_smoke.py)：在 runner 运行实际二进制的八种无效输入，检查错误发生在 input 阶段且合成私密值不外泄；端点使用回环，无校园网和真实凭据。
 
-开发 artifact 为 `ysu-auth-probe-<平台>`，保留 7 天，包含二进制、SHA256SUMS、manifest.json。清单关联完整源码 commit、平台 / 架构、profile / features、认证库锁文件与共享地址表摘要；下载后核对来源和摘要再运行。没有版本标签、Release 发布或用户安装 / 自启行为。
+开发 artifact 为 `ysu-auth-probe-<平台>`，保留 7 天，包含二进制、SHA256SUMS、manifest.json。清单关联完整源码 commit、平台 / 架构、profile / features、认证库锁文件与共享地址表摘要；下载后核对来源和摘要再运行。探针不作为正式 Release 安装附件，不配置用户安装 / 自启；下载时须区分独立开发构建与正式 tag 对应的 CI 产物。
 
 ## 真实环境对照与剩余项
 
@@ -48,4 +64,4 @@ Windows 先运行同 commit 的原生 exe 做无凭据 status，取得真实 por
 
 本工具不包含原生 Worker 的队列、跨进程运行锁、配置持久化、托盘或 IPC；外层控制器负责停止其他写入者、串行测试和收尾。独立认证库使用自己的 Cargo.lock，桌面整体依赖图、启动初始化、WebView 与系统集成仍须产品验收，不能由同源认证逻辑通过直接推定 GUI 全部通过。取舍见[决策](../.agents/notes/implemented/desktop/2026-10-28-headless-auth-probe.md)。
 
-账号池的 Shell 直接 / 守护持锁换号已另有[21 实测](account-pool-21-review-2026-10-28.md)。Rust 账号池编排在 Worker 层，其阶段、错误分类及提交门闩回归需原 Tauri CI 执行；本探针只验证 AuthClient 的认证链。用户随后已授权构建发布，实际新 Rust 验证进度与结果归[0.2.3 发布记录](desktop-release-0.2.3.md)。
+账号池的 Shell 直接 / 守护持锁换号已另有[21 实测](account-pool-21-review-2026-10-28.md)。Rust 账号池编排在 Worker 层，其阶段、错误分类及提交门闩回归需原 Tauri CI 执行；本探针只验证 AuthClient 的认证链。已完成的 Rust 实测与未覆盖范围归[0.2.3 发布记录](desktop-release-0.2.3.md#修复后的真实验证)，不从 Shell 成绩推定 Worker 已通过。

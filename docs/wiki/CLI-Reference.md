@@ -18,7 +18,7 @@ Linux Python CLI 与 Tauri 桌面运行时独立；完整命令、参数、退�
 
 `ysu service` 保存下次登录选择，不立即切断连接；`ysu switch <服务名>` 才会立即切换并独立核验，失败时尝试恢复原连接。远端使用前阅读 [切换说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#常见使用场景)。
 
-多账号从 `ysu accounts` 或主菜单 **16** 进入，热切换与流量换号的前提见[账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)，不另启动第二个守护。没有 systemd 时可用 `bash install.sh --no-service` 和 `ysu daemon` 前台运行；Ctrl+C 停止前台守护，`ysu stop` 不管理它。源码目录和 `.venv` 是包装入口引用的运行位置，请保留。
+`ysu accounts switch <账号ID>` 表示切换保存的账号：退出旧账号、登录目标并独立核验后才保存活动配置。Python 守护运行时交给其串行执行；它不控制 Rust 桌面的 Worker。多账号从 `ysu accounts` 或主菜单 **16** 进入，热切换与流量换号的前提见[账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)，不另启动第二个守护。没有 systemd 时可用 `bash install.sh --no-service` 和 `ysu daemon` 前台运行；Ctrl+C 停止前台守护，`ysu stop` 不管理它。源码目录和 `.venv` 是包装入口引用的运行位置，请保留。
 
 `--raw` 供脚本处理原始 JSON，不适合直接粘贴到公开反馈。普通 `info` 与诊断也不保证匿名；分享前按 [隐私规则](Privacy-and-Reporting.md) 检查。
 

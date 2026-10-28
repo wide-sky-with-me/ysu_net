@@ -2,11 +2,11 @@
 
 [返回首页](../README.md) · [Tauri 桌面说明](tauri-desktop.md) · [产品与架构](architecture.md)
 
-本页维护三平台共用 Svelte 界面的现行视觉规则。更新：2026-10-26。实现见 [app.css](../desktop/src/app.css)、[主题色](../desktop/src/accents.css)和[页面动效](../desktop/src/lib/motion.ts)。
+本页维护三平台共用 Svelte 界面的现行视觉规则。文档更新：2026-10-28。实现见 [app.css](../desktop/src/app.css)、[主题色](../desktop/src/accents.css)和[页面动效](../desktop/src/lib/motion.ts)。
 
 ## 设计方向与来源
 
-本轮按用户要求，以 [FlClash](https://github.com/chen08209/FlClash) 的圆润、分层表面和响应式内容组织为参考，替换此前偏 Linear 的内嵌白纸面板。参考的是设计原则，不复制其 Flutter 实现、标识或代理软件功能，也不引入 Flutter、组件库或远程素材。
+界面按用户要求，以 [FlClash](https://github.com/chen08209/FlClash) 的圆润、分层表面和响应式内容组织为参考，替换此前偏 Linear 的内嵌白纸面板。参考的是设计原则，不复制其 Flutter 实现、标识或代理软件功能，也不引入 Flutter、组件库或远程素材。
 
 参考源码固定为官方 `8d4f9744948751f1273fe871e1d05276fac09b0e`：
 
@@ -16,6 +16,14 @@
 - [安卓连接图形](https://github.com/chen08209/FlClash/blob/8d4f9744948751f1273fe871e1d05276fac09b0e/lib/views/dashboard/widgets/current_outbound.dart#L683-L844)：状态改变时采用 450ms 形状/图标回弹，作为本项目状态反馈的节奏参考。该版本的[流量数字](https://github.com/chen08209/FlClash/blob/8d4f9744948751f1273fe871e1d05276fac09b0e/lib/views/dashboard/widgets/traffic.dart#L42-L73)本身为静态文本；这里的数字滑入是本项目新增实现，不声称复制上游计数动画。
 
 本项目不声称复现上游全部动效；例如上游桌面一级导航并非移动端的淡入转场。这里按校园网工具的焦点、凭据清理和原生 WebView 约束独立实现短进入动画。按用户后续要求增加的在线双环轻扩散同样是本项目适配：保留绿色勾号而不复制上游 circle/cookie 形变、标识或隧道运行语义。
+
+## 界面预览
+
+| 连接页 · 浅色 | 账户页 · 深色 |
+| --- | --- |
+| ![浅色连接页](screenshots/desktop-connection-light.png) | ![深色账户页](screenshots/desktop-account-dark.png) |
+
+图片来自 v0.2.3 对应云端浏览器验收，使用合成数据；源码、产物与摘要见[截图说明](screenshots/README.md)。图中在线状态与字段用于呈现验证，不代表真实账号、校园网或各平台原生验收。
 
 ## 内容与布局
 
@@ -67,4 +75,4 @@
 
 [主连接光环回归](../desktop/tests/connection_motion_preview.py)另检查双环时间推进、勾号/标题几何稳定、同状态与只读查询不重启、离线/未知静态、离屏/隐藏/减少动效与销毁、48组配色宽度；隐藏事件为测试模拟，不替代原生最小化验证。
 
-检查命令与 runner 前提见 [Tauri 桌面说明](tauri-desktop.md#验证命令)。各轮构建、失败复测、部署及未覆盖范围统一从[桌面验收导航](desktop-acceptance.md)进入；带日期的历史验收保留原貌，其中的本地编译或预览命令不是现行操作许可。浏览器演示数据不代表真实校园网，三平台共用源码也不代表本轮 Windows、macOS 或真实认证已验收。
+检查命令与 runner 前提见 [Tauri 桌面说明](tauri-desktop.md#验证命令)。各轮构建、失败复测、部署及未覆盖范围统一从[桌面验收导航](desktop-acceptance.md)进入；带日期的历史验收保留原貌，其中的本地编译或预览命令不是现行操作许可。浏览器演示数据不代表真实校园网；三平台共用源码不扩大实测覆盖范围，GUI、认证库和更新安装分别按验收记录核对。

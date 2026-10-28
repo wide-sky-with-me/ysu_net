@@ -10,6 +10,7 @@
 | Windows / Linux / macOS 桌面客户端 | [桌面客户端](Desktop-Client.md) |
 | Linux、服务器、systemd 或前台守护 | [命令行入口](CLI-Reference.md) |
 | 安装、连接、重连或状态异常 | [排障与已知问题](Troubleshooting.md) |
+| 查找完整指南、实现与验证记录 | [文档导航](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/README.md) |
 | 分享反馈、日志或截图 | [隐私与反馈](Privacy-and-Reporting.md) |
 | 文档、测试或代码贡献 | [参与贡献](Contributing.md) |
 
@@ -25,4 +26,4 @@
 
 公开资料只保留复现所需信息。真实账号、密码、会话、Cookie、Token、IP/MAC、个人资料、配置、HAR 与原始认证材料留在本机；分享前先看 [隐私与反馈](Privacy-and-Reporting.md)。
 
-本导航的审查源位于 [docs/wiki](https://github.com/wide-sky-with-me/ysu_net/tree/main/docs/wiki)，详细说明位于 [docs](https://github.com/wide-sky-with-me/ysu_net/tree/main/docs)。
+本导航的审查源位于 [docs/wiki](https://github.com/wide-sky-with-me/ysu_net/tree/main/docs/wiki)，详细说明从[文档导航](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/README.md)进入，界面预览见[截图说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/screenshots/README.md)。

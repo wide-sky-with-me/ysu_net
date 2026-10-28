@@ -4,7 +4,7 @@
 
 ## 各入口的职责
 
-`README` 负责版本选择与入门；`docs/usage.md` 负责完整命令与配置；对应发布标签的桌面文档负责桌面版本行为。Wiki 是面向新用户的导航、简短入门和排障入口，源文件在 `docs/wiki/`，不复制维护另一套完整参数表。
+`README` 负责版本选择与入门，[文档导航](README.md)按任务链接当前指南与验收入口；`docs/usage.md` 负责完整命令与配置；对应发布标签的桌面文档负责桌面版本行为。Wiki 是面向新用户的导航、简短入门和排障入口，源文件在 `docs/wiki/`，不复制维护另一套完整参数表。
 
 Issue 收集可复现故障和明确需求；Discussion 中 `Q&A` 用于问答、`Ideas` 用于开放方案、`Announcements` 用于公告、`Show and tell` 用于脱敏体验分享。不要承诺未验证的能力或固定响应时间。私密漏洞报告用于凭据泄漏与安全缺陷，流程见 [SECURITY.md](../SECURITY.md)。
 
@@ -23,7 +23,7 @@ git diff --check
 
 ## Wiki 首次初始化
 
-GitHub 的 `has_wiki=true` 仅开启功能；首次建立独立 Wiki Git 仓库需要在 [Wiki 新建页](https://github.com/wide-sky-with-me/ysu_net/wiki/_new) 保存一次 `Home`。初始化前 `git clone ...wiki.git` 会返回仓库不存在。GitHub API 的仓库内容接口不是 Wiki 页面接口，见 [官方 Wiki 文档](https://docs.github.com/en/communities/documenting-your-project-with-wikis/adding-or-editing-wiki-pages#cloning-wikis-to-your-computer)。
+项目 Wiki 已建立，日常维护直接按下一节同步。以下步骤仅用于首次启用：GitHub 的 `has_wiki=true` 仅开启功能；首次建立独立 Wiki Git 仓库需要在 [Wiki 新建页](https://github.com/wide-sky-with-me/ysu_net/wiki/_new) 保存一次 `Home`。初始化前 `git clone ...wiki.git` 会返回仓库不存在。GitHub API 的仓库内容接口不是 Wiki 页面接口，见 [官方 Wiki 文档](https://docs.github.com/en/communities/documenting-your-project-with-wikis/adding-or-editing-wiki-pages#cloning-wikis-to-your-computer)。
 
 初始化时只填公开简介或项目链接，无需提交真实配置、日志或凭据。编辑权限保持仅协作者；更广泛贡献通过源文档 PR 审查。
 
@@ -45,4 +45,4 @@ git -C "$wiki_dir" diff --stat
 
 ## 发布前人工核对
 
-自 `v0.2.0` 起桌面采用 Tauri，Python CLI 仍独立发布；`v0.1.0` 的 Qt 附件和旧测试标签保留，不覆盖。核对源码版本、Release notes 标题、下载与迁移链接，以及四平台构建、原生和安装验收全部成功这一发布门槛；未取得对应结果前不写成本轮 CI 通过或已经发布。核对已有 Issue 的实时处理状态，区分离线回归、CI 安装检查和校内实测。正文、表单、讨论和 Wiki 都不加入真实账号、会话、设备地址、个人路径或截图；历史验收保持原貌，当前检查单独说明实际范围。
+自 `v0.2.0` 起桌面采用 Tauri，Python CLI 仍独立发布；`v0.1.0` 的 Qt 附件和旧测试标签保留，不覆盖。核对源码版本、Release notes 标题、下载与迁移链接，以及四平台构建、原生 / 安装及独立浏览器验收全部成功这一发布门槛；未取得对应结果前不写成本轮 CI 通过或已经发布。核对已有 Issue 的实时处理状态，区分离线回归、CI 安装检查和校内实测。正文、表单、讨论和 Wiki 都不加入真实账号、会话、设备地址、个人路径或含敏感信息的截图。界面文档可复用[注明云端来源的合成数据截图](screenshots/README.md)，Wiki 图片使用指向源码仓库的绝对地址；历史验收保持原貌，当前检查单独说明实际范围。

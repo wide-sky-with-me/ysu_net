@@ -1,8 +1,8 @@
 # Tauri 原生 Rust 桌面版
 
-[返回首页](../README.md) · [两个产品与架构](architecture.md) · [Rust 迁移决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)
+[文档导航](README.md) · [桌面使用指南](wiki/Desktop-Client.md) · [两个产品与架构](architecture.md) · [Rust 迁移决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)
 
-自 **v0.2.0** 起，桌面采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI 与 systemd 独立保留，不是桌面运行时；源码版本与正式发行的区别统一见[首页发行状态](../README.md#发行与候选状态)。原 Qt 客户端与 Python 旁车源码已移除，新桌面不启动或打包 Python、Node、Playwright 认证运行时，也没有 Python `gui` 可选依赖。正式附件从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载，发布仍要求四平台构建、原生与安装验收成功，旧 `v0.1.0` Qt 附件保留历史。安装及旧自启迁移见[迁移说明](migration.md#桌面-v020-升级)。
+自 **v0.2.0** 起，桌面采用 Tauri 2 + Svelte + 全 Rust 认证和后台，Windows / Linux / macOS 共用源码。Python CLI 与 systemd 独立保留，不是桌面运行时；源码版本与正式发行的区别统一见[首页发行状态](../README.md#发行与候选状态)。原 Qt 客户端与 Python 旁车源码已移除，新桌面不启动或打包 Python、Node、Playwright 认证运行时，也没有 Python `gui` 可选依赖。正式附件从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载，发布仍要求四平台构建、原生 / 安装及独立浏览器验收成功，旧 `v0.1.0` Qt 附件保留历史。安装及旧自启迁移见[迁移说明](migration.md#桌面-v020-升级)。
 
 ## 运行语义
 
@@ -18,7 +18,7 @@
 
 ### 独立只读状态观察
 
-只读观察、API HTML 导航规范化与 Info 来源配对纳入 0.2.3，共用源码的云端与真实验证见[本轮记录](desktop-release-0.2.3.md)；早期开发候选的分轮证据仍归[历史对照](auth-flow-review-2026-10-27.md)。选择原因和限制见[只读观察决策](../.agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md)。
+只读观察、API HTML 导航规范化与 Info 来源配对纳入 0.2.3，共用源码的云端与真实验证见[0.2.3 发布记录](desktop-release-0.2.3.md)；早期开发候选的分轮证据仍归[历史对照](auth-flow-review-2026-10-27.md)。选择原因和限制见[只读观察决策](../.agents/notes/implemented/desktop/2026-10-27-passive-state-observation.md)。
 
 原生 Worker 在自动重连关闭时也独立观察连接状态，托盘后台不依赖 WebView 定时器。健康周期为 30 秒；窗口获焦 / 恢复可见和 `online` / `offline` 事件只是查询提示，前端合并 300ms 内的突发事件，不从 `navigator` 或 IPC 接收确认推断在线 / 离线。界面只接受正常单调快照流中的原生结果。
 
@@ -38,7 +38,7 @@ Native 仍在账户读取后独立查询 Status；提交成功详情前再以 `m
 
 ### 门户导航与诊断
 
-精确来源变体、Browser bootstrap Location 接线与分类诊断纳入 0.2.3，最新验证归[本轮记录](desktop-release-0.2.3.md)。早期候选 `2bb9589e` 的四目标 Native、Mock 与 Community 成绩及 111 只读样本仍归[历史记录](portal-navigation-review-2026-10-27.md)，不将其作为新登录或 Win11 网页下线的证明；选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。
+精确来源变体、Browser bootstrap Location 接线与分类诊断纳入 0.2.3，最新验证归[0.2.3 发布记录](desktop-release-0.2.3.md)。早期候选 `2bb9589e` 的四目标 Native、Mock 与 Community 成绩及 111 只读样本仍归[历史记录](portal-navigation-review-2026-10-27.md)，不将其作为新登录或 Win11 网页下线的证明；选择原因见[精确来源决策](../.agents/notes/implemented/desktop/2026-10-27-portal-entry-variants.md)。
 
 来源只增加由配置 endpoint 派生的第二个完整 Url：原无 query 的精确 redirect 入口，以及唯一精确 `mode=history` 变体；不剥除任意 query，不通配额外 / 重复 / 编码参数、域名或路径。它们才可使用原受限 HTTP 目标规范化：无 body GET、HTTPS base 默认 443、同 host 的 HTTP 默认 80、配置 endpoint 派生的固定目标路径（`portal_main` 角色），目标无 userinfo / fragment，唯一 sessionId 的解码值非空、不超过 1024 字节且无控制符；先转换为 HTTPS 再做原 allowed 检查，不发明文 HTTP、不清改目标 query。
 
@@ -60,7 +60,7 @@ CAS API 的 captchaDiv 检查仅接受所选密码表单与无所属 form 的独
 
 Rust 与 Python 的动作响应同时检查外层及 data 的 authResult / authMessage：authResult 存在时仅接受字符串 success，其他值停止；success=false 也停止。服务选择被拒后不再请求 userOnline，后续成功仍以实际账号与服务独立核验为准。固定错误分类不输出服务器原文。
 
-本节能力纳入 0.2.3。Rust 共用 AuthClient 已在 21 完成真实离线登录、在线退出与 Shell 独立核验，Windows 原生探针也完成无凭据在线查询，证据及边界归[本轮记录](desktop-release-0.2.3.md)。123 的 CAS 后服务拒绝曾在正式 v0.2.2 Python CLI 上以相同测试输入复现，不能作为 Rust 专属导航故障或配置无效的证明；原采样与当时状态见[123 记录](portal-123-review-2026-10-27.md#2026-10-28-正式-python-cli-对照补证)，协议选择见[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)。
+本节能力纳入 0.2.3。Rust 共用 AuthClient 已在 21 完成真实离线登录、在线退出与 Shell 独立核验，Windows 原生探针也完成无凭据在线查询，证据及边界归[0.2.3 发布记录](desktop-release-0.2.3.md)。123 的 CAS 后服务拒绝曾在正式 v0.2.2 Python CLI 上以相同测试输入复现，不能作为 Rust 专属导航故障或配置无效的证明；原采样与当时状态见[123 记录](portal-123-review-2026-10-27.md#2026-10-28-正式-python-cli-对照补证)，协议选择见[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)。
 
 同日[21 换机对照](portal-21-review-2026-10-28.md)已用现有客户端与相同正式 v0.2.2 wheel 完成真实离线登录及在线退出，并恢复原连接和后台。21 使用本机中国移动配置且 DNS 正常，和 123 的输入 / 网络条件不同；这是 Shell 正常链的补证，不是 Rust 或本节新源码验收。
 
@@ -172,7 +172,7 @@ dbus-run-session -- xvfb-run -a uv run --no-sync python packaging/tauri_linux_li
 
 截图只用于专用测试显示。Windows 传 `.exe`，macOS 传 `.app/Contents/MacOS/ysu-net`。脚本测量程序拥有的完整进程树，检查旧旁车及 Python/Node 认证进程缺席、退出清理。RSS 求和会重复共享页；PSS 可用时另记；短样本不作为稳态、认证峰值或跨机器性能比较。最小化 API 自检不代替带真实窗口管理器的桌面点击验证。
 
-[Tauri CI](../.github/workflows/tauri.yml)要求 Linux x64、Windows x64、macOS arm64 / x64 四个平台完成上述构建、原生与实际安装/卸载验收，上传构建和测试附件；推送 `v*` 标签时仅在全部平台成功后发布 Release。流程定义不是本轮通过声明，结果以对应标签的实际运行为准。
+[Tauri CI](../.github/workflows/tauri.yml)要求 Linux x64、Windows x64、macOS arm64 / x64 四个平台完成上述构建、原生与实际安装/卸载验收，上传构建和测试附件；推送 `v*` 标签时须全部平台及独立浏览器验收成功后才发布 Release。流程定义不是本轮通过声明，结果以对应标签的实际运行为准。
 
 ## 验收记录
 
