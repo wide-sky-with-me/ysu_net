@@ -21,16 +21,16 @@
 
 ### 发行与候选状态
 
-**正式 v0.2.3 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.3.md)。主分支源码、开发产物与正式安装包按各自提交区分。开发源码另有[可离线保留的链路调试记录](docs/debug-recording.md)，正式 0.2.3 尚不包含该入口。
+**正式 v0.2.4 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.4.md)。主分支源码、开发产物与正式安装包按各自提交区分。0.2.4 提供[可离线保留的链路调试记录](docs/debug-recording.md)，从“日志”页显式开启。
 
 | 系统 | 安装包 |
 | --- | --- |
-| Windows 10 / 11 x64 | [下载 EXE](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_windows-x64-setup.exe) |
-| Ubuntu 22.04 及更新，x86_64 | [下载 DEB](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_linux-x64.deb) |
-| macOS 13.5+，Apple 芯片 | [下载 arm64 DMG](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_macos-arm64.dmg) |
-| macOS 13.5+，Intel | [下载 x64 DMG](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_macos-x64.dmg) |
+| Windows 10 / 11 x64 | [下载 EXE](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.4/YSU-Net_0.2.4_windows-x64-setup.exe) |
+| Ubuntu 22.04 及更新，x86_64 | [下载 DEB](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.4/YSU-Net_0.2.4_linux-x64.deb) |
+| macOS 13.5+，Apple 芯片 | [下载 arm64 DMG](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.4/YSU-Net_0.2.4_macos-arm64.dmg) |
+| macOS 13.5+，Intel | [下载 x64 DMG](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.4/YSU-Net_0.2.4_macos-x64.dmg) |
 
-Windows / macOS 可主动检查更新；本次仅提供完整包，没有差分附件。Linux 通过系统包手动升级。旧 Qt / Inno 版和旧候选包先看[迁移说明](docs/migration.md#桌面-v023-升级)，更新与签名规则见[软件更新](docs/updates.md)。
+Windows / macOS 可主动检查更新；本次仅提供完整包，没有差分附件。Linux 通过系统包手动升级。旧 Qt / Inno 版和旧候选包先看[迁移说明](docs/migration.md#桌面-v024-升级)，更新与签名规则见[软件更新](docs/updates.md)。
 
 ### 主要功能
 

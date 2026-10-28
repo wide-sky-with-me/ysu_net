@@ -50,3 +50,5 @@ Browser 认证请求由 Rust 受控转发，使用同一 HTTP 细分；浏览器
 实现与取舍见[记录决策](../.agents/notes/implemented/desktop/2026-10-28-opt-in-auth-recording.md)。调试功能本身不证明此前 Windows 网络故障已经修复。
 
 当前开发包的提交、四平台结果、Windows 产物摘要与未覆盖范围见[本轮验收](debug-recording-2026-10-28.md)。
+
+正式 0.2.4 的标签、签名及公开附件另见[发布记录](desktop-release-0.2.4.md)；此前开发包的同版本号不能作为正式产物身份。
