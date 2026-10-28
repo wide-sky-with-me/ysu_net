@@ -67,7 +67,10 @@ async fn mobile_cas_login_and_logout_accept_observed_envelopes_and_fresh_status_
         state.cas_required = true;
         state.bootstrap_index_empty = true;
         state.observed_action_envelopes = true;
-        state.callback_body = Some("<html><script>if (false) location='/noSupport';</script><body>Portal</body></html>".into());
+        state.callback_body = Some(
+            "<html><script>if (false) location='/noSupport';</script><body>Portal</body></html>"
+                .into(),
+        );
     });
     let client = fixture.client();
     assert!(!client.status().await.unwrap().online);
@@ -143,7 +146,14 @@ fn cas_form_does_not_treat_resources_or_script_dictionaries_as_a_challenge() {
     let page = http.cas_endpoint("authserver/login").unwrap();
     let body = format!("{FORM}<script>const route='/noSupport'; const message='安全验证';</script><style>.noSupport {{ display:none }}</style><!-- 风险验证 -->");
     assert!(LoginForm::parse(&body, &page, &http).is_ok());
-    for warning in ["IP被冻结", "访问被拒绝", "安全验证", "风险验证", "访问频繁", "noSupport"] {
+    for warning in [
+        "IP被冻结",
+        "访问被拒绝",
+        "安全验证",
+        "风险验证",
+        "访问频繁",
+        "noSupport",
+    ] {
         assert!(LoginForm::parse(&format!("{body}<h1>{warning}</h1>"), &page, &http).is_err());
     }
 }
@@ -165,7 +175,10 @@ async fn actual_callback_document_challenges_still_stop_before_service_actions()
         let error = fixture.client().login().await.unwrap_err();
         assert_eq!(error.code, INTERACTION_ERROR);
         assert_eq!(error.diagnostic().stage, DiagnosticStage::CasCallback);
-        assert_eq!(error.diagnostic().reason, DiagnosticReason::BusinessRejected);
+        assert_eq!(
+            error.diagnostic().reason,
+            DiagnosticReason::BusinessRejected
+        );
         assert_eq!(fixture.count("/eportal/network/serviceLogin"), 0);
         assert_eq!(fixture.count("/eportal/network/userOnline"), 0);
     }
