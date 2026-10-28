@@ -75,6 +75,10 @@ export interface CoreCommands {
   rotation: { enabled: boolean };
   save_prefs: { theme?: Theme; accent?: Accent; close_to_tray?: boolean; autostart_minimized?: boolean };
   diagnostics: Record<string, never>;
+  debug_status: Record<string, never>;
+  debug_start: Record<string, never>;
+  debug_stop: Record<string, never>;
+  debug_open: Record<string, never>;
   browser_install: Record<string, never>;
 }
 export interface Transport {

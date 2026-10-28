@@ -74,6 +74,7 @@ pub(crate) async fn at<T>(
     stage: DiagnosticStage,
     future: impl Future<Output = Result<T, AuthError>>,
 ) -> Result<T, AuthError> {
+    crate::trace::Context::current().stage(stage);
     future.await.map_err(|error| error.at(stage))
 }
 

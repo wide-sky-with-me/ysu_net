@@ -193,7 +193,13 @@ impl Session {
                 )
                 .await?;
             r.ensure_success()?;
-            Snapshot::parse(r.json()?).map_err(|e| e.or_reason(Reason::StateUnrecognized))
+            let observed =
+                Snapshot::parse(r.json()?).map_err(|e| e.or_reason(Reason::StateUnrecognized))?;
+            op.trace.emit(crate::trace::TraceEvent::OnlineState {
+                online: observed.status.online,
+                service_known: observed.status.service.is_some(),
+            });
+            Ok(observed)
         })
         .await
     }

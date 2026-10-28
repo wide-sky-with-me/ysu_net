@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod accounts;
 mod bridge;
+mod debug_recording;
 mod project;
 mod runtime;
 mod smoke;
