@@ -13,6 +13,7 @@ mod navigation_diagnostic;
 mod presentation;
 mod protocol;
 mod quota;
+mod trace;
 mod transport;
 
 use diagnostic::{at, operation as diagnose};
@@ -26,6 +27,7 @@ pub use diagnostic::{AuthDiagnostic, DiagnosticOperation, DiagnosticReason, Diag
 pub use info_observation::InfoObservation;
 pub use navigation_diagnostic::{NavigationDiagnostic, NavigationKind};
 pub use quota::{classify_quota, Quota, QuotaState};
+pub use trace::{Trace, TraceEvent, TraceRecord};
 pub const SERVICES: [&str; 4] = ["校园网", "中国移动", "中国联通", "中国电信"];
 pub const QUERY_ERROR: i32 = 2;
 pub const OPERATION_ERROR: i32 = 3;
@@ -230,6 +232,7 @@ pub struct AuthClient {
     config: Config,
     local: bool,
     lock: Arc<Mutex<()>>,
+    trace: Trace,
 }
 
 impl AuthClient {
@@ -242,6 +245,7 @@ impl AuthClient {
             config,
             local: false,
             lock: Arc::new(Mutex::new(())),
+            trace: Trace::default(),
         })
     }
 
@@ -256,7 +260,30 @@ impl AuthClient {
             config,
             local: true,
             lock: Arc::new(Mutex::new(())),
+            trace: Trace::default(),
         })
+    }
+
+    /// Recording is opt-in; the sink receives only typed, non-secret events.
+    pub fn with_trace(mut self, trace: Trace) -> Self {
+        self.trace = trace;
+        self
+    }
+
+    async fn diagnosed<T>(
+        &self,
+        kind: DiagnosticOperation,
+        future: impl std::future::Future<Output = Result<T, AuthError>>,
+    ) -> Result<T, AuthError> {
+        self.trace
+            .run(
+                kind,
+                self.config.backend == "browser",
+                self.config.verify_tls,
+                self.config.operation_timeout,
+                diagnose(kind, future),
+            )
+            .await
     }
 
     fn operation(&self) -> Operation {
@@ -272,7 +299,7 @@ impl AuthClient {
     }
 
     pub async fn status(&self) -> Result<Status, AuthError> {
-        diagnose(DiagnosticOperation::Status, async {
+        self.diagnosed(DiagnosticOperation::Status, async {
             let op = self.operation();
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             self.session(&op)
@@ -293,7 +320,7 @@ impl AuthClient {
     /// Read-only account information with before/after identity evidence.
     /// One session, lock and operation deadline cover the complete observation.
     pub async fn info_observation(&self) -> Result<InfoObservation, AuthError> {
-        diagnose(DiagnosticOperation::Info, async {
+        self.diagnosed(DiagnosticOperation::Info, async {
             let op = self.operation();
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let session = self.session(&op).await?;
@@ -317,7 +344,7 @@ impl AuthClient {
     /// Rotation evidence: only this configured online account/service, checked twice.
     /// One deadline includes lock queueing, navigation, account lookup and verification.
     pub async fn verified_info(&self) -> Result<serde_json::Value, AuthError> {
-        diagnose(DiagnosticOperation::VerifiedInfo, async {
+        self.diagnosed(DiagnosticOperation::VerifiedInfo, async {
             self.config
                 .require_credentials()
                 .map_err(|e| e.at(DiagnosticStage::Config))?;
@@ -363,7 +390,7 @@ impl AuthClient {
     }
 
     pub async fn login(&self) -> Result<Status, AuthError> {
-        diagnose(DiagnosticOperation::Login, async {
+        self.diagnosed(DiagnosticOperation::Login, async {
             self.config
                 .require_credentials()
                 .map_err(|e| e.at(DiagnosticStage::Config))?;
@@ -376,7 +403,7 @@ impl AuthClient {
     }
 
     pub async fn logout(&self) -> Result<Status, AuthError> {
-        diagnose(DiagnosticOperation::Logout, async {
+        self.diagnosed(DiagnosticOperation::Logout, async {
             self.config
                 .require_credentials()
                 .map_err(|e| e.at(DiagnosticStage::Config))?;
@@ -389,7 +416,7 @@ impl AuthClient {
     }
 
     pub async fn switch_service(&self, target: &str) -> Result<Status, AuthError> {
-        diagnose(DiagnosticOperation::SwitchService, async {
+        self.diagnosed(DiagnosticOperation::SwitchService, async {
             if !SERVICES.contains(&target) {
                 return Err(AuthError::query("目标服务无效"));
             }

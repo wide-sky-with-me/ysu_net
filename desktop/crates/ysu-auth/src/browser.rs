@@ -620,6 +620,27 @@ impl Browser {
         };
         let top_document = params["resourceType"] == "Document"
             && params["frameId"].as_str() == Some(self.main_frame.as_str());
+        if top_document {
+            op.trace.emit(crate::trace::TraceEvent::BrowserDocument {
+                endpoint: NavigationDiagnostic::capture(
+                    NavigationKind::BrowserDocument,
+                    &url,
+                    &url,
+                    &self.http.base,
+                    &self.http.cas,
+                    request["method"].as_str().unwrap_or(""),
+                    request["hasPostData"].as_bool().unwrap_or(false)
+                        || request.get("postData").is_some(),
+                ),
+                status: params["responseStatusCode"]
+                    .as_u64()
+                    .filter(|v| (100..=599).contains(v))
+                    .map(|v| v as u16),
+                failed: params["responseErrorReason"]
+                    .as_str()
+                    .is_some_and(|v| !v.is_empty()),
+            });
+        }
         let captive =
             url.origin() != self.http.base.origin() && url.origin() != self.http.cas.origin();
         if self.http.allowed(&url).is_err() || (captive && !top_document) {

@@ -180,6 +180,7 @@ impl Worker {
         self.observation.lock().unwrap().sample_started();
         self.action = "observe";
         self.phase = DiagnosticStage::OnlineState;
+        self.runtime.recording.task(self.action, self.phase, None);
         // Cached config avoids settings IO/migration and cannot change the saved identity.
         // Passive reads always use the public API, even when authentication uses a browser:
         // the browser status path starts Chromium and cannot fit this silent read budget.

@@ -25,10 +25,14 @@ const HEADER_LIMIT: usize = 64 * 1024;
 #[derive(Clone)]
 pub(crate) struct Operation {
     pub deadline: Instant,
+    pub(crate) trace: crate::trace::Context,
 }
 impl Operation {
     pub fn new(deadline: Instant) -> Self {
-        Self { deadline }
+        Self {
+            deadline,
+            trace: crate::trace::Context::current(),
+        }
     }
     pub async fn run<F: Future>(&self, f: F) -> Result<F::Output, AuthError> {
         self.remaining()?;
@@ -46,7 +50,10 @@ impl Operation {
     }
     pub fn fraction(&self, n: u32, d: u32) -> Self {
         let now = Instant::now();
-        Self::new(now + self.deadline.saturating_duration_since(now) * n / d)
+        Self {
+            deadline: now + self.deadline.saturating_duration_since(now) * n / d,
+            trace: self.trace.clone(),
+        }
     }
     pub async fn pause(&self) -> Result<(), AuthError> {
         self.run(tokio::time::sleep(Duration::from_millis(200)))
@@ -229,70 +236,93 @@ impl Transport {
         body: Option<Vec<u8>>,
         op: &Operation,
     ) -> Result<Reply, AuthError> {
-        if headers
-            .iter()
-            .map(|(key, value)| key.as_str().len() + value.as_bytes().len())
-            .sum::<usize>()
-            > HEADER_LIMIT
-        {
-            return Err(AuthError::query("请求头超过大小限制"));
-        }
-        if body.as_ref().is_some_and(|v| v.len() > RESPONSE_LIMIT) {
-            return Err(AuthError::query("请求内容超过限制"));
-        }
-        let mut request = client
-            .request(method, url.clone())
-            .headers(headers)
-            .timeout(op.remaining()?);
-        if let Some(body) = body {
-            request = request.body(body);
-        }
-        let mut r = op.run(request.send()).await?.map_err(network_error)?;
-        let status = r.status().as_u16();
-        let headers = r.headers().clone();
-        if headers
-            .iter()
-            .map(|(k, v)| k.as_str().len() + v.as_bytes().len())
-            .sum::<usize>()
-            > HEADER_LIMIT
-        {
-            return Err(AuthError::query("响应头超过限制"));
-        }
-        if r.content_length()
-            .is_some_and(|n| n > RESPONSE_LIMIT as u64)
-        {
-            return Err(AuthError::query("门户响应超过大小限制"));
-        }
-        if url.origin() == self.base.origin() {
-            for value in headers.get_all(SET_COOKIE) {
-                if let Ok(cookie) = value.to_str() {
-                    let mut parts = cookie.split(';');
-                    let first = parts.next().unwrap_or("");
-                    let sam_path = parts.any(|p| p.trim().eq_ignore_ascii_case("path=/sam"));
-                    if sam_path {
-                        if let Some(value) = first.strip_prefix("JSESSIONID=") {
-                            if let Ok(mut slot) = self.sam_session.lock() {
-                                *slot = Some(value.to_owned());
+        let endpoint = NavigationDiagnostic::capture(
+            NavigationKind::HttpLocation,
+            &url,
+            &url,
+            &self.base,
+            &self.cas,
+            method.as_str(),
+            body.is_some(),
+        );
+        let mut trace = op.trace.request(endpoint, method == Method::POST);
+        let result = async {
+            if headers
+                .iter()
+                .map(|(key, value)| key.as_str().len() + value.as_bytes().len())
+                .sum::<usize>()
+                > HEADER_LIMIT
+            {
+                return Err(AuthError::query("请求头超过大小限制"));
+            }
+            if body.as_ref().is_some_and(|v| v.len() > RESPONSE_LIMIT) {
+                return Err(AuthError::query("请求内容超过限制"));
+            }
+            let mut request = client
+                .request(method, url.clone())
+                .headers(headers)
+                .timeout(op.remaining()?);
+            if let Some(body) = body {
+                request = request.body(body);
+            }
+            let mut r = trace.network(
+                op.run(request.send()).await,
+                crate::trace::NetworkPhase::Send,
+            )?;
+            let status = r.status().as_u16();
+            trace.headers(status);
+            let headers = r.headers().clone();
+            if headers
+                .iter()
+                .map(|(k, v)| k.as_str().len() + v.as_bytes().len())
+                .sum::<usize>()
+                > HEADER_LIMIT
+            {
+                return Err(AuthError::query("响应头超过限制"));
+            }
+            if r.content_length()
+                .is_some_and(|n| n > RESPONSE_LIMIT as u64)
+            {
+                return Err(AuthError::query("门户响应超过大小限制"));
+            }
+            if url.origin() == self.base.origin() {
+                for value in headers.get_all(SET_COOKIE) {
+                    if let Ok(cookie) = value.to_str() {
+                        let mut parts = cookie.split(';');
+                        let first = parts.next().unwrap_or("");
+                        let sam_path = parts.any(|p| p.trim().eq_ignore_ascii_case("path=/sam"));
+                        if sam_path {
+                            if let Some(value) = first.strip_prefix("JSESSIONID=") {
+                                if let Ok(mut slot) = self.sam_session.lock() {
+                                    *slot = Some(value.to_owned());
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = op.run(r.chunk()).await?.map_err(network_error)? {
-            if bytes.len().saturating_add(chunk.len()) > RESPONSE_LIMIT {
-                return Err(AuthError::query("门户响应超过大小限制"));
+            let mut bytes = Vec::new();
+            while let Some(chunk) = trace.network(
+                op.run(r.chunk()).await,
+                crate::trace::NetworkPhase::ReadBody,
+            )? {
+                if bytes.len().saturating_add(chunk.len()) > RESPONSE_LIMIT {
+                    return Err(AuthError::query("门户响应超过大小限制"));
+                }
+                bytes.extend_from_slice(&chunk);
+                trace.bytes = bytes.len();
             }
-            bytes.extend_from_slice(&chunk);
+            Ok(Reply {
+                url: url.clone(),
+                status,
+                headers,
+                body: bytes,
+                chain: vec![url],
+            })
         }
-        Ok(Reply {
-            url: url.clone(),
-            status,
-            headers,
-            body: bytes,
-            chain: vec![url],
-        })
+        .await;
+        trace.finish(&result);
+        result
     }
     pub async fn follow(
         &self,
@@ -432,6 +462,9 @@ impl Transport {
             method.as_str(),
             has_body,
         );
+        op.trace.emit(crate::trace::TraceEvent::Navigation {
+            navigation: diagnostic,
+        });
         if let Some(target) = self
             .resolve_captive_navigation(from, &next, method, has_body, op)
             .await
@@ -581,7 +614,7 @@ fn captive_client() -> Result<reqwest::Client, AuthError> {
         .build()
         .map_err(|_| AuthError::query("门户引导客户端初始化失败"))
 }
-fn network_error(e: reqwest::Error) -> AuthError {
+pub(crate) fn network_error(e: reqwest::Error) -> AuthError {
     if e.is_timeout() {
         AuthError::timeout()
     } else if e.is_connect() {

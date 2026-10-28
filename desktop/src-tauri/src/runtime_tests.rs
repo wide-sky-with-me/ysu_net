@@ -45,6 +45,25 @@ async fn replacement_runtime_sequence_floor_keeps_first_event_newer_than_previou
 fn fixture() -> (Arc<Runtime>, mpsc::Receiver<Action>) {
     Runtime::new(Store::open(None, true).unwrap(), Arc::new(|_| {})).unwrap()
 }
+
+#[tokio::test]
+async fn debug_commands_in_demo_never_start_authentication_or_create_files() {
+    let (runtime, _receiver) = fixture();
+    let original = runtime.snapshot();
+    assert_eq!(
+        runtime.request("debug_status", json!({})).await.unwrap()["state"],
+        "off"
+    );
+    assert!(runtime.request("debug_start", json!({})).await.is_err());
+    assert!(runtime.request("debug_stop", json!({})).await.is_err());
+    assert!(runtime.debug_directory().is_err());
+    assert_eq!(runtime.snapshot()["config"], original["config"]);
+    assert_eq!(runtime.snapshot()["prefs"], original["prefs"]);
+    assert_eq!(demo(&runtime).lock().unwrap().status_calls, 0);
+    assert!(!runtime.recording.status()["directory_available"]
+        .as_bool()
+        .unwrap());
+}
 fn demo(runtime: &Runtime) -> Arc<Mutex<Demo>> {
     match &runtime.backend {
         Backend::Demo(demo) => demo.clone(),
@@ -463,7 +482,15 @@ async fn idle_update_pause_stops_a_running_worker_and_ignores_late_queued_reads(
 
 #[test]
 fn request_boundaries_are_strict() {
-    for command in ["snapshot", "diagnostics", "browser_install"] {
+    for command in [
+        "snapshot",
+        "diagnostics",
+        "browser_install",
+        "debug_status",
+        "debug_start",
+        "debug_stop",
+        "debug_open",
+    ] {
         assert!(valid_request(command, &json!({})));
         assert!(!valid_request(command, &json!([])));
         assert!(!valid_request(command, &json!({"exec":"anything"})));
