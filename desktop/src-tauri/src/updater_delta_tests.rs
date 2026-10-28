@@ -512,6 +512,21 @@ fn patch_signature_precedes_any_decoder_and_final_signature_is_still_required() 
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn cache_owner_drop_releases_lock_despite_an_inherited_file_description() {
+    let (_directory, root) = root();
+    let cache = Cache::open(root.clone()).unwrap();
+    // dup models the shared open-file description retained between fork and exec.
+    let inherited = cache._lock.try_clone().unwrap();
+    assert!(Cache::open(root.clone()).is_err());
+    drop(cache);
+    let reopened = Cache::open(root.clone()).unwrap();
+    drop(inherited);
+    assert!(Cache::open(root).is_err());
+    assert!(reopened.entries().is_ok());
+}
+
 #[tokio::test]
 async fn first_launch_fetches_only_the_full_target_and_caches_after_verification() {
     let (release, _, _, target, patch) = fixture();

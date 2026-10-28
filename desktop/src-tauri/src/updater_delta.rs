@@ -762,6 +762,14 @@ struct Cache {
     _lock: File,
     protected_base: Option<String>,
 }
+impl Drop for Cache {
+    fn drop(&mut self) {
+        // A concurrent Unix fork can briefly retain this description even with
+        // CLOEXEC. The cache owner, not an inherited descriptor, owns the lock.
+        // Decision: .agents/notes/implemented/desktop/2026-10-28-cache-lock-lifetime.md
+        let _ = FileExt::unlock(&self._lock);
+    }
+}
 struct Entry {
     name: String,
     size: u64,

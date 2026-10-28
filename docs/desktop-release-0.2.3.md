@@ -29,7 +29,21 @@
 
 UTC 03:56:46–03:56:54，在 21 运行同提交 Linux 云端 Rust 探针：在线 status=0；Shell 下线后 Rust status=1，证明离线门户引导可完成；Rust login=4，在 CAS 回调要求交互，Shell 独立确认仍离线。随后原 Shell login=0 恢复移动服务，身份匹配、守护 active，原配置和源码逐字节不变。本轮没有成功 Rust 登录或退出，不算认证闭环通过。
 
-随后只读分类证明正常门户 / 回调页脚本引用 noSupport，旧 Rust 整页扫描将其误作风控；新增文档文本判断及正反合同。原因与替代方案归[决策](../.agents/notes/implemented/desktop/2026-10-28-cas-callback-risk-text.md)。修复后云端和真实复测仍待执行，暂不发布。
+随后只读分类证明正常门户 / 回调页脚本引用 noSupport，旧 Rust 整页扫描将其误作风控；新增文档文本判断及正反合同。原因与替代方案归[决策](../.agents/notes/implemented/desktop/2026-10-28-cas-callback-risk-text.md)。
+
+## 修复后的真实验证
+
+候选 `153f24c4ffc09fc07b64983f41ad331d94d1f182` 的 [Headless 40630120452](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40630120452) Linux / Windows 云端产物已核对 manifest 源码及 SHA256。Linux 二进制摘要为 `c27c811c2d94ca09374079bea82c80ed44c373885e1a6fc6fb4efc7972e66c0e`，Windows 为 `745fd3792e4015136c3b5ea2dc82d15a3b2d14958f60fe17e20b3c304db7040b`。
+
+UTC 04:06:41–04:06:44，21 原后台停止后由 Shell 下线并独立确认 offline；Rust status=1，Rust login=0 且新 Transport 后查确认同账号 / 移动服务在线，Shell 独立 status=0 配对一致；Rust logout=0，Rust 与 Shell 均确认 offline。最后原 Shell login=0 恢复原移动连接，守护恢复 active，持久配置与原安装源码逐字节一致。凭据仅在 21 内存及 Rust stdin 管道中使用，未更换原安装或导出配置。
+
+Windows 同提交 exe 使用默认门户 / CAS、API 后端、TLS 校验及 20 秒总预算，不传账号密码、不开 GUI、不修改配置，status=0，读取到 online / unicom；owner_matches_config=false 是无账号输入的预期，不能据此认领在线身份。临时 Windows 文件已删除。该结果证明本次环境的 Rust 导航可完成，不代表原 Windows GUI 故障已逐项复现或 Windows 离线登录 / 退出通过。
+
+上述探针直接使用产品 AuthClient，没有复制 Python 协议；它不包含原生 Worker、账号池、锁、托盘或界面。Shell 账号池已有单独实测，Rust Worker 仍以相应云端回归为证据。脱敏收据与控制器保存于本地忽略的 `build/release-0.2.3-20261028/`，不上传原页面、账号或会话。
+
+## 后续门禁修正
+
+[Native 40630120663](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40630120663) 的 macOS arm64 在首次下载后立即重新打开缓存时遇到 WouldBlock。补齐 Cache 所有者析构时显式解锁，并新增共享文件描述符仍存在时的排他 / 释放回归；原断言保留，取舍与尚未直接观察的 fork 解释见[决策](../.agents/notes/implemented/desktop/2026-10-28-cache-lock-lifetime.md)。需要新候选通过后再正式发布。
 
 ## 未覆盖范围
 
