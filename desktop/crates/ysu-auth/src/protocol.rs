@@ -667,6 +667,22 @@ impl LoginForm {
     }
 }
 fn risk_page(body: &str) -> bool {
+    // Normal portal bundles reference /noSupport in scripts. Only document text
+    // is evidence of a returned challenge; resource names are not a rejection.
+    // Decision: .agents/notes/implemented/desktop/2026-10-28-cas-callback-risk-text.md
+    let html = Html::parse_document(body);
+    let mut content = String::new();
+    let mut pending = html.root_element().children().rev().collect::<Vec<_>>();
+    while let Some(node) = pending.pop() {
+        if let Some(element) = ElementRef::wrap(node) {
+            if matches!(element.value().name(), "script" | "style" | "noscript" | "template") {
+                continue;
+            }
+            pending.extend(element.children().rev());
+        } else if let Some(text) = node.value().as_text() {
+            content.push_str(text);
+        }
+    }
     [
         "IP被冻结",
         "访问被拒绝",
@@ -676,7 +692,7 @@ fn risk_page(body: &str) -> bool {
         "noSupport",
     ]
     .iter()
-    .any(|s| body.contains(s))
+    .any(|s| content.contains(s))
 }
 fn bool_value(v: &Value) -> Option<bool> {
     v.as_bool()
@@ -795,10 +811,15 @@ async fn api_cas_login(
             })?;
         let after = http.get(next, op).await?;
         after.ensure_success()?;
-        if after.url.origin() != http.base.origin() || risk_page(&after.text()) {
+        if after.url.origin() != http.base.origin() {
             return Err(AuthError::interaction(
                 "统一认证未完成门户回跳，请人工处理后重试",
-            ));
+            ).because(Reason::RedirectBlocked));
+        }
+        if risk_page(&after.text()) {
+            return Err(AuthError::interaction(
+                "统一认证未完成门户回跳，请人工处理后重试",
+            ).because(Reason::BusinessRejected));
         }
         Ok(())
     })

@@ -200,6 +200,7 @@ struct State {
     dom_captcha: bool,
     risk: bool,
     cas_reject: u16,
+    callback_body: Option<String>,
     state_http: u16,
     state_override: Option<Value>,
     node_override: Option<Value>,
@@ -235,6 +236,7 @@ impl Default for State {
             dom_captcha: false,
             risk: false,
             cas_reject: 0,
+            callback_body: None,
             state_http: 200,
             state_override: None,
             node_override: None,
@@ -500,7 +502,8 @@ fn respond(s: &mut State, r: Request) -> Response {
             ))
         }
         "/cas-ticket-return" => {
-            Response::html("ticket returned").cookie("JSESSIONID=portal-cookie; Path=/; HttpOnly")
+            Response::html(s.callback_body.as_deref().unwrap_or("ticket returned"))
+                .cookie("JSESSIONID=portal-cookie; Path=/; HttpOnly")
         }
         "/eportal/network/serviceLogin" => {
             if let Some(payload) = &s.select_override {

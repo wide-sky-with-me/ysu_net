@@ -23,6 +23,14 @@
 
 正式发布后核对 Release、Latest、latest.json、SHA256SUMS、公开资产与云端已验签清单；提交最终文档并确认 main 与远端一致、工作区干净。本机不运行 Cargo、rustfmt 或前端构建，也不读取生产签名私钥。
 
+## 首轮验证与修正
+
+首轮候选 `6b80a80b04d8b852790470a95c45e7a22da409af` 的 [Mock 40629197054](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40629197054) 453 项通过；此前首轮失败发现 DNS 模块相对导入破坏脚本入口，已改为绝对包导入，保留原退出码断言。[Native 40629197046](https://github.com/wide-sky-with-me/ysu_net/actions/runs/40629197046) 四平台构建 / 原生 / 安装作业全部通过，但独立 browser-acceptance 因随包日志缺少原有信任锚不变的明确措辞而失败；发布仍被阻止，说明已补，需新候选重跑。
+
+UTC 03:56:46–03:56:54，在 21 运行同提交 Linux 云端 Rust 探针：在线 status=0；Shell 下线后 Rust status=1，证明离线门户引导可完成；Rust login=4，在 CAS 回调要求交互，Shell 独立确认仍离线。随后原 Shell login=0 恢复移动服务，身份匹配、守护 active，原配置和源码逐字节不变。本轮没有成功 Rust 登录或退出，不算认证闭环通过。
+
+随后只读分类证明正常门户 / 回调页脚本引用 noSupport，旧 Rust 整页扫描将其误作风控；新增文档文本判断及正反合同。原因与替代方案归[决策](../.agents/notes/implemented/desktop/2026-10-28-cas-callback-risk-text.md)。修复后云端和真实复测仍待执行，暂不发布。
+
 ## 未覆盖范围
 
 真实 Windows GUI 门户故障、软件内跨版本原位升级与失败回滚、物理断网、真实零额度自动换号及长稳运行仍需独立实机验收。当前已保存的 Shell 成绩和历史已通过的观察器候选仅代表各自源码与环境。

@@ -50,6 +50,8 @@ API 的 HTTP Location 和 HTML / meta / JS bootstrap 解析共用 checked 入口
 
 ### 离线 captive 与 CAS 表单（开发源码，云端待验）
 
+CAS 风险提示检查文档文本，排除脚本 / 样式 / 模板 / noscript 与属性引用，避免正常门户资源中的 noSupport 被当成拒绝；它不计算完整 CSS 可见性。回调仍要求门户同源、成功 HTTP 响应，并在后续流程节点及独立状态中确认身份 / 服务。来源异常与实际提示拒绝的诊断分开，原因见[回调风险文本决策](../.agents/notes/implemented/desktop/2026-10-28-cas-callback-risk-text.md)。本轮结果归[0.2.3 记录](desktop-release-0.2.3.md)。
+
 123 的受控下线实测发现，无 query 的 HTTPS redirect 入口会返回固定 `http://124.124.124.124/`；该地址的 HTTPS 证书校验失败。当前新增专用匿名 GET 解析器：仅精确来源、精确根目标、GET 无 body，且每个 Transport 及其克隆合计一次。使用无 Cookie jar、无继承请求头、禁代理及禁自动重定向的独立客户端；复用现有响应大小和绝对 deadline，不运行页面 JS，不采用其中的 SID、Cookie 或 Location。
 
 匿名页面只可提供配置门户同源、固定 index 路径的 HTTPS 导航提示，拒绝 userinfo、fragment 和 sessionId / flowSessionId / ticket；后续由 HTTPS 门户重新产生会话并查询状态。通用 allowed / API / CAS / POST 仍拒绝 HTTP；原有同门户旧地址 HTTPS 规范化继续有效。API 的 HTTP Location 与 HTML 导航共用同一异步解析入口；Browser 仅在 bootstrap、主 session / 主 frame Document、GET 无 body 的同等上下文接入 Location。对于 200 text/html 中已许可的静态 HTTP 跳转，Browser 生成受控 302 HTTPS Location 并清空 body，仍计入原重定向预算；Chromium 不加载或执行明文 captive 页面。普通 HTTPS HTML、CAS、iframe 和子资源保持原处理。接线取舍见[共用导航决策](../.agents/notes/implemented/desktop/2026-10-28-shared-bootstrap-navigation.md)，Shell 两条实际路径及证据限制见[对照记录](portal-redirect-parity-2026-10-28.md)。
