@@ -25,10 +25,11 @@ const HEADER_LIMIT: usize = 64 * 1024;
 #[derive(Clone)]
 pub(crate) struct Operation {
     pub deadline: Instant,
+    pub(crate) trace: crate::trace::Context,
 }
 impl Operation {
     pub fn new(deadline: Instant) -> Self {
-        Self { deadline }
+        Self { deadline, trace: crate::trace::Context::current() }
     }
     pub async fn run<F: Future>(&self, f: F) -> Result<F::Output, AuthError> {
         self.remaining()?;
@@ -46,7 +47,7 @@ impl Operation {
     }
     pub fn fraction(&self, n: u32, d: u32) -> Self {
         let now = Instant::now();
-        Self::new(now + self.deadline.saturating_duration_since(now) * n / d)
+        Self { deadline: now + self.deadline.saturating_duration_since(now) * n / d, trace: self.trace.clone() }
     }
     pub async fn pause(&self) -> Result<(), AuthError> {
         self.run(tokio::time::sleep(Duration::from_millis(200)))
@@ -229,6 +230,10 @@ impl Transport {
         body: Option<Vec<u8>>,
         op: &Operation,
     ) -> Result<Reply, AuthError> {
+        let endpoint = NavigationDiagnostic::capture(NavigationKind::HttpLocation,
+            &url, &url, &self.base, &self.cas, method.as_str(), body.is_some());
+        let mut trace = op.trace.request(endpoint, method == Method::POST);
+        let result = async {
         if headers
             .iter()
             .map(|(key, value)| key.as_str().len() + value.as_bytes().len())
@@ -247,8 +252,9 @@ impl Transport {
         if let Some(body) = body {
             request = request.body(body);
         }
-        let mut r = op.run(request.send()).await?.map_err(network_error)?;
+        let mut r = trace.network(op.run(request.send()).await?, crate::trace::NetworkPhase::Send)?;
         let status = r.status().as_u16();
+        trace.headers(status);
         let headers = r.headers().clone();
         if headers
             .iter()
@@ -280,11 +286,12 @@ impl Transport {
             }
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = op.run(r.chunk()).await?.map_err(network_error)? {
+        while let Some(chunk) = trace.network(op.run(r.chunk()).await?, crate::trace::NetworkPhase::ReadBody)? {
             if bytes.len().saturating_add(chunk.len()) > RESPONSE_LIMIT {
                 return Err(AuthError::query("门户响应超过大小限制"));
             }
             bytes.extend_from_slice(&chunk);
+            trace.bytes = bytes.len();
         }
         Ok(Reply {
             url: url.clone(),
@@ -293,6 +300,9 @@ impl Transport {
             body: bytes,
             chain: vec![url],
         })
+        }.await;
+        trace.finish(&result);
+        result
     }
     pub async fn follow(
         &self,
@@ -432,6 +442,7 @@ impl Transport {
             method.as_str(),
             has_body,
         );
+        op.trace.emit(crate::trace::TraceEvent::Navigation { navigation: diagnostic });
         if let Some(target) = self
             .resolve_captive_navigation(from, &next, method, has_body, op)
             .await
@@ -581,7 +592,7 @@ fn captive_client() -> Result<reqwest::Client, AuthError> {
         .build()
         .map_err(|_| AuthError::query("门户引导客户端初始化失败"))
 }
-fn network_error(e: reqwest::Error) -> AuthError {
+pub(crate) fn network_error(e: reqwest::Error) -> AuthError {
     if e.is_timeout() {
         AuthError::timeout()
     } else if e.is_connect() {

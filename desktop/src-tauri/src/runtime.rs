@@ -78,7 +78,7 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
         return false;
     }
     match command {
-        "snapshot" | "diagnostics" | "observe" => object.is_empty(),
+        "snapshot" | "diagnostics" | "observe" | "debug_status" | "debug_start" | "debug_stop" | "debug_open" => object.is_empty(),
         "browser_install" => {
             object.keys().all(|k| k == "cancel")
                 && object.get("cancel").is_none_or(Value::is_boolean)
@@ -336,6 +336,7 @@ pub struct Runtime {
     auth_gate: Arc<Mutex<AuthGate>>,
     sink: Sink,
     backend: Backend,
+    recording: Arc<crate::debug_recording::Recording>,
     sender: mpsc::Sender<Action>,
     stop: watch::Sender<bool>,
     control: watch::Sender<u64>,
@@ -359,10 +360,11 @@ impl Runtime {
         let prefs = store.load_prefs();
         let (accounts, passwords) = account_state(&store, &config);
         let rotation_enabled = accounts["auto_switch"].as_bool().unwrap_or(false);
+        let recording = Arc::new(crate::debug_recording::Recording::new(&store.path));
         let backend = if store.demo {
             Backend::Demo(Arc::new(Mutex::new(Demo::default())))
         } else {
-            Backend::Native
+            Backend::Native(recording.clone())
         };
         let (sender, receiver) = mpsc::channel(QUEUE_SIZE);
         let (stop, _) = watch::channel(false);
@@ -397,6 +399,7 @@ impl Runtime {
             auth_gate: Arc::new(Mutex::new(AuthGate::default())),
             sink,
             backend,
+            recording,
             sender,
             stop,
             control,
@@ -625,6 +628,11 @@ impl Runtime {
         }
         match command {
             "snapshot" => Ok(self.snapshot()),
+            "debug_status" => Ok(self.recording.status()),
+            "debug_start" | "debug_stop" => {
+                if self.store.demo { return Err("演示模式不写入调试文件".into()); }
+                if command == "debug_start" { self.recording.start() } else { Ok(self.recording.stop()) }
+            },
             "observe" => {
                 // A watch revision coalesces bursts without consuming manual action queue slots.
                 self.observations
@@ -699,6 +707,11 @@ impl Runtime {
         }
     }
 
+    pub(crate) fn debug_directory(&self) -> Result<&std::path::Path, String> {
+        if self.store.demo { return Err("演示模式没有调试文件".into()); }
+        self.recording.directory()
+    }
+
     pub async fn shutdown(&self) {
         self.stop.send_replace(true);
         let task = self.task.lock().unwrap().take();
@@ -711,6 +724,7 @@ impl Runtime {
                 let _ = tokio::time::timeout(Duration::from_secs(1), task).await;
             }
         }
+        self.recording.shutdown();
         self.stopped.store(true, Ordering::Release);
     }
 }
@@ -929,6 +943,7 @@ impl Worker {
     }
 
     fn error(&self, error: &AuthError) {
+        self.runtime.recording.task(self.action, self.phase, Some(error));
         let message = self.error_message(error);
         self.runtime.update(|state| state.log("error", &message));
     }
@@ -1003,6 +1018,7 @@ impl Worker {
         let _work = self.runtime.begin_auth()?;
         self.action = action.name();
         self.phase = DiagnosticStage::Queue;
+        self.runtime.recording.task(self.action, self.phase, None);
         let account_only = matches!(action, Action::Info);
         let config = match self.runtime.config().await {
             Ok(config) => config,
@@ -1242,6 +1258,7 @@ impl Worker {
         };
         self.action = "auto";
         self.phase = DiagnosticStage::Config;
+        self.runtime.recording.task(self.action, self.phase, None);
         let config = match self.runtime.config().await {
             Ok(config) => config,
             Err(_) => {
@@ -1401,7 +1418,7 @@ fn normalize_info(value: &Value) -> Option<Value> {
 }
 
 enum Backend {
-    Native,
+    Native(Arc<crate::debug_recording::Recording>),
     Demo(Arc<Mutex<Demo>>),
 }
 #[cfg(test)]
@@ -1507,7 +1524,7 @@ impl Drop for DemoFlight {
 impl Backend {
     async fn status(&self, config: &Config) -> Result<Status, AuthError> {
         match self {
-            Self::Native => AuthClient::new(config.clone())?.status().await,
+            Self::Native(recording) => AuthClient::new(config.clone())?.with_trace(recording.trace()).status().await,
             Self::Demo(demo) => {
                 #[cfg(test)]
                 let call = {
@@ -1565,7 +1582,7 @@ impl Backend {
     }
     async fn info(&self, config: &Config) -> Result<InfoObservation, AuthError> {
         match self {
-            Self::Native => AuthClient::new(config.clone())?.info_observation().await,
+            Self::Native(recording) => AuthClient::new(config.clone())?.with_trace(recording.trace()).info_observation().await,
             Self::Demo(demo) => {
                 #[cfg(test)]
                 {
@@ -1599,8 +1616,8 @@ impl Backend {
     }
     async fn mutate(&self, config: &Config, action: &Action) -> Result<Status, AuthError> {
         match self {
-            Self::Native => {
-                let client = AuthClient::new(config.clone())?;
+            Self::Native(recording) => {
+                let client = AuthClient::new(config.clone())?.with_trace(recording.trace());
                 match action {
                     Action::Login => client.login().await,
                     Action::Logout => client.logout().await,

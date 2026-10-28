@@ -463,7 +463,7 @@ async fn idle_update_pause_stops_a_running_worker_and_ignores_late_queued_reads(
 
 #[test]
 fn request_boundaries_are_strict() {
-    for command in ["snapshot", "diagnostics", "browser_install"] {
+    for command in ["snapshot", "diagnostics", "browser_install", "debug_status", "debug_start", "debug_stop", "debug_open"] {
         assert!(valid_request(command, &json!({})));
         assert!(!valid_request(command, &json!([])));
         assert!(!valid_request(command, &json!({"exec":"anything"})));

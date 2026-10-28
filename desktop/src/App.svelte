@@ -11,6 +11,7 @@
   import AnimatedMetric from './components/AnimatedMetric.svelte';
   import AboutPage from './components/AboutPage.svelte';
   import FeedbackDock from './components/FeedbackDock.svelte';
+  import DebugRecording from './components/DebugRecording.svelte';
   import { confirmAutostart, confirmedPreferences, preferenceNotice, settingBusyMessage, settingError } from './lib/settings';
   import type { Setting } from './lib/settings';
   import { ambientMotion, pageMotion, stateMotion } from './lib/motion';
@@ -500,6 +501,7 @@
       {:else if page === 'about'}
         <AboutPage mode={transport.mode} demo={!!native?.demo} {busy} currentVersion={native?.version || environment?.version || ''} onnotice={(value) => { if (mounted) notice = value; }} />
       {:else if page === 'logs'}
+        {#if transport.mode === 'desktop' && !native?.demo}<DebugRecording {transport} onnotice={(value) => { if (mounted) notice = value; }} />{/if}
         <div class="log-toolbar"><div class="search-input"><Icon name="search" size={16} /><input aria-label="搜索日志" placeholder="搜索日志内容" bind:value={logSearch} />{#if logSearch}<button type="button" class="quiet-button search-clear" aria-label="清空搜索" onclick={() => { logSearch = ''; }}><Icon name="close" size={14} /></button>{/if}</div><select aria-label="筛选日志级别" bind:value={logFilter}><option value="all">全部级别</option><option value="info">信息</option><option value="success">成功</option><option value="error">错误</option></select><button type="button" class="icon-button" title="复制筛选日志" aria-label="复制筛选日志" disabled={!logs.length} onclick={() => { void copyLogs(); }}><Icon name="copy" size={18} /></button><button type="button" title="仅清空当前视图，保留核心日志" disabled={!logs.length} onclick={() => { logFloor = snapshot?.logs.length || 0; }}>清空视图</button></div>
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable log needs keyboard focus for reading.) -->
         <div class="log-list" role="log" aria-label="本次运行日志" tabindex="0">

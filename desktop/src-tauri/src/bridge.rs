@@ -123,6 +123,11 @@ impl CoreBridge {
             .unwrap()
             .clone()
             .ok_or("后台运行器尚未启动")?;
+        if command == "debug_open" {
+            tauri_plugin_opener::open_path(runtime.debug_directory()?, None::<&str>)
+                .map_err(|_| "无法打开调试记录目录，请检查系统文件管理器".to_owned())?;
+            return Ok(Value::Null);
+        }
         runtime.request(command, args).await
     }
 

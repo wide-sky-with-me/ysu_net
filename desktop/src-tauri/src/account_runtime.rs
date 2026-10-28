@@ -491,7 +491,7 @@ impl Worker {
 impl Backend {
     pub(super) async fn verified_info(&self, config: &Config) -> Result<Value, AuthError> {
         match self {
-            Self::Native => AuthClient::new(config.clone())?.verified_info().await,
+            Self::Native(recording) => AuthClient::new(config.clone())?.with_trace(recording.trace()).verified_info().await,
             Self::Demo(_) => {
                 let before = self.status(config).await?;
                 let info = self.info(config).await?.info;
