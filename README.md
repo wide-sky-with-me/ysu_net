@@ -1,45 +1,54 @@
 # ysu-net · 燕山大学校园网管理工具
 
-项目分为 **Linux 命令行版（Shell / Python）** 与 **Tauri 图形版（Windows / Linux / macOS / Rust 认证）**。两种产品保持配置和认证语义兼容，不再共用 Python 桌面旁车。入口与职责见[项目架构](docs/architecture.md)。
+校园网登录、运营商切换、账户查询与自动重连，提供跨平台桌面版和 Linux 命令行版。
 
-命令行统一使用 `ysu`，支持 Linux + Python 3.12；systemd 管理后台服务，无 systemd 时可用前台守护。默认 API 认证，浏览器认证按需安装。终端交互参考 [clash-for-linux](https://github.com/wnlen/clash-for-linux)，认证使用本项目的 Portal / CAS 实现。
+[下载桌面版](https://github.com/wide-sky-with-me/ysu_net/releases/latest) · [命令行安装](#快速开始) · [使用说明](docs/usage.md) · [更新日志](packaging/release-notes.md)
 
-默认 API 后端的校园网认证闭环、中国移动切换和用户级后台服务已有历史验收记录。支持 `ysu info` 查看门户账户信息，`ysu doctor` / `ysu doctor --network` 诊断环境和连接。命令与菜单见[使用说明](docs/usage.md)，历史实测范围见[真实网络验收](docs/live-test.md)与[远端部署验收](docs/deployment-test.md)，不作为新桌面版本的验收成绩。
-可以先在非校园网环境安装、配置和运行 `ysu doctor`；登录和真实状态查询需要接入校园网。
-敏感资料处理、审计范围与发布前检查见[敏感信息与发布检查](docs/security.md)。
+![桌面连接页：连接状态、运营商选择、自动重连与账号切换](docs/screenshots/desktop-connection-light.png)
 
-## 桌面版（Windows / Linux / macOS）
+截图来自 v0.2.3 云端界面演示，账号、地址与额度均为合成数据。[截图来源](docs/screenshots/README.md)
 
-自 **v0.2.0** 起，桌面版采用 **Tauri 2 + Svelte + 全 Rust 认证和后台**：三平台共用界面与原生逻辑，不依赖 Python、Node 或 Playwright 认证运行时。正式安装包从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载；云端构建见[Tauri 桌面说明](docs/tauri-desktop.md#构建前提)，界面见[设计说明](docs/rust-desktop-design.md)。
+## 选择版本
 
-支持[多账号热切换与可选流量换号](docs/accounts.md)：界面管理账号，CLI/守护复用账号簿；仅确认门户连续报告零剩余流量时自动尝试备用账号，缺失流量不猜测。
+| 版本 | 适用场景 | 运行方式 |
+| --- | --- | --- |
+| **桌面版** | Windows、Linux、macOS 日常使用 | Tauri + Svelte + Rust，支持托盘和用户登录自启，无需 Python / Node 认证运行时 |
+| **命令行版** | Linux 服务器、终端与 systemd 后台 | Python 3.12，统一使用 `ysu`；无 systemd 时可前台守护 |
 
-认证、诊断与平台限制见[Tauri 运行语义](docs/tauri-desktop.md#运行语义)；当次成绩与历史现场证据见[桌面验收导航](docs/desktop-acceptance.md)，不把已有在线会话读取、离线 Demo 或旧版成绩当作当前登录与升级成功。
+两端保持配置和认证语义兼容，各自运行认证逻辑；同一配置只运行一套自动重连。模块职责见[项目架构](docs/architecture.md)。
 
-侧栏“关于”集中软件更新与随包日志，在线状态、自启及设置反馈以核心和原生回读为准。客户端支持有条件的差分传输；无可信基线首更直接下载整包，补丁与还原整包均须通过原公钥和受签名版本验证。实际附件以对应发行记录为准，交互规则见[设计说明](docs/rust-desktop-design.md)，平台、缓存和信任边界见[软件更新](docs/updates.md)。
+## 桌面版
 
 ### 发行与候选状态
 
-**正式 v0.2.3 已发布并成为 Latest**，下载以 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 为准；构建、标签、签名、公开资产及未覆盖范围见[0.2.3 发布记录](docs/desktop-release-0.2.3.md)。升级前先看[迁移说明](docs/migration.md#桌面-v023-升级)；旧版若点击检查更新就退出，可从正式 Release 手工安装，不关闭 TLS 校验或验签。
+**正式 v0.2.3 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.3.md)。主分支源码、开发产物与正式安装包按各自提交区分。
 
-0.2.3 包含只读状态观察、账户来源绑定、门户跳转、DNS 回退及账号池改进，并修复 CAS 回调将正常脚本引用误判为风控的问题。共用 Rust 认证库已在 21 完成真实登录 / 退出，Windows 原生探针完成无凭据状态查询；这些结果不代表 Windows GUI 离线登录、软件内原位升级或失败回滚已通过。各项证据分别见[发布记录](docs/desktop-release-0.2.3.md)，旧版记录保留历史范围。
+| 系统 | 安装包 |
+| --- | --- |
+| Windows 10 / 11 x64 | [下载 EXE](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_windows-x64-setup.exe) |
+| Ubuntu 22.04 及更新，x86_64 | [下载 DEB](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_linux-x64.deb) |
+| macOS 13.5+，Apple 芯片 | [下载 arm64 DMG](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_macos-arm64.dmg) |
+| macOS 13.5+，Intel | [下载 x64 DMG](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.3/YSU-Net_0.2.3_macos-x64.dmg) |
 
-编译、打包和产品测试只在 GitHub Actions 执行；开发构建使用独立构建分支，不打版本标签、不发布正式 Release。云端失败不回退本机编译，本机只按授权下载、校验云端产物并做安装 / 运行验收。工作流见[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)，实际成绩与未覆盖范围见[桌面验收导航](docs/desktop-acceptance.md)。
+Windows / macOS 可主动检查更新；本次仅提供完整包，没有差分附件。Linux 通过系统包手动升级。旧 Qt / Inno 版和旧候选包先看[迁移说明](docs/migration.md#桌面-v023-升级)，更新与签名规则见[软件更新](docs/updates.md)。
 
-原 Qt 图形版（`ysu-gui`）及 Python 桌面原型已从源码移除。`v0.1.0` 标签和 Qt 附件保留历史，不作为新版下载入口。Windows 旧 Inno 版与当前用户 NSIS 版不互相替换；旧 0.2.1 候选也不能等待同版本自动升级，应按[迁移说明](docs/migration.md#桌面-v021-及旧候选包)手动安装正式版。Linux `.deb` 继续按系统包升级，macOS 13.5+ 按 Apple 芯片 / Intel 分包；更新包签名不等于 Windows 发布者签名或 Apple 签名 / 公证。安装前提见[桌面客户端](docs/wiki/Desktop-Client.md)。
+### 主要功能
 
-## 选择版本与交流入口
+- **连接管理**：登录、下线、独立状态查询，支持校园网及中国移动 / 联通 / 电信服务。
+- **账号池**：[多账号热切换与可选零流量自动换号](docs/accounts.md)，切换后核验实际账号与服务。
+- **账户信息**：查看套餐、剩余流量与门户原始字段；缺失数据保持未知，不补造余额。
+- **后台与外观**：托盘、用户登录自启、浅色 / 深色及多种主题色。
+- **诊断与更新**：固定分类日志、本地环境诊断、随包更新日志与主动检查更新。
 
-- **Linux 命令行版**：以下安装步骤使用默认分支 `main`，适合终端、服务器和 systemd 后台运行。
-- **三平台桌面版**：选择正式 Release 中与系统、架构对应的附件；正式版与开发工作树的区别见[发行与候选状态](#发行与候选状态)，云端构建见[Tauri 说明](docs/tauri-desktop.md#构建前提)。独立 Python CLI 不是桌面运行时。
-- **入门与排障**：[Wiki 源文档](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) · [支持与反馈](SUPPORT.md)。
-- **社区协作**：[Discussions 问答与建议](https://github.com/wide-sky-with-me/ysu_net/discussions) · [Issue 故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [贡献指南](CONTRIBUTING.md) · [安全问题私密报告](SECURITY.md)。
+| 账户与剩余流量 | 账号管理 |
+| --- | --- |
+| ![深色账户页：套餐、剩余流量与演示在线信息](docs/screenshots/desktop-account-dark.png) | ![深色账号管理页：编辑备用账号、运营商和认证方式](docs/screenshots/desktop-accounts-dark.png) |
 
-公开反馈前按[脱敏清单](docs/security.md#公开反馈的脱敏清单)检查正文、日志与截图。普通输出不等于匿名报告；无需提供真实账号、密码、会话、IP/MAC 或完整配置。
+认证及状态语义见[Tauri 桌面说明](docs/tauri-desktop.md#运行语义)，完整界面规则见[设计说明](docs/rust-desktop-design.md)。
 
 ## 快速开始
 
-先准备 Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)，然后执行：
+以下为 **Linux 命令行版**。先准备 Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)，再安装：
 
 ```bash
 git clone https://github.com/wide-sky-with-me/ysu_net.git
@@ -48,70 +57,59 @@ bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-安装会创建 `.venv`、按 `uv.lock` 安装依赖、注册用户级服务，并生成 `~/.local/bin/ysu`、`ysuon`、`ysuoff`。
-请将 `~/.local/bin` 加入 PATH。安装依赖需要互联网；安装过程不访问校园网，不自动登录或启动服务。
-**安装后请保留项目目录和 `.venv`，管理命令及服务直接引用这里的文件。**
-上面的 PATH 设置只影响当前终端。需要长期生效时，将同一行加入 Bash 的 `~/.bashrc`
-或 Zsh 的 `~/.zshrc`，然后重新打开终端。
+安装器创建 `.venv`、按锁文件安装依赖、注册用户级服务，并生成 `ysu`、`ysuon`、`ysuoff`；安装不会自动登录或启动重连。**请保留项目目录和 `.venv`**，命令及服务直接引用这里的运行环境。上面的 PATH 仅作用于当前终端，长期使用可加入 Shell 配置。
 
 ```bash
-ysu config account          # 交互输入账号密码（密码不回显）
-ysu service                 # 选择校园网 / 移动 / 联通 / 电信
-ysu doctor                  # 仅检查本地环境
-ysu login                   # 在校园网内手动验证登录
-ysu on                      # 开启后台自动重连
-ysu boot on                 # 可选：启用自启
+ysu config account    # 交互录入账号密码，密码不回显
+ysu service           # 选择校园网 / 移动 / 联通 / 电信
+ysu doctor            # 检查本地环境
+ysu login             # 接入校园网后验证登录
+ysu on                # 开启后台自动重连
+ysu boot on           # 可选：启用用户服务自启
 ```
 
-直接执行 `ysu` 打开交互菜单；非交互终端中显示帮助。开发版主菜单 **16** 或 `ysu accounts` 进入[多账号管理与流量自动换号](docs/accounts.md#shell-版交互菜单)。
-只安装 Python 环境而不注册服务：`uv sync --locked`，然后运行 `uv run ysu <命令>`。
-也支持 `uv run python -m ysu_net <命令>`；安装注册后的 `ysu` 可从任意目录运行。
+直接运行 `ysu` 打开菜单，非交互终端显示帮助。也可在项目内使用 `uv run python -m ysu_net`；安装后的包装命令可从任意目录运行。
 
-终端输出会用颜色区分成功、提示和失败；菜单显示当前服务及账号配置状态，进入菜单不会自动访问网络。
-耗时操作会显示等待提示，诊断会汇总通过和待处理项。设置 `NO_COLOR=1` 或 `TERM=dumb` 可关闭颜色，
-重定向或管道输出自动使用纯文本。`status/info --raw` 只输出原始 JSON，不附加标题或进度信息。
-`ysu config show` 在终端中显示中文配置摘要，重定向时保留 JSON；也可用 `ysu config show --raw` 显式获取 JSON。
+| 常用命令 | 用途 |
+| --- | --- |
+| `ysu status` | 查询连接状态 |
+| `ysu info` | 查看套餐与账户信息 |
+| `ysu accounts` | 管理账号池与切换账号 |
+| `ysu logout` | 退出当前校园网连接 |
+| `ysu doctor --network` | 诊断网络与门户连接 |
 
-其他安装方式：
+登录和真实状态查询需要接入校园网；未接入时可先安装、配置和运行 `ysu doctor`。完整命令、配置位置及原始输出选项见[使用说明](docs/usage.md)。
+
+<details>
+<summary>可选安装方式与服务设置</summary>
 
 ```bash
-bash install.sh --browser       # 额外安装 Playwright 和 Chromium
-bash install.sh --no-service    # 只安装命令，适合没有 systemd / 用户总线的环境
-bash install.sh --offline       # 使用已有 uv、Python 和依赖缓存；不联网下载
-sudo env PATH="$PATH" bash install.sh --system  # 系统级服务
+bash install.sh --browser       # 额外安装浏览器认证运行时
+bash install.sh --no-service    # 不注册服务
+bash install.sh --offline       # 使用已有解释器、依赖和缓存
+sudo env PATH="$PATH" bash install.sh --system  # 系统级安装
 ```
 
-系统级安装的命令位于 `/usr/local/bin`，配置位于 `/etc/ysu-net/config.json`；
-使用 `sudo ysu ...` 管理。系统服务以 root 运行，应使用可信且受控的项目目录。
-用户级配置位于 `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json`。
-同一台机器建议只启用一种安装范围，避免两个服务同时操作校园网。
+无 systemd 或用户总线时使用 `--no-service`，按[使用说明](docs/usage.md)运行前台守护。需要退出登录后继续运行的用户服务，可由管理员配置 `loginctl enable-linger`；安装器不自动启用。系统级安装、升级和卸载见[迁移指南](docs/migration.md)。
 
-用户服务随用户管理器启动。需要在未登录时也自动连接，可由管理员执行
-`sudo loginctl enable-linger <用户名>`；安装器不会自动修改此系统设置。
-如果 `systemctl --user` 无法连接用户总线，请登录本机用户会话，或使用 `--no-service`。
+</details>
 
-## 项目结构
+## 文档与交流
 
-源码按 Python 命令行、Rust 桌面认证与后台、共用 Svelte 前端及平台集成分层。目录、命令名称和构建链路统一维护在[项目架构](docs/architecture.md)，不按操作系统复制界面。
+| 主题 | 文档 |
+| --- | --- |
+| 新用户入门 | [Wiki](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) |
+| 安装与日常使用 | [使用说明](docs/usage.md) · [多账号管理](docs/accounts.md) |
+| 升级与版本验证 | [迁移指南](docs/migration.md) · [软件更新](docs/updates.md) · [验收记录](docs/desktop-acceptance.md) |
+| 项目结构与开发 | [项目架构](docs/architecture.md) · [开发与验证](docs/development.md) |
+| 参与项目 | [贡献指南](CONTRIBUTING.md) · [故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [Discussions](https://github.com/wide-sky-with-me/ysu_net/discussions) |
 
-账号配置、锁文件位于用户或系统配置目录，`.venv` 和构建产物不提交到仓库。
-旧版根目录认证脚本、守护脚本及 `requirements.txt` 已移除，迁移方式见下文链接。
+分享日志或截图前移除真实账号、密码、会话及设备信息，参考[脱敏说明](docs/security.md#公开反馈的脱敏清单)。安全问题通过[私密报告入口](SECURITY.md)反馈。
 
-## 文档导航
-
-- [产品入口与项目架构](docs/architecture.md)：命令行与三平台桌面的关系、目录职责和兼容边界。
-- [命令行使用与配置](docs/usage.md)：完整命令、日常操作、配置和故障排查。
-- [更新、卸载与旧版迁移](docs/migration.md)：命令重装、旧服务清理与入口变更。
-- [Tauri 桌面版](docs/tauri-desktop.md)：云端构建、运行与演示；历次证据见[桌面验收导航](docs/desktop-acceptance.md)，视觉与更新语义分别见[设计说明](docs/rust-desktop-design.md)和[更新说明](docs/updates.md)。
-- [开发与验证](docs/development.md)：模块职责、云端离线测试与 Python 分发构建。
+终端交互参考 [clash-for-linux](https://github.com/wnlen/clash-for-linux)。
 
 ## 云端验证
 
-以下命令仅由 GitHub Actions runner 执行；本机不运行产品构建或测试。
+编译、打包和产品测试仅在 GitHub Actions 执行。开发构建使用独立分支，不打正式标签或发布 Release；云端失败继续修复云端流程。本机只下载、校验产物并做安装与运行验收。
 
-```bash
-uv sync --locked --extra browser
-uv run --extra browser python -m unittest discover -s tests -v
-```
-
-连接相关单元测试使用 mock，不需要校园网、真实账号或浏览器运行时。真实 API / 校园网认证验收独立执行，结果与未覆盖场景见[验收记录](docs/live-test.md)。
+[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml) · [认证探针](docs/rust-auth-probe.md) · [构建前提](docs/tauri-desktop.md#构建前提) · [实际验证范围](docs/desktop-acceptance.md)
