@@ -80,12 +80,13 @@ class ParallelBrowserAcceptanceTests(unittest.TestCase):
     def test_complete_browser_run_is_moved_verbatim_and_each_script_runs_once(self):
         step = named_step(self.browser, "Built frontend browser acceptance")
         self.assertEqual(run_block(step), BROWSER_RUN)
-        self.assertIn("        if: runner.os == 'Linux'\n", step)
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", step)
+        self.assertIn("needs.preflight.outputs.full_browser == 'true'", step)
         actual = re.findall(r"(?m)^uv run --no-sync python (\S+\.py) --url ", run_block(step))
         self.assertEqual(actual, list(BROWSER_SCRIPTS))
         for script in BROWSER_SCRIPTS:
             with self.subTest(script=script):
-                self.assertEqual(self.text.count(script), 1)
+                self.assertEqual(self.text.count(script), 2 if script == BROWSER_SCRIPTS[0] else 1)
                 self.assertNotIn(script, self.native)
         self.assertNotIn("Reject UI regressions before expensive native bundling", self.native)
 
@@ -94,7 +95,9 @@ class ParallelBrowserAcceptanceTests(unittest.TestCase):
             header = job.split("    steps:", 1)[0]
             self.assertIn("    if: ${{ inputs.format_only != true }}\n", header)
             self.assertIn("    timeout-minutes: 45\n", header)
-            self.assertNotRegex(header, r"(?m)^    needs:")
+            self.assertIn("    needs: preflight\n", header)
+            self.assertNotIn("needs: build", header)
+            self.assertNotIn("needs: browser-acceptance", header)
         self.assertIn("    runs-on: ubuntu-22.04\n", self.browser)
         self.assertNotIn("strategy:", self.browser)
         self.assertNotIn("continue-on-error:", self.text)
@@ -201,7 +204,8 @@ class ParallelBrowserAcceptanceTests(unittest.TestCase):
 
     def test_native_bundling_signing_and_installed_smoke_gates_remain(self):
         ordinary = named_step(self.native, "Build ordinary native bundles without signing keys")
-        self.assertIn("if: ${{ !startsWith(github.ref, 'refs/tags/v') || runner.os == 'Linux' }}", ordinary)
+        self.assertIn("(!startsWith(github.ref, 'refs/tags/v') || runner.os == 'Linux')", ordinary)
+        self.assertIn("needs.preflight.outputs.package_target == matrix.name", ordinary)
         self.assertIn('npm --prefix desktop run native:build -- "${args[@]}"', ordinary)
         self.assertNotIn("TAURI_SIGNING_", ordinary)
         signed = named_step(self.native, "Build signed updater bundles for release tags")
@@ -212,10 +216,13 @@ class ParallelBrowserAcceptanceTests(unittest.TestCase):
         smoke = named_step(self.native, "Native WebView and lifecycle acceptance")
         self.assertIn("packaging/tauri_smoke.py", smoke)
         self.assertIn("packaging/tauri_linux_lifecycle.py", smoke)
-        self.assertNotRegex(smoke, r"(?m)^        if:")
+        self.assertIn("startsWith(github.ref, 'refs/tags/v') ||", smoke)
+        self.assertIn("needs.preflight.outputs.package_target == matrix.name", smoke)
         for platform in ("Linux", "Windows", "macOS"):
             installed = named_step(self.native, f"Installed package acceptance ({platform})")
-            self.assertIn(f"        if: runner.os == '{platform}'\n", installed)
+            self.assertIn(f"runner.os == '{platform}'", installed)
+            self.assertIn("startsWith(github.ref, 'refs/tags/v') ||", installed)
+            self.assertIn("needs.preflight.outputs.package_target == matrix.name", installed)
             self.assertIn("packaging/tauri_smoke.py", installed)
         named_step(self.native, "Verify generated application icon envelopes")
         named_step(self.native, "Verify Windows application and installer icon pixels")

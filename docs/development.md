@@ -97,11 +97,25 @@ Svelte、Rust 与原生集成的命令见[Tauri 开发说明](tauri-desktop.md#�
 
 ### Tauri CI 并行门禁
 
-当前工作流源码将四目标 `build` 与独立 Linux `browser-acceptance` 并行，彼此无 needs；后者完整承接原十脚本浏览器验收，顺序、参数、输出、回环 / strictPort、有界启动与退出清理不变。新 job 自备 Node / uv、锁定依赖、前端 build、字体 / ffmpeg 和可执行 Chrome，不注入签名 Secret；独立 `rust-desktop-preview-linux-x64` artifact 以 always 保留预览证据与启动日志。
+工作流先执行轻量 preflight，检查 Rust 格式与前端类型 / 单元 / 构建入口，再并行运行四平台原生回归和浏览器。普通分支推送只检查，不制作安装包；认证库、Runtime、真实 Chromium 管道和既有外部回归仍执行，浏览器先跑最小冒烟。
 
-原生矩阵仍执行前端 / Rust、四平台 Chrome 认证夹具、Native / 安装、签名及工具硬失败门槛。正式 `release` 仍限定 v 标签且同时 needs `[build, browser-acceptance]`，任一失败或取消都不能发布；不以 always / continue-on-error 绕过。`format_only=true` 跳过两条产品 job，只走原 `format-source`；产品 job 的 45 分钟上限不减。
+需要测试包时，在独立构建分支选择 `package_target`，不必等待一次完整默认打包后再重复提交：
 
-这次拆分只改变排程，没有修改 Cargo / profile / cache / target 或削减测试；选择原因见[并行决策](../.agents/notes/implemented/ci/2026-10-27-parallel-browser-acceptance.md)。[10-27 验收](ci-parallel-acceptance-2026-10-27.md)保留初次候选及 SDK 下载异常后的复跑，不能据此宣称稳定提速。后续正式版本的实际门禁结果从[发布验收导航](desktop-acceptance.md#正式发布与更早基线)进入。
+```bash
+# 云端生成 Windows 测试包，并执行完整浏览器验收：
+gh workflow run tauri.yml --ref build/your-branch -f package_target=windows-x64
+# 完整四平台打包与安装验收：
+gh workflow run tauri.yml --ref build/your-branch -f package_target=all
+# 只校验或只格式化：
+gh workflow run tauri.yml --ref build/your-branch -f package_target=checks
+gh workflow run tauri.yml --ref build/your-branch -f format_only=true
+```
+
+手动默认仍为 all；也可选择 linux-x64、macos-arm64、macos-x64。请求任何包都执行完整十脚本浏览器验收，仅所选平台执行原生打包 / 安装并上传安装器。检查通过不等于其他平台安装通过，不能从 checks artifact 寻找安装包。相同分支的新手动运行会替代尚在执行的普通推送检查。
+
+PR 与 v 标签始终强制 all，不接受输入降级；正式 release 仍依赖四平台 build 与完整 browser-acceptance 同时成功，签名 / 工具门禁和 45 分钟上限不变。format-only 不启动产品 job。本次只分层调度，不更改 Cargo profile / 缓存键 / target 或删除原回归；[决策](../.agents/notes/implemented/ci/2026-10-28-staged-desktop-validation.md)记录代价，[本轮结果](ci-staged-validation-2026-10-28.md)区分实际模式与性能证据。
+
+此前并行拆分与 SDK 下载异常的历史数据见[10-27 记录](ci-parallel-acceptance-2026-10-27.md)，不据旧尝试宣称新模式已提速。
 
 ## 构建与依赖
 

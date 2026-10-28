@@ -6,20 +6,60 @@ on:
         description: "Format public Rust source on the runner without building or releasing"
         type: boolean
         default: false
+      package_target:
+        description: "Installers to build; branch pushes run checks only; tags and PRs always build all"
+        type: choice
+        default: all
+        options: [all, checks, windows-x64, linux-x64, macos-arm64, macos-x64]
   push:
     branches: ["**"]
     # Path filters are not evaluated for tag pushes, so release tags always build.
     tags: ["v*"]
-    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml", ".github/actions/setup-delta-tools/**"]
+    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "packaging/ci_build_plan.py", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml", ".github/actions/setup-delta-tools/**"]
   pull_request:
-    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml", ".github/actions/setup-delta-tools/**"]
+    paths: ["desktop/**", "src/**", "tests/**", "packaging/*tauri*", "packaging/ci_build_plan.py", "pyproject.toml", "uv.lock", ".github/workflows/tauri.yml", ".github/actions/setup-delta-tools/**"]
 permissions:
   contents: read
 concurrency:
   group: tauri-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  preflight:
+    # Decision: .agents/notes/implemented/ci/2026-10-28-staged-desktop-validation.md
+    if: ${{ inputs.format_only != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      package_target: ${{ steps.plan.outputs.package_target }}
+      full_browser: ${{ steps.plan.outputs.full_browser }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Reject format and frontend errors before native SDK setup
+        run: |
+          cargo fmt --manifest-path desktop/crates/ysu-auth/Cargo.toml --all --check
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --all --check
+          npm ci --prefix desktop
+          npm --prefix desktop run check
+          npm --prefix desktop test
+          npm --prefix desktop run test:build
+      - name: Select validation and package scope
+        id: plan
+        env:
+          YSU_CI_EVENT: ${{ github.event_name }}
+          YSU_CI_REF: ${{ github.ref }}
+          YSU_CI_PACKAGE_TARGET: ${{ inputs.package_target }}
+        run: python3 packaging/ci_build_plan.py --output "$GITHUB_OUTPUT"
+
   build:
+    needs: preflight
     if: ${{ inputs.format_only != true }}
     strategy:
       fail-fast: false
@@ -140,7 +180,7 @@ jobs:
           # Real producer integration is mandatory on Linux Actions; no production key.
           uv run --no-sync python -m unittest discover -s tests -p 'test_*delta*.py' -v
       - name: Build ordinary native bundles without signing keys
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') || runner.os == 'Linux' }}
+        if: ${{ (!startsWith(github.ref, 'refs/tags/v') || runner.os == 'Linux') && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         run: |
           args=(--bundles '${{ matrix.bundles }}')
           # Diagnostic verbosity only in the unsigned step; signing secrets are absent here.
@@ -155,12 +195,14 @@ jobs:
           test -n "${TAURI_SIGNING_PRIVATE_KEY:-}" || { echo 'release signing key is missing'; exit 1; }
           npm --prefix desktop run native:build -- --bundles '${{ matrix.bundles }}' --signed-update
       - name: Verify generated application icon envelopes
+        if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         run: uv run --no-sync python packaging/tauri_icon_check.py
       - name: Verify Windows application and installer icon pixels
-        if: runner.os == 'Windows'
+        if: ${{ runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         shell: pwsh
         run: ./packaging/tauri_icon_check.ps1
       - name: Native WebView and lifecycle acceptance
+        if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
@@ -177,7 +219,7 @@ jobs:
           fi
       # Install the real package, run the smoke from the installed location, then uninstall.
       - name: Installed package acceptance (Linux)
-        if: runner.os == 'Linux'
+        if: ${{ runner.os == 'Linux' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
@@ -206,7 +248,7 @@ jobs:
           test ! -e /usr/bin/ysu-net
           test ! -e "$entry"
       - name: Installed package acceptance (Windows)
-        if: runner.os == 'Windows'
+        if: ${{ runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -242,7 +284,7 @@ jobs:
           if (@(Get-ChildItem $programs -Recurse -Filter 'YSU Net.lnk').Count) { throw 'Start menu shortcut remained' }
       # macOS has no installer: mount the .dmg, copy the app like a user would, run it, delete it.
       - name: Installed package acceptance (macOS)
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         run: |
           set -euo pipefail
           image=(desktop/src-tauri/target/release/bundle/dmg/*.dmg)
@@ -273,7 +315,7 @@ jobs:
           test ! -e "$app"
           if hdiutil info | grep -qF "$volume"; then echo 'disk image is still attached'; exit 1; fi
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.package_target == 'all' || needs.preflight.outputs.package_target == matrix.name) }}
         with:
           name: rust-desktop-${{ matrix.name }}
           if-no-files-found: error
@@ -307,6 +349,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.app.tar.gz.sig
 
   browser-acceptance:
+    needs: preflight
     # Decision: .agents/notes/implemented/ci/2026-10-27-parallel-browser-acceptance.md
     if: ${{ inputs.format_only != true }}
     runs-on: ubuntu-22.04
@@ -336,8 +379,22 @@ jobs:
       - run: npm ci --prefix desktop
       - run: uv sync --locked --group desktop-test
       - run: npm --prefix desktop run build
+      - name: Quick frontend browser smoke
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') && github.event_name != 'pull_request' && needs.preflight.outputs.full_browser != 'true' }}
+        run: |
+          mkdir -p build
+          npm --prefix desktop run preview -- --port 1422 --strictPort > build/tauri-preview.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:1422/ > /dev/null; then break; fi
+            if [ "$attempt" -eq 40 ]; then cat build/tauri-preview.log; exit 1; fi
+            sleep 0.25
+          done
+          uv run --no-sync python packaging/tauri_web_smoke.py --url http://127.0.0.1:1422/ \
+            --browser "$(command -v google-chrome)" --output dist/rust-desktop-preview/quick
       - name: Built frontend browser acceptance
-        if: runner.os == 'Linux'
+        if: ${{ runner.os == 'Linux' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || needs.preflight.outputs.full_browser == 'true') }}
         run: |
           mkdir -p build
           npm --prefix desktop run preview -- --port 1422 --strictPort > build/tauri-preview.log 2>&1 &
