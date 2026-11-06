@@ -109,17 +109,7 @@ async fn anonymous_client_never_inherits_cookies_or_follows_http_redirects() {
     let cookie = HeaderValue::from_static("portal=private-fixture; Path=/");
     http.jar.set_cookies(&mut std::iter::once(&cookie), &url);
     let op = Operation::new(Instant::now() + Duration::from_secs(3));
-    let reply = http
-        .send_once(
-            &captive_client().unwrap(),
-            Method::GET,
-            url.clone(),
-            HeaderMap::new(),
-            None,
-            &op,
-        )
-        .await
-        .unwrap();
+    let reply = http.captive_get(&url, &op).await.unwrap();
     assert_eq!(reply.status, 302);
     let sent = server.await.unwrap();
     for header in [
@@ -231,4 +221,57 @@ async fn shared_navigation_does_not_spend_the_captive_read_on_unproven_contexts(
             assert!(!http.captive_read.load(Ordering::SeqCst));
         }
     }
+}
+
+/// Captured from the campus iYanDa access point on 2026-11-06 while unauthenticated:
+/// `GET http://124.124.124.124/` returns this single-script body.
+const OBSERVED_IYANDA_HINT: &str = "<script>top.self.location.href='https://auth1.ysu.edu.cn/eportal/index.jsp?wlanuserip=b7108b0da555af8d4318342a5ad5e63f&wlanacname=86aeba9fa75c33973fb184d637669145&ssid=&nasip=9c67ed1ce2373557ba7c2c9af4678f71&snmpagentip=&mac=afcc277df63190b3b80a8bae01568bb1&t=wireless-v2&url=709db9dc9ce334aa02a9e1ee58ba6fcf3bc3349e947ead360ce162a346ea1a973575c2bcf9743cd752b78cd06c8d7eb1&apmac=&nasid=86aeba9fa75c33973fb184d637669145&vid=f4de06d407ac7b7f&port=1dcf032f51eb16cf&nasportid=5b9da5b08a53a540e26b350a596c2af84974a3ad4265b15b82c47758c1e0fbc2'</script>";
+
+#[test]
+fn observed_iyanda_hint_resolves_to_the_fresh_https_index() {
+    let http = http();
+    let target = http
+        .captive_page_target(&page(200, OBSERVED_IYANDA_HINT))
+        .unwrap();
+    assert_eq!(target.scheme(), "https");
+    assert_eq!(target.path(), "/eportal/index.jsp");
+    assert_eq!(target.host_str(), Some("auth1.ysu.edu.cn"));
+    let query = target.query().unwrap();
+    assert!(query.contains("wlanuserip="), "{query}");
+    assert!(query.contains("t=wireless-v2"), "{query}");
+}
+
+#[tokio::test]
+async fn anonymous_hint_read_tolerates_a_body_shorter_than_its_declared_length() {
+    // Campuses emit a body that ends before the declared length; a strict HTTP client
+    // drops the whole hint, while this read keeps the bytes that arrived.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = Vec::new();
+        while !bytes.ends_with(b"\r\n\r\n") {
+            let mut byte = [0];
+            stream.read_exact(&mut byte).await.unwrap();
+            bytes.push(byte[0]);
+            assert!(bytes.len() < HEADER_LIMIT);
+        }
+        let body = "<script>location.href='https://auth1.ysu.edu.cn/eportal/index.jsp?fixture=opaque'</script>";
+        let response = format!(
+            "HTTP/1.1 200 ok\r\nServer: Apache\r\nContent-Length:  {}\r\nConnection: close\r\n\r\n{}",
+            body.len() + 1,
+            body
+        );
+        stream.write_all(response.as_bytes()).await.unwrap();
+        drop(stream);
+        String::from_utf8(bytes).unwrap().to_lowercase()
+    });
+    let http = http();
+    let op = Operation::new(Instant::now() + Duration::from_secs(3));
+    let reply = http.captive_get(&url, &op).await.unwrap();
+    assert_eq!(reply.status, 200);
+    let request = server.await.unwrap();
+    assert!(request.starts_with("get / http/1.1"), "{request}");
+    let target = http.captive_page_target(&reply).unwrap();
+    assert_eq!(target.query(), Some("fixture=opaque"));
 }

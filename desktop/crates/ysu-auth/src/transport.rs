@@ -15,6 +15,7 @@ use std::{
     },
     time::Duration,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::{timeout_at, Instant};
 use url::Url;
 
@@ -430,18 +431,83 @@ impl Transport {
                 .because(Reason::RedirectLimit));
         }
         // No cookie jar or inherited headers, and no automatic HTTP redirects.
-        let client = captive_client()?;
-        let reply = self
-            .send_once(
-                &client,
-                Method::GET,
-                next.clone(),
-                HeaderMap::new(),
-                None,
-                op,
-            )
-            .await?;
-        self.captive_page_target(&reply).map(Some)
+        // The hint is a plaintext byte exchange: one GET, read until the peer closes.
+        // Hyper rejects a response whose body ends before its declared length, and
+        // campuses do emit that, so this single anonymous read stays on a bounded raw
+        // socket. One transport retry cannot replay a credential, cookie or body.
+        let mut retried = false;
+        loop {
+            match self.captive_get(next, op).await {
+                Ok(reply) => return self.captive_page_target(&reply).map(Some),
+                Err(error) if !retried && error.diagnostic.reason == Reason::Network => {
+                    retried = true;
+                    op.pause().await?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    /// One anonymous plaintext GET with no redirects, cookies or length enforcement.
+    async fn captive_get(&self, url: &Url, op: &Operation) -> Result<Reply, AuthError> {
+        if url.scheme() != "http" {
+            return Err(AuthError::query("门户引导地址异常").because(Reason::RedirectBlocked));
+        }
+        let host = url
+            .host_str()
+            .ok_or_else(|| AuthError::query("门户引导地址异常").because(Reason::RedirectBlocked))?;
+        let port = url.port_or_known_default().unwrap_or(80);
+        let host_header = match url.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_owned(),
+        };
+        let path = if url.path().is_empty() {
+            "/"
+        } else {
+            url.path()
+        };
+        let mut stream = op
+            .run(tokio::net::TcpStream::connect((host, port)))
+            .await?
+            .map_err(transport_error)?;
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: Mozilla/5.0 YSU-Native-Auth/0.1\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+        );
+        op.run(stream.write_all(request.as_bytes()))
+            .await?
+            .map_err(transport_error)?;
+        let mut raw = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let read = op
+                .run(stream.read(&mut chunk))
+                .await?
+                .map_err(transport_error)?;
+            if read == 0 {
+                break;
+            }
+            if raw.len() + read > RESPONSE_LIMIT {
+                return Err(AuthError::query("门户引导响应超过限制"));
+            }
+            raw.extend_from_slice(&chunk[..read]);
+        }
+        let split = raw
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .ok_or_else(|| AuthError::query("门户引导响应格式异常"))?;
+        let head = String::from_utf8_lossy(&raw[..split]).into_owned();
+        let status = head
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse::<u16>().ok())
+            .ok_or_else(|| AuthError::query("门户引导响应格式异常"))?;
+        Ok(Reply {
+            url: url.clone(),
+            status,
+            headers: HeaderMap::new(),
+            body: raw[split + 4..].to_vec(),
+            chain: Vec::new(),
+        })
     }
     // Decision: .agents/notes/implemented/desktop/2026-10-28-shared-bootstrap-navigation.md
     pub(crate) async fn resolve_portal_navigation(
@@ -605,14 +671,11 @@ impl Transport {
         self.once(Method::POST, url, headers, Some(body), op).await
     }
 }
-fn captive_client() -> Result<reqwest::Client, AuthError> {
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .no_proxy()
-        .user_agent("Mozilla/5.0 YSU-Native-Auth/0.1")
-        .connect_timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|_| AuthError::query("门户引导客户端初始化失败"))
+fn transport_error(e: std::io::Error) -> AuthError {
+    match e.kind() {
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => AuthError::timeout(),
+        _ => AuthError::query("连接认证服务失败，请检查网络和证书").because(Reason::Network),
+    }
 }
 pub(crate) fn network_error(e: reqwest::Error) -> AuthError {
     if e.is_timeout() {
