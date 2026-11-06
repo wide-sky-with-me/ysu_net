@@ -98,3 +98,28 @@ class CaptchaSolverTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DdddOcrBackendTests(unittest.TestCase):
+    """真实抓取的门户验证码（80x30、4 位、带斜向干扰线）作为夹具。"""
+
+    FIXTURES = {
+        "nB4f.jpg": "nB4f",
+        "TH3C.jpg": "TH3C",
+        "HTrL.jpg": "HTrL",
+    }
+
+    def setUp(self):
+        try:
+            import ddddocr  # noqa: F401
+        except Exception:
+            self.skipTest("ddddocr 未安装（uv sync --extra captcha）")
+
+    def test_recognizes_observed_portal_captchas(self):
+        import pathlib
+
+        base = pathlib.Path(__file__).parent / "fixtures" / "captcha"
+        for name, expected in self.FIXTURES.items():
+            with self.subTest(name=name):
+                got = captcha.solve_ddddocr((base / name).read_bytes())
+                self.assertEqual(got, expected)

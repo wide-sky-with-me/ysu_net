@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = ["playwright>=1.40"]
+captcha = ["ddddocr>=1.6"]
 
 [project.scripts]
 ysu = "ysu_net.manager.cli:main"

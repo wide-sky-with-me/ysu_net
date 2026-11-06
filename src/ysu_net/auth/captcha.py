@@ -58,6 +58,30 @@ def _preprocess(image: bytes) -> bytes | None:
         return None
 
 
+_OCR_CACHE = {"engine": None, "failed": False}
+
+
+def solve_ddddocr(image: bytes) -> str | None:
+    """ddddocr（MIT）的 CRNN 模型，对 4~6 位扭曲字符验证码开箱可用。"""
+    if _OCR_CACHE["failed"]:
+        return None
+    if _OCR_CACHE["engine"] is None:
+        try:
+            import ddddocr
+        except Exception:
+            _OCR_CACHE["failed"] = True
+            return None
+        try:
+            _OCR_CACHE["engine"] = ddddocr.DdddOcr(show_ad=False)
+        except Exception:
+            _OCR_CACHE["failed"] = True
+            return None
+    try:
+        return _usable(_OCR_CACHE["engine"].classification(image))
+    except Exception:
+        return None
+
+
 def solve_tesseract(image: bytes) -> str | None:
     exe = shutil.which("tesseract")
     if not exe:
@@ -119,6 +143,12 @@ def available() -> bool:
         return True
     if choice in ("tesseract", "auto") and shutil.which("tesseract"):
         return True
+    if choice in ("ddddocr", "auto"):
+        try:
+            import ddddocr  # noqa: F401
+        except Exception:
+            return False
+        return True
     return False
 
 
@@ -127,15 +157,18 @@ def solve(image: bytes, *, expected_len: int = DEFAULT_LEN) -> Solution | None:
     choice = (os.environ.get(ENV_BACKEND) or "auto").strip().lower()
     remote_url = (os.environ.get(ENV_REMOTE) or "").strip()
     order = {
-        "auto": ("remote", "tesseract", "manual"),
+        "auto": ("remote", "ddddocr", "tesseract", "manual"),
         "remote": ("remote",),
+        "ddddocr": ("ddddocr",),
         "tesseract": ("tesseract",),
         "manual": ("manual",),
-    }.get(choice, ("remote", "tesseract", "manual"))
+    }.get(choice, ("remote", "ddddocr", "tesseract", "manual"))
     for backend in order:
         text = None
         if backend == "remote":
             text = _usable(solve_remote(image, remote_url), expected_len)
+        elif backend == "ddddocr":
+            text = _usable(solve_ddddocr(image), expected_len)
         elif backend == "tesseract":
             text = _usable(solve_tesseract(image), expected_len)
         elif backend == "manual":
