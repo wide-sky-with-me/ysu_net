@@ -746,6 +746,29 @@ pub(crate) async fn captcha_required(
     })
     .await
 }
+
+const CAPTCHA_ATTEMPTS: u32 = 3;
+
+async fn fetch_captcha(
+    http: &Transport,
+    solver: &crate::captcha::CaptchaOcr,
+    op: &Operation,
+) -> Result<String, AuthError> {
+    at(Stage::Captcha, async {
+        let mut url = http.cas_endpoint("authserver/getCaptcha.htl")?;
+        url.query_pairs_mut().append_pair("ts", &timestamp());
+        let image = http.get(url.clone(), op).await?;
+        image.ensure_success()?;
+        let text = solver.recognize(&image.body)?;
+        if text.chars().count() < 3 {
+            return Err(AuthError::interaction("验证码识别结果不可用，请人工处理后重试")
+                .at(Stage::Captcha));
+        }
+        Ok(text)
+    })
+    .await
+}
+
 async fn api_cas_login(
     http: &Transport,
     url: Url,
@@ -757,11 +780,19 @@ async fn api_cas_login(
         .map_err(|e| e.at(Stage::CasNavigation))?;
     let mut form = LoginForm::parse(&page.text(), &page.url, http)
         .map_err(|e| e.at(Stage::CasForm).or_reason(Reason::ResponseInvalid))?;
-    if captcha_required(http, &page.url, &config.username, form.captcha, op).await? {
-        return Err(
-            AuthError::interaction("统一认证需要验证码，请人工处理后重试").at(Stage::Captcha),
-        );
-    }
+    // The opt-in local model is only used when it is already on disk; nothing is
+    // downloaded from inside a login attempt.
+    let solver = if captcha_required(http, &page.url, &config.username, form.captcha, op).await? {
+        match crate::captcha::ready_model().and_then(|p| crate::captcha::CaptchaOcr::load(&p).ok()) {
+            Some(solver) => Some(solver),
+            None => {
+                return Err(AuthError::interaction("统一认证需要验证码，请人工处理后重试")
+                    .at(Stage::Captcha))
+            }
+        }
+    } else {
+        None
+    };
     form.fields
         .insert("username".into(), config.username.clone());
     form.fields.insert(
@@ -782,33 +813,49 @@ async fn api_cas_login(
     if form.fields.get("captcha").is_some_and(String::is_empty) {
         form.fields.remove("captcha");
     }
-    let body = url::form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(form.fields.iter())
-        .finish()
-        .into_bytes();
-    let mut headers = http.api_headers(&form.action, Some(&page.url));
-    headers.remove("isportal");
-    headers.insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static("application/x-www-form-urlencoded"),
-    );
-    let r = at(Stage::CasSubmit, async {
-        let r = http
-            .once(Method::POST, form.action, headers, Some(body), op)
-            .await?;
-        if matches!(r.status, 429 | 500..=599) {
-            return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试")
-                .because(Reason::HttpRejected));
+    let action = form.action.clone();
+    let mut solved = 0;
+    let r = loop {
+        if let Some(solver) = solver.as_ref() {
+            form.fields
+                .insert("captcha".into(), fetch_captcha(http, solver, op).await?);
         }
-        if !matches!(r.status, 301 | 302 | 303) {
-            return Err(AuthError::interaction(
-                "统一认证未确认登录，请检查账号密码、验证码或风控状态",
-            )
-            .because(Reason::BusinessRejected));
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(form.fields.iter())
+            .finish()
+            .into_bytes();
+        let mut headers = http.api_headers(&action, Some(&page.url));
+        headers.remove("isportal");
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
+        let reply = at(Stage::CasSubmit, async {
+            let reply = http
+                .once(Method::POST, action.clone(), headers, Some(body), op)
+                .await?;
+            if matches!(reply.status, 429 | 500..=599) {
+                return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试")
+                    .because(Reason::HttpRejected));
+            }
+            Ok(reply)
+        })
+        .await?;
+        if matches!(reply.status, 301 | 302 | 303) {
+            break reply;
         }
-        Ok(r)
-    })
-    .await?;
+        // Only a challenge rejection is retried, and only while a solver is active:
+        // a wrong password must not turn into repeated credential attempts.
+        let rejected_by_captcha = reply.text().contains("验证码");
+        if solver.is_some() && rejected_by_captcha && solved < CAPTCHA_ATTEMPTS - 1 {
+            solved += 1;
+            continue;
+        }
+        return Err(AuthError::interaction(
+            "统一认证未确认登录，请检查账号密码、验证码或风控状态",
+        )
+        .because(Reason::BusinessRejected));
+    };
     at(Stage::CasCallback, async {
         let next = r
             .headers

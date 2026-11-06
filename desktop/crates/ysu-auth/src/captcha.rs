@@ -1,5 +1,3 @@
-#![allow(dead_code)] // wired into the CAS flow in the following change
-
 //! Local captcha recognition for the CAS challenge.
 //!
 //! The portal captcha is an 80x30 JPEG with four alphanumeric glyphs and a
@@ -14,6 +12,30 @@ use tract_onnx::prelude::*;
 const CHARSET_JSON: &str = include_str!("captcha_charset.json");
 const TARGET_HEIGHT: u32 = 64;
 const BLANK: usize = 0;
+
+
+/// Where the opt-in model is cached; the installer never ships it.
+pub fn cache_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = std::env::var_os("YSU_CAPTCHA_DIR") {
+        return Some(std::path::PathBuf::from(dir));
+    }
+    let base = std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("XDG_CACHE_HOME"))
+        .or_else(|| std::env::var_os("HOME"))?;
+    Some(std::path::PathBuf::from(base).join("ysu-net").join("captcha"))
+}
+
+/// Resolves an already-available model without downloading anything.
+pub fn ready_model() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("YSU_CAPTCHA_MODEL") {
+        let path = std::path::PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    let path = cache_dir()?.join(MODEL_FILE);
+    path.is_file().then_some(path)
+}
+
+pub const MODEL_FILE: &str = "common.onnx";
 
 pub struct CaptchaOcr {
     model: SimplePlan<TypedFact, Box<dyn TypedOp>, TypedModel>,
