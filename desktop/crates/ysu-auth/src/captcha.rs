@@ -37,6 +37,47 @@ pub fn ready_model() -> Option<std::path::PathBuf> {
 
 pub const MODEL_FILE: &str = "common.onnx";
 
+/// SHA256 of the model this build was verified against.
+pub const MODEL_SHA256: &str = "33b5cd351ee94e73a6bf8fa18c415ed8b819b3ffd342e267c30d8ad8334e34e8";
+
+/// Downloads the model on explicit request only; a login never triggers this.
+pub async fn download_model(url: &str, client: &reqwest::Client) -> Result<std::path::PathBuf, AuthError> {
+    let dir = cache_dir().ok_or_else(|| AuthError::query("无法确定验证码模型目录"))?;
+    std::fs::create_dir_all(&dir).map_err(|_| AuthError::query("无法创建验证码模型目录"))?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|_| AuthError::query("验证码模型下载失败"))?;
+    if !response.status().is_success() {
+        return Err(AuthError::query("验证码模型下载失败"));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| AuthError::query("验证码模型下载不完整"))?;
+    let digest = sha256_hex(&bytes);
+    if digest != MODEL_SHA256 {
+        return Err(AuthError::query("验证码模型校验失败，已丢弃"));
+    }
+    let target = dir.join(MODEL_FILE);
+    let staging = dir.join(format!("{MODEL_FILE}.part"));
+    std::fs::write(&staging, &bytes).map_err(|_| AuthError::query("验证码模型写入失败"))?;
+    std::fs::rename(&staging, &target).map_err(|_| AuthError::query("验证码模型写入失败"))?;
+    Ok(target)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 pub struct CaptchaOcr {
     model: SimplePlan<TypedFact, Box<dyn TypedOp>, TypedModel>,
     charset: Vec<String>,
