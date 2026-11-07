@@ -13,7 +13,6 @@ const CHARSET_JSON: &str = include_str!("captcha_charset.json");
 const TARGET_HEIGHT: u32 = 64;
 const BLANK: usize = 0;
 
-
 /// Where the opt-in model is cached; the installer never ships it.
 pub fn cache_dir() -> Option<std::path::PathBuf> {
     if let Some(dir) = std::env::var_os("YSU_CAPTCHA_DIR") {
@@ -22,7 +21,11 @@ pub fn cache_dir() -> Option<std::path::PathBuf> {
     let base = std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("XDG_CACHE_HOME"))
         .or_else(|| std::env::var_os("HOME"))?;
-    Some(std::path::PathBuf::from(base).join("ysu-net").join("captcha"))
+    Some(
+        std::path::PathBuf::from(base)
+            .join("ysu-net")
+            .join("captcha"),
+    )
 }
 
 /// Resolves an already-available model without downloading anything.
@@ -41,7 +44,10 @@ pub const MODEL_FILE: &str = "common.onnx";
 pub const MODEL_SHA256: &str = "33b5cd351ee94e73a6bf8fa18c415ed8b819b3ffd342e267c30d8ad8334e34e8";
 
 /// Downloads the model on explicit request only; a login never triggers this.
-pub async fn download_model(url: &str, client: &reqwest::Client) -> Result<std::path::PathBuf, AuthError> {
+pub async fn download_model(
+    url: &str,
+    client: &reqwest::Client,
+) -> Result<std::path::PathBuf, AuthError> {
     let dir = cache_dir().ok_or_else(|| AuthError::query("无法确定验证码模型目录"))?;
     std::fs::create_dir_all(&dir).map_err(|_| AuthError::query("无法创建验证码模型目录"))?;
     let response = client
@@ -89,16 +95,14 @@ impl CaptchaOcr {
         if !model.is_file() {
             return Err(AuthError::query("验证码模型文件缺失"));
         }
-        let charset: Vec<String> = serde_json::from_str(CHARSET_JSON)
-            .map_err(|_| AuthError::query("验证码字符集损坏"))?;
+        let charset: Vec<String> =
+            serde_json::from_str(CHARSET_JSON).map_err(|_| AuthError::query("验证码字符集损坏"))?;
         let model = tract_onnx::onnx()
             .model_for_path(model)
             .and_then(|m| m.with_input_names(["input1"]))
             .and_then(|m| m.into_optimized())
             .and_then(|m| m.into_runnable())
-            .map_err(|_| {
-                AuthError::query("验证码模型加载失败").because(Reason::ResponseInvalid)
-            })?;
+            .map_err(|_| AuthError::query("验证码模型加载失败").because(Reason::ResponseInvalid))?;
         Ok(Self { model, charset })
     }
 
@@ -119,7 +123,9 @@ impl CaptchaOcr {
             return Err(AuthError::query("验证码推理输出异常"));
         }
         let steps = logits.len() / classes;
-        let flat = logits.as_slice().ok_or_else(|| AuthError::query("验证码推理输出异常"))?;
+        let flat = logits
+            .as_slice()
+            .ok_or_else(|| AuthError::query("验证码推理输出异常"))?;
         let mut text = String::new();
         let mut previous = usize::MAX;
         for step in 0..steps {
@@ -143,15 +149,22 @@ impl CaptchaOcr {
     }
 
     fn preprocess(&self, image: &[u8]) -> Result<Tensor, AuthError> {
-        let decoded = image::load_from_memory(image)
-            .map_err(|_| AuthError::query("验证码图片无法解码"))?;
+        let decoded =
+            image::load_from_memory(image).map_err(|_| AuthError::query("验证码图片无法解码"))?;
         let gray = decoded.to_luma8();
         let (width, height) = gray.dimensions();
         if width == 0 || height == 0 {
             return Err(AuthError::query("验证码图片为空"));
         }
-        let target_width = ((width as f32 * TARGET_HEIGHT as f32) / height as f32).round().max(1.0) as u32;
-        let scaled = image::imageops::resize(&gray, target_width, TARGET_HEIGHT, image::imageops::FilterType::Triangle);
+        let target_width = ((width as f32 * TARGET_HEIGHT as f32) / height as f32)
+            .round()
+            .max(1.0) as u32;
+        let scaled = image::imageops::resize(
+            &gray,
+            target_width,
+            TARGET_HEIGHT,
+            image::imageops::FilterType::Triangle,
+        );
         let mut data = Vec::with_capacity((target_width * TARGET_HEIGHT) as usize);
         for pixel in scaled.pixels() {
             data.push((pixel[0] as f32 / 255.0 - 0.5) / 0.5);

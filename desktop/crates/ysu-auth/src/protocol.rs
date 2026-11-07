@@ -761,8 +761,9 @@ async fn fetch_captcha(
         image.ensure_success()?;
         let text = solver.recognize(&image.body)?;
         if text.chars().count() < 3 {
-            return Err(AuthError::interaction("验证码识别结果不可用，请人工处理后重试")
-                .at(Stage::Captcha));
+            return Err(
+                AuthError::interaction("验证码识别结果不可用，请人工处理后重试").at(Stage::Captcha),
+            );
         }
         Ok(text)
     })
@@ -783,11 +784,14 @@ async fn api_cas_login(
     // The opt-in local model is only used when it is already on disk; nothing is
     // downloaded from inside a login attempt.
     let solver = if captcha_required(http, &page.url, &config.username, form.captcha, op).await? {
-        match crate::captcha::ready_model().and_then(|p| crate::captcha::CaptchaOcr::load(&p).ok()) {
+        match crate::captcha::ready_model().and_then(|p| crate::captcha::CaptchaOcr::load(&p).ok())
+        {
             Some(solver) => Some(solver),
             None => {
-                return Err(AuthError::interaction("统一认证需要验证码，请人工处理后重试")
-                    .at(Stage::Captcha))
+                return Err(
+                    AuthError::interaction("统一认证需要验证码，请人工处理后重试")
+                        .at(Stage::Captcha),
+                )
             }
         }
     } else {
@@ -851,10 +855,10 @@ async fn api_cas_login(
             solved += 1;
             continue;
         }
-        return Err(AuthError::interaction(
-            "统一认证未确认登录，请检查账号密码、验证码或风控状态",
-        )
-        .because(Reason::BusinessRejected));
+        return Err(
+            AuthError::interaction("统一认证未确认登录，请检查账号密码、验证码或风控状态")
+                .because(Reason::BusinessRejected),
+        );
     };
     at(Stage::CasCallback, async {
         let next = r
