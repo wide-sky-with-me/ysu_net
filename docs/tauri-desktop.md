@@ -65,6 +65,13 @@ Rust 与 Python 的动作响应同时检查外层及 data 的 authResult / authM
 本节能力纳入 0.2.3。Rust 共用 AuthClient 已在 21 完成真实离线登录、在线退出与 Shell 独立核验，Windows 原生探针也完成无凭据在线查询，证据及边界归[0.2.3 发布记录](desktop-release-0.2.3.md)。123 的 CAS 后服务拒绝曾在正式 v0.2.2 Python CLI 上以相同测试输入复现，不能作为 Rust 专属导航故障或配置无效的证明；原采样与当时状态见[123 记录](portal-123-review-2026-10-27.md#2026-10-28-正式-python-cli-对照补证)，协议选择见[决策](../.agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md)。
 
 同日[21 换机对照](portal-21-review-2026-10-28.md)已用现有客户端与相同正式 v0.2.2 wheel 完成真实离线登录及在线退出，并恢复原连接和后台。21 使用本机中国移动配置且 DNS 正常，和 123 的输入 / 网络条件不同；这是 Shell 正常链的补证，不是 Rust 或本节新源码验收。
+### 验证码识别
+
+CAS 在 `captchaRequired` 为真时仍要求验证码；区别只在于识别由谁完成。桌面端复用 ddddocr 的 `common.onnx`（MIT）做纯 Rust 推理，Python CLI 使用可选依赖 `ddddocr`；两者都不把识别结果当成认证成功，仍以 CAS 重定向、回调同源与服务动作信封为准。
+
+模型不随安装包分发，也不在登录过程中下载。桌面端只在磁盘上已有模型时才启用识别：`YSU_CAPTCHA_MODEL` 指向文件，或缓存目录下的 `common.onnx`（`YSU_CAPTCHA_DIR`，默认位于 `%LOCALAPPDATA%` / `XDG_CACHE_HOME` / `HOME` 的 `ysu-net/captcha`）。显式下载接口会校验固定的 SHA256 后原子替换，可供将来的设置入口调用；当前界面没有这个入口。没有模型时保持原行为：直接返回需人工处理，不发起图片请求、不伪造在线。
+
+提交被拒且正文出现验证码提示时最多换图重试三次，密码错误不进入该分支，避免把口令错误变成连续凭据尝试。识别输出按四位字母数字校验，长度不符视为未识别。Browser 模式未接入，仍按需人工处理。证据与未覆盖项归[验证码验收记录](captcha-recognition-2026-11-07.md)，取舍见[决策](../.agents/notes/implemented/desktop/2026-11-07-captcha-recognition.md)。
 
 ### DNS 失败时的备用 IP
 

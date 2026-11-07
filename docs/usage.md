@@ -136,7 +136,7 @@ systemd 不会自动继承交互终端导出的环境变量，后台使用持久
 - **在线**：保持检查，不重复登录。
 - **明确离线**：发起登录并再次验证在线状态。
 - **查询失败 / 响应异常**：状态记为未知，仅重试查询，不盲目提交密码。
-- **API 认证被拒绝 / 需要验证码，或浏览器识别到 IP 冻结**：暂停自动登录；修改账号配置、手动登录成功或重启守护后可恢复。浏览器其他错误按普通失败退避。
+- **API 认证被拒绝 / 需要验证码，或浏览器识别到 IP 冻结**：暂停自动登录；修改账号配置、手动登录成功或重启守护后可恢复。装了[验证码识别](#验证码识别)时先自动尝试，仍失败才进入该状态。浏览器其他错误按普通失败退避。
 
 单次认证子进程总时限由 `operation_timeout` 控制（默认 180 秒），包括跳转、请求和轮询；
 超时或停止守护时会清理整个认证进程组，包含 Playwright 子进程。
@@ -178,7 +178,17 @@ uv run --extra browser python -m ysu_net.auth.browser login --service 校园网
 `YSU_VERIFY_TLS`、`YSU_TIMEOUT`（API）、`YSU_PORTAL_UA`、`YSU_VERSION`、`YSU_SAVE_DEBUG_FILES`。
 管理入口的认证地址和 TLS 以 JSON 配置为准，不从上述同名环境变量覆盖。
 依赖统一维护在 `pyproject.toml`，具体版本由 `uv.lock` 锁定；已移除旧的 `requirements.txt`。
+## 验证码识别
 
+CAS 要求验证码时不再一律停在人工处理。默认安装不含识别依赖，需要时显式安装可选组：
+
+```bash
+uv sync --locked --extra captcha
+```
+
+后端由环境变量选择：`YSU_CAPTCHA_SOLVER` 取 `auto`（默认，依次尝试远端、ddddocr、tesseract、手工输入）、`remote`、`ddddocr`、`tesseract` 或 `manual`；远端后端需要 `YSU_CAPTCHA_REMOTE_URL`，只发送图片字节。识别结果按四位字母数字校验，失败即视为未识别。
+
+无论是否装了识别依赖，图片都会先保存为工作目录的 `captcha.png`，便于核对；识别不到时命令以需人工介入结束并给出该路径。没有终端且没有可用后端时，仍按原规则在取图前停止，不会在后台反复提交。守护遇到这类状态时暂停自动登录，处理方式与[常见问题](#常见问题)一致。桌面端只在本地已有模型时自动识别，见[桌面语义](tauri-desktop.md#验证码识别)。
 
 ## 常见问题
 
@@ -191,7 +201,7 @@ uv run --extra browser python -m ysu_net.auth.browser login --service 校园网
 | 域名解析失败 | 0.2.3 默认 API 对包内精确校园域名提供回退；自定义域名、代理解析及 Python Browser 仍需单独检查 DNS，保留 HTTPS 域名和证书校验 |
 | 门户跳转失败或 CAS 回调异常 | 核对版本、认证方式和固定错误阶段，按[排障指南](wiki/Troubleshooting.md)区分导航、CAS 与服务登录；HTTP 200 或表单提交成功不足以证明已上线 |
 | 提示已有守护进程运行 | 先 `ysu stop`；若运行的是前台守护，在对应终端按 Ctrl+C |
-| 认证暂停、密码错误或要求验证码 | 停止守护，检查账号，使用 `ysu login` 手动处理，再 `ysu on` |
+| 认证暂停、密码错误或要求验证码 | 停止守护，检查账号，使用 `ysu login` 手动处理，再 `ysu on`；反复遇到验证码可先按[验证码识别](#验证码识别)安装可选依赖 |
 | 修改配置后未立即生效 | 守护在下一轮检查时读取配置，可用 `ysu restart` 立即重启 |
 | 浏览器缺失 | 运行 `bash install.sh --browser`，再 `ysu backend browser` |
 | `ysu doctor` 提示未配置账号 | 用 `ysu config account` 设置；单独导出的环境变量不会传入 systemd 服务 |

@@ -10,11 +10,12 @@
 | 状态未知、查询失败或超时 | 确认接入校园网后只读刷新，无需先下线；关闭自动重连也可查询。`code=2` 是查询类失败，不能单独定位账号、DNS 或 TLS 根因。 |
 | 域名解析失败 | 0.2.3 的 Rust 传输和 Python 默认 API 支持精确校园域名的地址回退，仍保留域名与 TLS 校验；自定义域名、代理解析及 Python Browser 需单独核对 DNS。不要将配置地址改为 IP，详见[覆盖范围](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#dns-失败时的备用-ip)。 |
 | 门户跳转失败 | 保存固定 `stage / reason / navigation` 分类，区分 HTTP 跳转、HTML 引导和 CAS 回调；0.2.3 已修复已采样链路，仍拒绝越界导航。不要用关闭 TLS 或任意重定向放行绕过，见[导航语义](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#门户导航与诊断)。 |
-| CAS 回调报需人工处理 | 0.2.3 已修复把正常页面脚本中的风险词误判为正文的情况。真实验证码、风控或服务拒绝仍需处理；保留固定分类，HTTP 200、CAS 成功或表单提交都不足以证明服务已上线。 |
+| CAS 回调报需人工处理 | 0.2.3 已修复把正常页面脚本中的风险词误判为正文的情况。真实验证码、风控或服务拒绝仍需处理；保留固定分类，HTTP 200、CAS 成功或表单提交都不足以证明服务已上线。已启用[验证码识别](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#验证码识别)时先看识别是否给出结果。 |
 | Python 正常、Rust 失败 | 在同机、同网络、同账号 / 服务和后端下对照独立查询与失败阶段；不要从语言差异直接推定根因。已记录的对照与限制见[发布验证](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/desktop-release-0.2.3.md#修复后的真实验证)。 |
 | 账户信息读取失败 | 使用账户页只读重试；连接状态由独立查询核验，账户缺项不能作为离线证据。 |
 | 剩余流量显示“门户未提供” | 到门户或运营商查询；缺失不是零或不限量，也不据此自动换号。 |
-| 开启重连却尚未联网 | 启动后台不等于认证成功；单独查询状态。遇验证码或风控时暂停重连，在本机或门户处理。 |
+| 开启重连却尚未联网 | 启动后台不等于认证成功；单独查询状态。遇验证码或风控时暂停重连，在本机或门户处理；已启用自动识别时先确认模型或可选依赖确实就位。 |
+| 总是要求验证码 | CLI 安装可选组 `captcha`（`uv sync --extra captcha`）后默认自动识别；桌面端需要在本地缓存目录放置模型，两者都没有网络自动下载。识别不到时图片保存在工作目录的 `captcha.png`，可人工输入。详见[验证码识别](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#验证码识别)。 |
 | 已有后台管理或账号切换被阻止 | 同一配置只运行一个重连器，由当前所有者执行切换，不删除锁文件抢占。Python 守护热切换与 Rust Worker 的边界见[账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)。 |
 | 换号失败或在线设备超限 | 核对实际身份、服务和原连接恢复结果；只有旧账号确认下线、目标登录并独立核验后才提交配置。工具不自动踢其他设备。 |
 | 更新提示“更新源尚未就绪” | 不等于“已经是最新版”；稍后重试或走固定发布页，不修改源或关闭验签。 |
