@@ -1,6 +1,8 @@
 //! Native Portal/CAS authentication. No sidecar, persisted sessions or credential logging.
 //! Decision: .agents/notes/proposals/desktop/2026-10-14-rust-desktop.md
 mod browser;
+mod captcha;
+pub use captcha::{download_model, ready_model, MODEL_FILE, MODEL_SHA256};
 #[cfg(windows)]
 mod browser_process;
 mod cdp_pipe;

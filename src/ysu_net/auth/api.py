@@ -31,6 +31,8 @@ from ysu_net.auth.account import (
     format_account_info as format_info,
     summarize_account_payload,
 )
+from ysu_net.auth import captcha as captcha_solver
+from ysu_net.auth.captcha import solve as solve_captcha
 from ysu_net.auth.common import (
     InteractionRequired,
     OperationFailed,
@@ -523,16 +525,23 @@ def cas_login(
     )
 
     if need_cap:
-        if not sys.stdin.isatty():
+        # 没有自动识别后端且没有终端时，保持原合同：不发起图片请求，直接要求人工介入。
+        if not sys.stdin.isatty() and not captcha_solver.available():
             raise InteractionRequired("需要验证码，请在终端手动登录后再启动自动重连")
         img, img_url = _probe_captcha_image(sess, debug=debug)
         cap_path = os.path.abspath("captcha.png")
         with open(cap_path, "wb") as f:
             f.write(img)
-        print(f"[CAPTCHA] 已下载验证码图片：{cap_path}")
         dprint(debug, f"[CAPTCHA] from: {img_url}")
-        cap = input("[CAPTCHA] 请输入验证码：").strip()
-        fields["captcha"] = cap
+        solved = solve_captcha(img)
+        if solved is None:
+            raise InteractionRequired(
+                f"需要验证码且没有可用的自动识别结果（图片已保存：{cap_path}）；"
+                "可设置 YSU_CAPTCHA_SOLVER 或 YSU_CAPTCHA_REMOTE_URL，"
+                "也可在终端手动登录后再启动自动重连"
+            )
+        dprint(debug, f"[CAPTCHA] backend={solved.backend} len={len(solved.text)}")
+        fields["captcha"] = solved.text
     else:
         if "captcha" in fields and not fields["captcha"]:
             fields.pop("captcha", None)

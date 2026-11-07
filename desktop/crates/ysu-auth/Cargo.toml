@@ -13,6 +13,9 @@ cbc = { version = "0.1.2", features = ["alloc", "block-padding"] }
 cookie_store = { version = "0.22.1", default-features = false }
 rand = "0.8"
 regex = "1"
+tract-onnx = "0.21"
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json", "gzip", "brotli", "deflate"] }
 scraper = "0.24"
 serde = { version = "1", features = ["derive"] }
