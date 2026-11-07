@@ -31,6 +31,17 @@ describe('native bridge', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('set_startup_mode', { minimized: false });
     expect(mocks.invoke).toHaveBeenCalledWith('quit_app', {});
   });
+  it('maps the captcha model commands and validates their payload', async () => {
+    const snapshot = { ready: false, path: null, bytes: 0, url: 'https://example.test/common.onnx', sha256: 'ab'.repeat(32) };
+    mocks.invoke.mockResolvedValue(snapshot);
+    const transport = createDesktopTransport();
+    expect(await transport.captchaStatus()).toEqual(snapshot);
+    expect(await transport.captchaDownload()).toEqual(snapshot);
+    expect(mocks.invoke).toHaveBeenCalledWith('captcha_status');
+    expect(mocks.invoke).toHaveBeenCalledWith('captcha_download');
+    mocks.invoke.mockResolvedValue({ ready: true });
+    await expect(transport.captchaStatus()).rejects.toThrow('验证码模型状态读取失败');
+  });
   it('requires explicit demo=1 and gives native mode precedence', () => {
     expect(selectMode(false, '')).toBe('web'); expect(selectMode(false, '?demo=true')).toBe('web');
     expect(selectMode(false, '?demo=1')).toBe('demo'); expect(selectMode(true, '?demo=1')).toBe('desktop');
@@ -47,6 +58,8 @@ describe('native bridge', () => {
       () => transport.getDesktopSettings(),
       () => transport.setAutostart(true),
       () => transport.setStartupMode(false),
+      () => transport.captchaStatus(),
+      () => transport.captchaDownload(),
       () => transport.quit(),
       () => transport.subscribe(() => {}),
     ]) await expect(operation()).rejects.toThrow('普通网页');
@@ -69,6 +82,9 @@ describe('native bridge', () => {
     expect((await transport.getDesktopSettings()).autostart).toBe(true);
     expect(await transport.setStartupMode(false)).toMatchObject({ prefs: { autostart_minimized: false } });
     expect((await transport.getDesktopSettings()).autostart).toBe(true);
+    expect((await transport.captchaStatus()).ready).toBe(false);
+    expect((await transport.captchaDownload()).ready).toBe(true);
+    expect((await transport.captchaStatus()).ready).toBe(true);
     await transport.quit();
     expect(handler).toHaveBeenCalled();
     stop();
