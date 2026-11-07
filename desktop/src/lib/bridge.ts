@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { CAPTCHA_WEB_UNAVAILABLE, parseCaptchaStatus } from './captcha';
 import { createDemoTransport } from './demo';
 import { parseDesktopSettings } from './settings';
 import type { CoreCommands, DesktopSettings, Transport } from './protocol';
@@ -14,6 +15,8 @@ export function createDesktopTransport(): Transport {
     request: <C extends keyof CoreCommands>(command: C, args: CoreCommands[C]) => invoke('core_request', { command, args }),
     subscribe: (handler) => listen('core-event', (event) => handler(event.payload)),
     getDesktopSettings: async () => parseDesktopSettings(await invoke<DesktopSettings>('get_desktop_settings')),
+    captchaStatus: async () => parseCaptchaStatus(await invoke('captcha_status')),
+    captchaDownload: async () => parseCaptchaStatus(await invoke('captcha_download')),
     setAutostart: async (enabled) => { await invoke('set_autostart', { enabled }); },
     setStartupMode: (minimized) => invoke('set_startup_mode', { minimized }),
     quit: async () => { await invoke('quit_app', {}); },
@@ -25,5 +28,6 @@ export function createTransport(search = window.location.search): Transport {
   if (mode === 'desktop') return createDesktopTransport();
   if (mode === 'demo') return createDemoTransport(search);
   const unavailable = async (): Promise<never> => { throw new Error('当前为普通网页，请在桌面客户端中操作；离线预览需明确使用 ?demo=1'); };
-  return { mode, request: unavailable, subscribe: unavailable, getDesktopSettings: unavailable, setAutostart: unavailable, setStartupMode: unavailable, quit: unavailable };
+  const captchaUnavailable = async (): Promise<never> => { throw new Error(CAPTCHA_WEB_UNAVAILABLE); };
+  return { mode, request: unavailable, subscribe: unavailable, getDesktopSettings: unavailable, setAutostart: unavailable, setStartupMode: unavailable, captchaStatus: captchaUnavailable, captchaDownload: captchaUnavailable, quit: unavailable };
 }

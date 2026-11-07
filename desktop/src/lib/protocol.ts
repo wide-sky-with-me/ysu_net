@@ -65,6 +65,7 @@ export interface Snapshot {
   };
 }
 export interface DesktopSettings { autostart: boolean; tray_available: boolean; tray_tooltip?: boolean; version: string; demo?: boolean }
+export interface CaptchaStatus { ready: boolean; path: string | null; bytes: number; url: string; sha256: string }
 export interface CoreCommands {
   snapshot: Record<string, never>;
   observe: Record<string, never>;
@@ -88,6 +89,8 @@ export interface Transport {
   getDesktopSettings(): Promise<DesktopSettings>;
   setAutostart(enabled: boolean): Promise<void>;
   setStartupMode(minimized: boolean): Promise<unknown>;
+  captchaStatus(): Promise<CaptchaStatus>;
+  captchaDownload(): Promise<CaptchaStatus>;
   quit(): Promise<void>;
 }
 

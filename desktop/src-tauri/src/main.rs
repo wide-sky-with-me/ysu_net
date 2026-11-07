@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod accounts;
 mod bridge;
+mod captcha;
 mod debug_recording;
 mod project;
 mod runtime;
@@ -284,7 +285,9 @@ fn main() {
             updater::updater_check,
             updater::updater_install,
             updater::updater_resume,
-            updater::updater_restart
+            updater::updater_restart,
+            captcha::captcha_status,
+            captcha::captcha_download
         ])
         .setup(move |app| {
             let handle = app.handle();

@@ -2,7 +2,10 @@
 //! Decision: .agents/notes/proposals/desktop/2026-10-14-rust-desktop.md
 mod browser;
 mod captcha;
-pub use captcha::{download_model, ready_model, MODEL_FILE, MODEL_SHA256};
+pub use captcha::{
+    download, download_model, ready_model, status as model_status, ModelStatus, MODEL_FILE,
+    MODEL_SHA256, MODEL_URL,
+};
 #[cfg(windows)]
 mod browser_process;
 mod cdp_pipe;

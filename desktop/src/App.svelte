@@ -20,7 +20,8 @@
   import { beginStateObservation } from './lib/observation';
   import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
-  import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
+  import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
+  import { captchaProblem, captchaSummary } from './lib/captcha';
 
   type Page = 'connection' | 'account' | 'settings' | 'logs' | 'about';
   const navigation: { id: Page; label: string; icon: string }[] = [
@@ -49,6 +50,9 @@
   let parameters = $state<PublicConfig>({ username: '', service: '校园网', backend: 'api', base: 'https://auth1.ysu.edu.cn', cas_host: 'https://cer.ysu.edu.cn', verify_tls: true, check_interval: 15, retry_interval: 30, max_retry_interval: 900, operation_timeout: 180, password_set: false });
   let diagnostic = $state('');
   let diagnosticUpdated = $state('');
+  let captcha = $state<CaptchaStatus | null>(null);
+  let captchaBusy = $state(false);
+  let captchaError = $state<string | null>(null);
   let accountBookError = $state<{ id: string; message: string } | null>(null);
   let logFilter = $state('all');
   let logSearch = $state('');
@@ -151,6 +155,7 @@
     media.addEventListener('change', change);
     void initialize();
     refreshDesktopSettings();
+    loadCaptcha();
     const stopObservation = beginStateObservation(transport, { window, document });
     return () => { mounted = false; stopObservation(); stop?.(); password = ''; media.removeEventListener('change', change); };
   });
@@ -293,6 +298,22 @@
     void executeSetting(setting, async () => {
       receive(confirmedPreferences(await transport.request('save_prefs', changes), changes));
     }, preferenceNotice(changes));
+  }
+
+  function loadCaptcha() {
+    if (transport.mode === 'web') return;
+    void transport.captchaStatus().then((value) => { if (mounted) captcha = value; })
+      .catch((error) => { if (mounted) captchaError = captchaProblem(error); });
+  }
+
+  function downloadCaptcha() {
+    if (captchaBusy) return;
+    captchaBusy = true;
+    captchaError = null;
+    void transport.captchaDownload()
+      .then((value) => { if (!mounted) return; captcha = value; notice = { message: captchaSummary(value), error: false }; })
+      .catch((error) => { if (mounted) captchaError = captchaProblem(error); })
+      .finally(() => { if (mounted) captchaBusy = false; });
   }
 
   function refreshBrowser() {
@@ -479,6 +500,13 @@
                     <label class="form-row url-row"><span>CAS 地址</span><input type="url" bind:value={parameters.cas_host} oninput={() => { parametersDirty = true; }} /></label>
                   </div>
                   <div class="setting-row"><div><span>HTTPS 证书校验</span>{#if !parameters.verify_tls}<p class="certificate-warning">{snapshot?.config.verify_tls ? '保存后将关闭校验，需确认后生效。' : '校验已关闭，认证时不验证服务器身份。'}</p>{/if}</div><Toggle checked={parameters.verify_tls} disabled={locked} label="HTTPS 证书校验" onchange={(value) => { parameters.verify_tls = value; parametersDirty = true; }} /></div>
+                </section>
+                <section class="settings-section">
+                  <div class="section-heading"><h2>验证码识别</h2></div>
+                  <div class="setting-row captcha-setting" aria-busy={captchaBusy}>
+                    <div><span>{captchaSummary(captcha)}</span>{#if captcha?.ready}<p>模型只保存在本机，认证时在本机识别；清理缓存或换机后需要重新下载。</p>{:else}<p>模型不随安装包分发，需要时再下载；未下载时遇到验证码仍要求人工处理。</p>{/if}{#if captchaError}<p class="captcha-error" role="alert">{captchaError}</p>{/if}</div>
+                    <button type="button" disabled={captchaBusy || transport.mode === 'web'} onclick={downloadCaptcha}><Icon name="refresh" size={16} />{captchaBusy ? '正在下载…' : captcha?.ready ? '重新下载' : '下载模型'}</button>
+                  </div>
                 </section>
                 <section class="settings-section">
                   <div class="section-heading"><h2>检查与重试</h2></div>

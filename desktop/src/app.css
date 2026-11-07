@@ -349,6 +349,10 @@
   .browser-status p { color: var(--muted); font-size: 12px; }
   .browser-section > button { margin-left: auto; font-size: 12px; flex-shrink: 0; }
   .setting-row p.certificate-warning { color: var(--warning); }
+  .captcha-setting { flex-wrap: wrap; }
+  .captcha-setting > div { flex: 1 1 280px; min-width: 0; }
+  .captcha-setting > button { margin-left: auto; flex-shrink: 0; }
+  .setting-row p.captcha-error { color: var(--danger); overflow-wrap: anywhere; }
   .theme-selector { display: flex; padding: 4px; gap: 3px; background: var(--field); border-radius: 999px; flex-shrink: 0; }
   .theme-selector button { border: 0; background: transparent; min-height: 30px; font-size: 12px; padding: 4px 13px; border-radius: 999px; color: var(--muted); }
   .theme-selector button:hover:not(:disabled) { color: var(--text); background: var(--hover); }

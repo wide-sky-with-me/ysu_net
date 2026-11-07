@@ -1,7 +1,7 @@
 import { SERVICES, rotationControl, validateAccount } from './protocol';
 import { normalizeAccent } from './accents';
 import packageInfo from '../../package.json';
-import type { ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, SaveAccount, Snapshot, Transport } from './protocol';
+import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, SaveAccount, Snapshot, Transport } from './protocol';
 
 const DEMO_VERSION = `${packageInfo.version}-demo`;
 
@@ -49,6 +49,7 @@ export function createDemoTransport(search = ''): Transport {
   let state = demoSnapshot(search);
   const handlers = new Set<(event: unknown) => void>();
   let settings: DesktopSettings = { autostart: false, tray_available: true, version: DEMO_VERSION };
+  let captcha: CaptchaStatus = { ready: false, path: null, bytes: 0, url: 'https://github.com/wide-sky-with-me/ysu_net/releases/download/captcha-model-v1/common.onnx', sha256: '33b5cd351ee94e73a6bf8fa18c415ed8b819b3ffd342e267c30d8ad8334e34e8' };
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
   let infoTimer: ReturnType<typeof setTimeout> | undefined;
   let nextId = 1;
@@ -191,6 +192,8 @@ export function createDemoTransport(search = ''): Transport {
       return { ok: true, message: '离线模拟操作完成' };
     },
     getDesktopSettings: async () => ({ ...settings }),
+    captchaStatus: async () => ({ ...captcha }),
+    captchaDownload: async () => { captcha = { ...captcha, ready: true, bytes: 54088400, path: '/demo/ysu-net/captcha/common.onnx' }; log('验证码模型已就绪（模拟）'); publish(); return { ...captcha }; },
     setAutostart: async (enabled) => { settings = { ...settings, autostart: enabled }; log(enabled ? '开机自启已开启' : '开机自启已关闭'); publish(); },
     setStartupMode: async (minimized) => {
       if (typeof minimized !== 'boolean') throw new Error('模拟：启动方式值无效');

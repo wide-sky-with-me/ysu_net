@@ -40,6 +40,46 @@ pub fn ready_model() -> Option<std::path::PathBuf> {
 
 pub const MODEL_FILE: &str = "common.onnx";
 
+/// Fixed download location; a release asset, not a product version tag.
+pub const MODEL_URL: &str =
+    "https://github.com/wide-sky-with-me/ysu_net/releases/download/captcha-model-v1/common.onnx";
+
+/// What the settings page needs to render one row without touching the network.
+pub struct ModelStatus {
+    pub ready: bool,
+    pub path: Option<std::path::PathBuf>,
+    pub bytes: u64,
+}
+
+pub fn status() -> ModelStatus {
+    describe(ready_model())
+}
+
+/// Split from [`status`] so the shape is testable without touching the process environment.
+fn describe(path: Option<std::path::PathBuf>) -> ModelStatus {
+    let bytes = path
+        .as_ref()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len())
+        .unwrap_or(0);
+    ModelStatus {
+        ready: path.is_some(),
+        path,
+        bytes,
+    }
+}
+
+/// Downloads from the fixed location on an explicit request.
+pub async fn download() -> Result<std::path::PathBuf, AuthError> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 YSU-Native-Auth/0.1")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|_| AuthError::query("验证码模型下载失败"))?;
+    download_model(MODEL_URL, &client).await
+}
+
 /// SHA256 of the model this build was verified against.
 pub const MODEL_SHA256: &str = "33b5cd351ee94e73a6bf8fa18c415ed8b819b3ffd342e267c30d8ad8334e34e8";
 
@@ -187,6 +227,33 @@ mod tests {
             .join("../../../tests/fixtures/captcha")
             .join(name);
         std::fs::read(path).ok()
+    }
+    #[test]
+    fn models_hosting_url_and_digest_stay_pinned() {
+        assert!(
+            MODEL_URL.starts_with("https://github.com/wide-sky-with-me/ysu_net/releases/download/")
+        );
+        assert!(MODEL_URL.ends_with(MODEL_FILE));
+        assert_eq!(MODEL_SHA256.len(), 64);
+        assert!(MODEL_SHA256.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn status_reports_the_cached_file_without_downloading() {
+        let dir = std::env::temp_dir().join(format!("ysu-captcha-status-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let empty = describe(None);
+        assert!(!empty.ready);
+        assert_eq!(empty.bytes, 0);
+        assert!(empty.path.is_none());
+        let model = dir.join(MODEL_FILE);
+        std::fs::write(&model, b"not-a-model").expect("write fixture");
+        let present = describe(Some(model.clone()));
+        assert!(present.ready);
+        assert_eq!(present.bytes, 11);
+        assert_eq!(present.path.as_deref(), Some(model.as_path()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
