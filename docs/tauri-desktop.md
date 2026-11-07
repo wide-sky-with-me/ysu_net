@@ -69,7 +69,9 @@ Rust 与 Python 的动作响应同时检查外层及 data 的 authResult / authM
 
 CAS 在 `captchaRequired` 为真时仍要求验证码；区别只在于识别由谁完成。桌面端复用 ddddocr 的 `common.onnx`（MIT）做纯 Rust 推理，Python CLI 使用可选依赖 `ddddocr`；两者都不把识别结果当成认证成功，仍以 CAS 重定向、回调同源与服务动作信封为准。
 
-模型不随安装包分发，也不在登录过程中下载。桌面端只在磁盘上已有模型时才启用识别：`YSU_CAPTCHA_MODEL` 指向文件，或缓存目录下的 `common.onnx`（`YSU_CAPTCHA_DIR`，默认位于 `%LOCALAPPDATA%` / `XDG_CACHE_HOME` / `HOME` 的 `ysu-net/captcha`）。显式下载接口会校验固定的 SHA256 后原子替换，可供将来的设置入口调用；当前界面没有这个入口。没有模型时保持原行为：直接返回需人工处理，不发起图片请求、不伪造在线。
+模型不随安装包分发，也不在登录过程中下载。桌面端只在磁盘上已有模型时才启用识别：`YSU_CAPTCHA_MODEL` 指向文件，或缓存目录下的 `common.onnx`（`YSU_CAPTCHA_DIR`，默认位于 `%LOCALAPPDATA%` / `XDG_CACHE_HOME` / `HOME` 的 `ysu-net/captcha`）。「设置 → 认证 → 验证码识别」显示当前状态，并按需从固定地址下载或重新下载；下载结果先校验 SHA256 再原子替换，锚点不符即丢弃，整个过程只在用户点击时发生。没有模型时保持原行为：直接返回需人工处理，不发起图片请求、不伪造在线。
+
+模型是同一仓库的固定 Release 资产（`captcha-model-v1`），不是产品版本标签，也不参与 `v*` 发布或软件内更新。换模型必须同时更新锚点和字符集，否则输出会整体错位。
 
 提交被拒且正文出现验证码提示时最多换图重试三次，密码错误不进入该分支，避免把口令错误变成连续凭据尝试。识别输出按四位字母数字校验，长度不符视为未识别。Browser 模式未接入，仍按需人工处理。证据与未覆盖项归[验证码验收记录](captcha-recognition-2026-11-07.md)，取舍见[决策](../.agents/notes/implemented/desktop/2026-11-07-captcha-recognition.md)。
 
