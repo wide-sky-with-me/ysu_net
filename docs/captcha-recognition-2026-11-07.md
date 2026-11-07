@@ -16,6 +16,8 @@
 
 同一分支的前两次运行不是通过成绩，保留作为修正依据：[42224972810](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42224972810) 在 `rustfmt --check` 上失败（`captcha.rs` / `protocol.rs` 排版未提交），[42384770760](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42384770760) 在四平台 `cargo build --locked` 上失败（新增 `tract-onnx` / `image` / `sha2` 未写入 `desktop/src-tauri/Cargo.lock`）。两项分别由 `3539400`、`461aa7f` 修正。
 合入 main 后，同一代码在 `618ce80f304fc0bee8e151a3ee04578c50e231df` 上重新全绿：[Mock 42388542302](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388542302)、[Native 42388541982](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388541982)、[Headless 42388541968](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388541968) 与 [Community 42388542028](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388542028)。其中 Mock 新增独立作业，用 `--extra captcha` 跑 `test_captcha_solver.py`：8 项全过，`test_recognizes_observed_portal_captchas` 不再跳过，三张真实样本均识别正确。
+
+托管地址与设置页入口合并后，`35775b6` 上四类门禁再次全绿：[Mock 42391913318](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42391913318)、[Native 42391913336](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42391913336)（含 `browser-acceptance` 渲染含验证码行的设置页）、[Headless 42391913388](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42391913388) 与 [Community 42391913414](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42391913414)。
 本机只执行文档链接、社区规则与 `git diff --check` 静态核对；未在本机运行 Cargo 构建、产品测试或前端生产构建。
 
 ## 样本与识别结果
