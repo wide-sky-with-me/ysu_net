@@ -13,6 +13,10 @@ jobs:
       - name: Require OpenSSL for loopback TLS regressions
         run: openssl version
       - run: uv run --extra browser python -m unittest discover -s tests -v
+      - name: Recognize the captured captcha fixtures
+        run: |
+          uv sync --locked --extra browser --extra captcha
+          uv run --extra captcha python -m unittest discover -s tests -p test_captcha_solver.py -v
       - run: bash -n install.sh uninstall.sh
       - run: uv run ysu --help
       - run: uv build
