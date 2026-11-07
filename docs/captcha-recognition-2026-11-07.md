@@ -15,7 +15,7 @@
 | [Headless 42387637100](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42387637100) | 同提交四平台认证库回归与探针通过（手动触发，路径过滤不含锁文件改动） |
 
 同一分支的前两次运行不是通过成绩，保留作为修正依据：[42224972810](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42224972810) 在 `rustfmt --check` 上失败（`captcha.rs` / `protocol.rs` 排版未提交），[42384770760](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42384770760) 在四平台 `cargo build --locked` 上失败（新增 `tract-onnx` / `image` / `sha2` 未写入 `desktop/src-tauri/Cargo.lock`）。两项分别由 `3539400`、`461aa7f` 修正。
-
+合入 main 后，同一代码在 `618ce80f304fc0bee8e151a3ee04578c50e231df` 上重新全绿：[Mock 42388542302](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388542302)、[Native 42388541982](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388541982)、[Headless 42388541968](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388541968) 与 [Community 42388542028](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42388542028)。其中 Mock 新增独立作业，用 `--extra captcha` 跑 `test_captcha_solver.py`：8 项全过，`test_recognizes_observed_portal_captchas` 不再跳过，三张真实样本均识别正确。
 本机只执行文档链接、社区规则与 `git diff --check` 静态核对；未在本机运行 Cargo 构建、产品测试或前端生产构建。
 
 ## 样本与识别结果
@@ -36,4 +36,4 @@
 | 模型托管 | `common.onnx` 没有稳定的公开下载地址，`download_model()` 只保留了注入 URL 的接口 |
 | 桌面入口 | 设置页没有下载 / 启用开关，目前需要在缓存目录自行放置模型 |
 | Browser 模式 | 未接入，验证码仍返回需人工处理 |
-| CI 覆盖 | ddddocr 样本用例在默认依赖下跳过；桌面推理用例在无模型时跳过 |
+| CI 覆盖 | ddddocr 样本用例已纳入 Mock 作业的独立步骤，真实执行；桌面推理用例需要模型文件，云端仍跳过 |

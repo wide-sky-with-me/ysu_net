@@ -73,7 +73,7 @@ uv lock --check
 - `tests/fixtures/cas-login-methods.json` 与 `portal-action-results.json`：123 采样后重建的合成表单 / 业务拒绝合同；Python `test_live_contracts.py` 与 Rust `live_contract_tests.rs` 共用，验证其他登录方式的验证码不误判、服务拒绝后不激活。回归已在云端执行，真实采样边界见[123 记录](portal-123-review-2026-10-27.md)。
 - [`tests/fixtures/portal-navigation.json`](../tests/fixtures/portal-navigation.json)：旧门户引导的 Python/Rust 共享样本；Rust 在专用 GET 引导中规范化可信旧地址，不发送 HTTP，也不放宽通用 API/CAS/POST 边界。精确条件和负例见 [`transport.rs::portal_navigation_target`](../desktop/crates/ysu-auth/src/transport.rs) 与认证库回归。
 - Rust `captive_tests.rs`、`regression_tests.rs` 与 `browser.rs` 内部导航回归：共用 Location / HTML 解析、匿名 captive 单次限制，以及交给 Chromium 的受控 HTTPS 重定向和上下文负例；对应云端运行见[发布记录](desktop-release-0.2.3.md)，依据及原采样限制见[Shell 跳转对照](portal-redirect-parity-2026-10-28.md)。
-- `tests/test_captcha_solver.py` 与 `tests/fixtures/captcha/`：三张真实抓取的门户验证码驱动的后端顺序、长度 / 字符集拒绝、无终端时跳过人工输入和远端错误状态忽略。ddddocr 用例只在装了 `--extra captcha` 时执行，默认依赖下跳过，因此默认 Mock 作业只覆盖合同而不覆盖识别本身。Rust 侧的 `captcha.rs` 对同三张图做一致性用例，需要 `YSU_CAPTCHA_MODEL` 指向模型文件，无模型时跳过——模型不入包，云端常规作业因此不含这项。
+- `tests/test_captcha_solver.py` 与 `tests/fixtures/captcha/`：三张真实抓取的门户验证码驱动的后端顺序、长度 / 字符集拒绝、无终端时跳过人工输入和远端错误状态忽略。ddddocr 用例需要 `--extra captcha`，因此 Mock 作业另起一个装该可选组的步骤执行整个文件，默认可选组下它仍会跳过。Rust 侧的 `captcha.rs` 对同三张图做一致性用例，需要 `YSU_CAPTCHA_MODEL` 指向模型文件，无模型时跳过——模型不入包，云端常规作业因此不含这项。
 - `tests/test_system_browser.py`：系统浏览器查找、Snap 排除与启动回退。
 - `tests/test_node_runtime.py`：Node.js 运行时查找顺序与缺失时的报错。
 - `tests/helpers.py`：公共响应样本、临时目录和禁止联网的测试基类。
