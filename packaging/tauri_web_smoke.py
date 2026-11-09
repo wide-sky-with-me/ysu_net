@@ -87,6 +87,8 @@ def main():
         page.get_by_role("tab", name="校园网账号", exact=True).click()
         expect(page.get_by_label("密码", exact=True)).to_have_value("")
         page.get_by_role("tab", name="认证与重试", exact=True).click()
+        expect(page.locator("form.authentication-settings")).not_to_contain_text("验证码识别")
+        expect(page.get_by_role("button", name="下载模型", exact=True)).to_be_visible()
         page.get_by_label("认证方式").select_option("browser")
         expect(page.get_by_role("dialog")).not_to_be_visible()
         expect(page.locator(".browser-section")).to_contain_text("系统浏览器可用")
@@ -171,6 +173,8 @@ def main():
         expect(page.get_by_role("switch", name="登录系统后自动启动", exact=True)).to_be_disabled()
         expect(page.get_by_role("switch", name="关闭窗口时驻留托盘", exact=True)).to_be_disabled()
         expect(page.get_by_role("button", name="退出应用", exact=True)).to_be_disabled()
+        page.get_by_role("tab", name="认证与重试", exact=True).click()
+        expect(page.get_by_role("button", name="下载模型", exact=True)).to_be_disabled()
         assert page.evaluate("localStorage.length + sessionStorage.length") == 0
         shot("web-no-core.png")
         browser.close()

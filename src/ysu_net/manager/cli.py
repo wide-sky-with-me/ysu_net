@@ -181,8 +181,11 @@ def doctor(args, path):
         report(bundled or system is not None,
                "Chromium 文件" if bundled else f"使用系统浏览器：{system[0]}" if system
                else "浏览器（安装 Edge / Chrome，或运行 uv run playwright install chromium）")
+    from ..auth import captcha
     ui.row("当前服务", f"{config.service} · {ui.BACKENDS[config.backend]}")
     ui.row("证书校验", "开启" if config.verify_tls else "关闭")
+    if config.backend == "api":
+        ui.row("验证码识别", "已就绪" if captcha.available() else "按需人工处理")
     if unit_path(args.scope).exists() and shutil.which("systemctl"):
         state = systemctl(args.scope, "is-active", UNIT, check=False, capture=True).stdout.strip()
         ui.row("后台服务", ui.SERVICE_STATES.get(state, "不可用"))

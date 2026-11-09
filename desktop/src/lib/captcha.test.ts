@@ -28,5 +28,6 @@ describe('captcha model status', () => {
     expect(captchaProblem('验证码模型校验失败，已丢弃')).toBe('验证码模型校验失败，已丢弃');
     expect(captchaProblem(new Error(''))).toBe(CAPTCHA_DOWNLOAD_FAILED);
     expect(captchaProblem(undefined)).toBe(CAPTCHA_DOWNLOAD_FAILED);
+    expect(captchaProblem(undefined, CAPTCHA_STATUS_FAILED)).toBe(CAPTCHA_STATUS_FAILED);
   });
 });

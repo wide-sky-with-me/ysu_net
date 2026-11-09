@@ -90,7 +90,7 @@ NATIVE += r"""
     // Only the minimal About fixture bootstrap is permitted. Unknown IPC fails
     // closed in that fixture; project links/updater/quit never reach the host.
     if (command === 'plugin:event|listen' || command === 'plugin:event|unlisten' ||
-        command === 'get_desktop_settings' ||
+        command === 'get_desktop_settings' || command === 'captcha_status' ||
         (command === 'core_request' && ['snapshot', 'observe'].includes(args?.command)))
       return original(command, args);
     window.__aboutUnexpected.push(command);

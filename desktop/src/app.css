@@ -196,7 +196,7 @@
   .feedback-toast.error .feedback-symbol { background: var(--danger-soft); color: var(--danger); }
   .feedback-busy { grid-template-columns: 32px minmax(0, 1fr); }
   .feedback-busy .feedback-symbol { background: var(--accent-soft); color: var(--accent); }
-  .feedback-busy .feedback-symbol svg, .header-action[aria-busy='true'] svg, .update-check[aria-busy='true'] svg { transform-origin: center; animation: feedback-spin 1s linear infinite; }
+  .feedback-busy .feedback-symbol svg, .header-action[aria-busy='true'] svg, .update-check[aria-busy='true'] svg, .captcha-download[aria-busy='true'] svg { transform-origin: center; animation: feedback-spin 1s linear infinite; }
   @keyframes feedback-spin { to { transform: rotate(360deg); } }
   .connection-overview { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'context' 'automation' 'controls'; gap: 16px; }
   .connection-context { grid-area: context; display: flex; flex-direction: column; padding: 26px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 28px; }
@@ -309,7 +309,7 @@
   .settings-tabs button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
   .settings-tabs button[aria-selected='true'], .settings-tabs button[aria-selected='true']:hover { background: var(--segment-selected); color: var(--text); font-weight: 650; box-shadow: var(--segment-shadow); }
   .settings-section { min-width: 0; padding: 20px 24px; background: var(--surface); border: 1px solid transparent; border-radius: var(--radius-lg); }
-  .settings-section + .settings-section { margin-top: 16px; }
+  .settings-section + .settings-section, .authentication-settings + .settings-section { margin-top: 16px; }
   .settings-section .section-heading { padding-top: 0; padding-bottom: 12px; }
   .saved-indicator { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
   .form-row { display: grid; grid-template-columns: 132px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--inner-line); }
@@ -499,8 +499,8 @@
     .connection-details > div:first-child { padding-left: 0; }
     .connection-details dd { font-size: 15px; }
     .account-choice, .service-section { padding: 16px; border-radius: 24px; }
-    .auto-section { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 5px 8px; padding: 16px; min-height: 88px; border-radius: 24px; }
-    .automation-icon { width: 28px; height: 32px; border-radius: 12px; }
+    .auto-section { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 5px 10px; padding: 16px; min-height: 88px; border-radius: 24px; }
+    .automation-icon { width: 32px; height: 32px; border-radius: 12px; }
     .auto-section h2 { font-size: 14px; }
     .service-selector button { font-size: 12px; padding-left: 2px; padding-right: 2px; }
     .form-row { grid-template-columns: 100px minmax(0, 1fr); gap: 20px; }

@@ -30,14 +30,18 @@
   onMount(() => {
     mounted = true;
     void refresh();
-    const timer = window.setInterval(() => { void refresh(); }, 2000);
+    const timer = window.setInterval(() => {
+      if (status?.state === 'recording' && document.visibilityState !== 'hidden') void refresh();
+    }, 2000);
     return () => { mounted = false; window.clearInterval(timer); };
   });
 </script>
 
 <section class="debug-recording" aria-labelledby="debug-recording-heading">
   <div class="debug-heading"><h2 id="debug-recording-heading">链路调试</h2><span role="status">{status ? labels[status.state] : '正在读取状态'}</span></div>
-  <div class="form-actions">
+  <p>记录关键链路，不含密码、Cookie 或认证原文。每份上限 8 MiB，保留最近 5 份。</p>
+  {#if status?.file}<p class="debug-file"><code>{status.file}</code><span>{status.records} 条 · {(status.bytes / 1024).toFixed(1)} KiB</span></p>{/if}
+  <div class="debug-actions">
     {#if status?.state === 'recording'}
       <button type="button" disabled={pending} onclick={() => { void command('debug_stop'); }}>停止记录</button>
     {:else}
@@ -45,8 +49,6 @@
     {/if}
     <button type="button" disabled={pending || !status?.directory_available} onclick={() => { void command('debug_open'); }}>打开记录目录</button>
   </div>
-  <p>记录关键链路，不含密码、Cookie 或认证原文。每份上限 8 MiB，保留最近 5 份。</p>
-  {#if status?.file}<p class="debug-file"><code>{status.file}</code><span>{status.records} 条 · {(status.bytes / 1024).toFixed(1)} KiB</span></p>{/if}
 </section>
 
 <style>
@@ -55,7 +57,7 @@
   h2 { font-size: 14px; margin: 0; }
   p, .debug-heading > span { font-size: 12px; color: var(--muted); }
   p { margin: 10px 0 0; }
-  .form-actions { margin-top: 12px; }
+  .debug-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
   code { overflow-wrap: anywhere; }
   @media (forced-colors: active) { .debug-recording { border: 1px solid CanvasText; } }
 </style>

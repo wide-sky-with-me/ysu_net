@@ -26,7 +26,7 @@ export function captchaSummary(status: CaptchaStatus | null): string {
   return size ? `已就绪（${size}），验证码在本机识别` : '已就绪，验证码在本机识别';
 }
 
-export function captchaProblem(error: unknown): string {
+export function captchaProblem(error: unknown, fallback = CAPTCHA_DOWNLOAD_FAILED): string {
   const message = typeof error === 'string' ? error.trim() : error instanceof Error ? error.message.trim() : '';
-  return message || CAPTCHA_DOWNLOAD_FAILED;
+  return message || fallback;
 }

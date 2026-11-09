@@ -21,7 +21,7 @@
   import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
   import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
-  import { captchaProblem, captchaSummary } from './lib/captcha';
+  import { CAPTCHA_STATUS_FAILED, captchaProblem, captchaSummary } from './lib/captcha';
 
   type Page = 'connection' | 'account' | 'settings' | 'logs' | 'about';
   const navigation: { id: Page; label: string; icon: string }[] = [
@@ -155,7 +155,6 @@
     media.addEventListener('change', change);
     void initialize();
     refreshDesktopSettings();
-    loadCaptcha();
     const stopObservation = beginStateObservation(transport, { window, document });
     return () => { mounted = false; stopObservation(); stop?.(); password = ''; media.removeEventListener('change', change); };
   });
@@ -222,6 +221,7 @@
 
   function chooseSettings(section: typeof settingsSection) {
     if (section !== 'account') clearPassword();
+    if (section === 'authentication') loadCaptcha();
     settingsSection = section;
     resetScroll();
   }
@@ -302,12 +302,12 @@
 
   function loadCaptcha() {
     if (transport.mode === 'web') return;
-    void transport.captchaStatus().then((value) => { if (mounted) captcha = value; })
-      .catch((error) => { if (mounted) captchaError = captchaProblem(error); });
+    void transport.captchaStatus().then((value) => { if (mounted) { captcha = value; captchaError = null; } })
+      .catch((error) => { if (mounted) captchaError = captchaProblem(error, CAPTCHA_STATUS_FAILED); });
   }
 
   function downloadCaptcha() {
-    if (captchaBusy) return;
+    if (captchaBusy || transport.mode === 'web' || (transport.mode === 'desktop' && native?.demo)) return;
     captchaBusy = true;
     captchaError = null;
     void transport.captchaDownload()
@@ -502,13 +502,6 @@
                   <div class="setting-row"><div><span>HTTPS 证书校验</span>{#if !parameters.verify_tls}<p class="certificate-warning">{snapshot?.config.verify_tls ? '保存后将关闭校验，需确认后生效。' : '校验已关闭，认证时不验证服务器身份。'}</p>{/if}</div><Toggle checked={parameters.verify_tls} disabled={locked} label="HTTPS 证书校验" onchange={(value) => { parameters.verify_tls = value; parametersDirty = true; }} /></div>
                 </section>
                 <section class="settings-section">
-                  <div class="section-heading"><h2>验证码识别</h2></div>
-                  <div class="setting-row captcha-setting" aria-busy={captchaBusy}>
-                    <div><span>{captchaSummary(captcha)}</span>{#if captcha?.ready}<p>模型只保存在本机，认证时在本机识别；清理缓存或换机后需要重新下载。</p>{:else}<p>模型不随安装包分发，需要时再下载；未下载时遇到验证码仍要求人工处理。</p>{/if}{#if captchaError}<p class="captcha-error" role="alert">{captchaError}</p>{/if}</div>
-                    <button type="button" disabled={captchaBusy || transport.mode === 'web'} onclick={downloadCaptcha}><Icon name="refresh" size={16} />{captchaBusy ? '正在下载…' : captcha?.ready ? '重新下载' : '下载模型'}</button>
-                  </div>
-                </section>
-                <section class="settings-section">
                   <div class="section-heading"><h2>检查与重试</h2></div>
                   <div class="parameter-grid">
                     {#each parameterFields as field}<label class="setting-row"><div><span>{field.label}</span></div><div class="number-input"><input type="number" min="1" max="86400" step="1" bind:value={parameters[field.key]} oninput={() => { parametersDirty = true; }} /><span>秒</span></div></label>{/each}
@@ -517,9 +510,16 @@
                 <div class="form-actions parameter-actions">{#if hasParameterChanges}<span class="muted">有未保存的修改</span>{/if}<button type="submit" class="primary-button">保存参数</button></div>
               </fieldset>
             </form>
+            <section class="settings-section">
+              <div class="section-heading"><h2>验证码识别</h2></div>
+              <div class="setting-row captcha-setting">
+                <div><span>{captchaSummary(captcha)}</span>{#if transport.mode === 'desktop' && native?.demo}<p>离线模拟不下载验证码模型。</p>{:else if captcha?.ready}<p>仅保存在本机缓存，清理缓存或换机后需重新下载。</p>{:else}<p>模型不随安装包分发，下载后保存在本机缓存。</p>{/if}{#if captchaError}<p class="captcha-error" role="alert">{captchaError}</p>{/if}</div>
+                <button type="button" class="captcha-download" aria-busy={captchaBusy} disabled={captchaBusy || transport.mode === 'web' || (transport.mode === 'desktop' && !!native?.demo)} onclick={downloadCaptcha}><Icon name="refresh" size={16} />{captchaBusy ? '正在下载…' : captcha?.ready ? '重新下载' : '下载模型'}</button>
+              </div>
+            </section>
           {:else}
             <section class="settings-section diagnostics-section">
-              <dl class="environment-list"><div><dt>客户端</dt><dd>YSU Net {native?.version || environment?.version || '0.2.1'}</dd></div><div><dt>认证核心</dt><dd>{environment ? `Rust 原生（${environment.rust}）` : '待核心提供'}</dd></div><div><dt>系统</dt><dd>{environment?.platform || '待核心提供'}</dd></div><div><dt>系统浏览器</dt><dd>{!environment ? '待核心提供' : environment.browser_available ? '已发现 Edge / Chrome' : '未发现 Edge / Chrome'}</dd></div></dl>
+              <dl class="environment-list"><div><dt>客户端</dt><dd>{native?.version || environment?.version ? `YSU Net ${native?.version || environment?.version}` : '待核心提供'}</dd></div><div><dt>认证核心</dt><dd>{environment ? `Rust 原生（${environment.rust}）` : '待核心提供'}</dd></div><div><dt>系统</dt><dd>{environment?.platform || '待核心提供'}</dd></div><div><dt>系统浏览器</dt><dd>{!environment ? '待核心提供' : environment.browser_available ? '已发现 Edge / Chrome' : '未发现 Edge / Chrome'}</dd></div></dl>
               <div class="form-actions"><button type="button" disabled={locked} onclick={runDiagnostics}><Icon name="doctor" size={16} />运行本地诊断</button></div>
               {#if diagnostic}<details class="diagnostic-result"><summary id="diagnostic-result-heading"><span>详细诊断结果</span><span class="saved-indicator" role="status">诊断已完成{#if diagnosticUpdated}<time datetime={diagnosticUpdated}>{new Date(diagnosticUpdated).toLocaleTimeString('zh-CN', { hour12: false })}</time>{/if}</span></summary><pre class="diagnostic-output" aria-label="诊断结果">{diagnostic}</pre></details>{/if}
             </section>

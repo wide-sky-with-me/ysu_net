@@ -240,7 +240,9 @@ class CliTests(OfflineTestCase):
 
     def test_doctor_is_offline_by_default(self):
         self.mock("ysu_net.manager.cli.systemctl", return_value=Mock(stdout="inactive\n"))
+        self.mock("ysu_net.auth.captcha.available", return_value=False)
         self.assertEqual(cli.main(["doctor"]), 0)
+        self.assertIn("验证码识别：按需人工处理", self.output.getvalue())
         self.runner.assert_not_called()
 
     def test_no_arguments_noninteractive_shows_help(self):
