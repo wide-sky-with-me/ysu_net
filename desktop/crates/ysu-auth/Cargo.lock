@@ -2900,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "ysu-auth"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "aes",
  "base64 0.22.1",
