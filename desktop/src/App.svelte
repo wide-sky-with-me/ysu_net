@@ -25,11 +25,16 @@
   import { CAPTCHA_STATUS_FAILED, captchaProblem, captchaSummary } from './lib/captcha';
 
   type Page = 'connection' | 'account' | 'devices' | 'settings' | 'logs' | 'about';
-  const navigation: { id: Page; label: string; icon: string }[] = [
-    { id: 'connection', label: '连接', icon: 'network' }, { id: 'account', label: '账户', icon: 'account' },
-    { id: 'devices', label: '设备', icon: 'shield' },
-    { id: 'settings', label: '设置', icon: 'settings' }, { id: 'logs', label: '日志', icon: 'logs' },
-    { id: 'about', label: '关于', icon: 'info' },
+  // `key` is the Ctrl+N shortcut. It is pinned per page rather than derived from
+  // the array position, so inserting a page never re-binds the shortcuts users
+  // already know (Ctrl+3 must stay on 设置).
+  const navigation: { id: Page; label: string; icon: string; key: number }[] = [
+    { id: 'connection', label: '连接', icon: 'network', key: 1 },
+    { id: 'account', label: '账户', icon: 'account', key: 2 },
+    { id: 'devices', label: '设备', icon: 'shield', key: 6 },
+    { id: 'settings', label: '设置', icon: 'settings', key: 3 },
+    { id: 'logs', label: '日志', icon: 'logs', key: 4 },
+    { id: 'about', label: '关于', icon: 'info', key: 5 },
   ];
   const transport = createTransport();
   let page = $state<Page>('connection');
@@ -347,8 +352,9 @@
   function shortcut(event: KeyboardEvent) {
     if (confirmation) return;
     if (event.key === 'F5') { event.preventDefault(); if (available) void action(page === 'account' ? 'info' : page === 'devices' ? 'self_service' : 'status'); else if (!starting) void initialize(); }
-    const navigationIndex = /^[1-9]$/.test(event.key) ? Number(event.key) - 1 : -1;
-    if ((event.ctrlKey || event.metaKey) && navigationIndex >= 0 && navigationIndex < navigation.length) { event.preventDefault(); navigate(navigation[navigationIndex].id); }
+    const pressed = /^[1-9]$/.test(event.key) ? Number(event.key) : 0;
+    const target = pressed ? navigation.find((item) => item.key === pressed) : undefined;
+    if ((event.ctrlKey || event.metaKey) && target) { event.preventDefault(); navigate(target.id); }
   }
 
   async function copyLogs() {
@@ -374,7 +380,7 @@
     </div>
     <nav>
       {#each navigation as item}
-        <button type="button" class:active={page === item.id} aria-current={page === item.id ? 'page' : undefined} onclick={() => navigate(item.id)} title={`${item.label}（Ctrl+${navigation.indexOf(item) + 1}）`}>
+        <button type="button" class:active={page === item.id} aria-current={page === item.id ? 'page' : undefined} onclick={() => navigate(item.id)} title={`${item.label}（Ctrl+${item.key}）`}>
           <Icon name={item.icon} size={18} /><span>{item.label}</span>
         </button>
       {/each}
