@@ -130,11 +130,32 @@ export function createDemoTransport(search = ''): Transport {
           state.status = { online: false, service: null, user: '', ip: '', message: '模拟：已断开连接' };
           state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.info = null; state.info_error = ''; state.accounts.auto_switch = false;
         }
+        if (name === 'self_service') {
+          state.self_service = {
+            devices: state.status?.online ? [{ deviceName: '我的设备', deviceType: '电脑', userMac: '02-00-00-00-00-01', userIpv4: state.status.ip, onlineDuration: '0时12分', authType: '无线标准Portal接入', currentDevice: true, unifiedAuthentication: true, online: true }] : [],
+            online: state.status?.online ? 1 : 0,
+            package: { package: '硕士研究生60G', rule: '0.00—60.00GB内免费', period: '2026-11-01 至 2026-11-30', used: '国内下行流量:10 GB 46.53 MB /60 GB 0.00 MB', percent: 16.74, balance: '0.00' },
+            flow: [{ name: '国内下行流量', total: '60 GB 0.00 MB', left: '49 GB 977.47 MB', percent: 16.7 }],
+            remember: { remembered: false, service: '', expires: '' },
+          };
+          state.self_error = '';
+        }
+        if (name === 'self_kick') {
+          const before = state.self_service?.online ?? 0;
+          if (!before) throw new Error('模拟：设备编号超出范围');
+          // Mirrors the desktop core: kick, then re-read the full snapshot.
+          state.self_notice = `已下线 1 台设备：在线 ${before} → ${before - 1} 台`;
+          state.self_service = {
+            devices: [], online: before - 1,
+            package: state.self_service!.package, flow: state.self_service!.flow, remember: state.self_service!.remember,
+          };
+          state.self_error = '';
+        }
         if (name === 'set_auto') {
           state.auto = { state: value ? 'on' : 'off', message: value ? '正在监测连接，断线后自动登录' : '自动重连已关闭' }; state.prefs.auto_reconnect = !!value;
           if (!value) state.accounts.auto_switch = false;
         }
-        log({ login: '连接并独立查询状态完成', logout: '下线完成', switch: `已切换到${value}`, set_service: `下次连接使用${value}`, set_auto: value ? '自动重连已开启' : '自动重连已关闭', info: '账户查询完成', status: '状态查询完成' }[name]);
+        log({ login: '连接并独立查询状态完成', logout: '下线完成', switch: `已切换到${value}`, set_service: `下次连接使用${value}`, set_auto: value ? '自动重连已开启' : '自动重连已关闭', info: '账户查询完成', status: '状态查询完成', self_service: '自助服务读取完成', self_kick: '设备下线完成' }[name]);
       } else if (command === 'save_account') {
         guardAccounts();
         const changes = args as SaveAccount;

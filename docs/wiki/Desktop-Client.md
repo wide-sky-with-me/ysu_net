@@ -12,7 +12,7 @@
 | --- | --- |
 | Windows 10 / 11 x64 | 当前用户 NSIS 安装，使用系统 WebView2；旧 Qt Inno 版不会被自动替换，先关闭旧自启、退出并卸载旧版。 |
 | Ubuntu 22.04 及更新，x86_64 | 使用 `.deb`，包名 `ysu-net`；按系统包方式升级，不使用软件内原位安装或差分。 |
-| macOS 13.5 及更新 | Apple 芯片与 Intel 分别选择 arm64 / x64 `.dmg`，不是通用二进制；先退出程序再替换应用。 |
+| macOS 13.5 及更新 | Apple 芯片与 Intel 分别选择 arm64 / x64 `.dmg`，不是通用二进制；先退出程序再替换应用。浏览器下载后若提示“已损坏，无法打开”，执行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"` 清除隔离属性。 |
 
 更新包签名不等于 Windows Authenticode 发布者签名或 Apple 签名 / 公证；当前系统发布者签名限制见[迁移说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md)。0.2.0 和旧 0.2.1 候选需[手动安装正式版](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md#桌面-v021-及旧候选包)，不要等待同版本自动升级或关闭验签。旧 Qt 标签与附件只保留历史。
 
@@ -32,6 +32,14 @@
 托盘可打开窗口、查询、连接 / 断开和停止自动化；无可用托盘时关闭窗口会退出。退出停止本客户端重连，不主动下线已建立连接。平台托盘差异与完整行为见[运行语义](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#运行语义)。桌面可选浏览器模式使用本机 Edge / Chrome，不需要 CLI 的 Python 浏览器依赖。
 
 连接光环呈现核心已确认的在线状态，不表示网速、认证成功回执或正在查询；减少动效会暂停相关装饰。反馈浮层不改变业务结果与忙碌准入，具体交互见[设计说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/rust-desktop-design.md)。
+
+## 设备自助服务
+
+侧栏“设备”页读取校园网自助服务（`auth1.ysu.edu.cn/self`）的只读数据：在线设备、套餐与剩余流量、是否记住本设备的上网选择。它和门户共用统一身份认证，但走独立的 OAuth2 客户端，因此会自己完成一次登录；这次登录不写入配置，也不改变当前连接。
+
+点某台在线设备的“下线”会要求确认，确认后断开该设备当前的网络连接，核心随即重新读取设备列表核对结果，仍在线就报失败而不是报告成功。下线**本机**时保留统一身份认证登录（可重新上网），下线**其他设备**时连同它的统一认证会话一起登出——与门户网页行为一致。
+
+设备页按需读取，不在打开页面时自动登录。同一次运行里 30 分钟内的重复读取复用已建立的会话，不会每次重新登录；退出登录会丢弃该会话。应用重启后首次读取需要完整登录一次。连续登录失败会触发门户的 IP 冻结（约 1 小时）。
 
 ## 检查更新
 

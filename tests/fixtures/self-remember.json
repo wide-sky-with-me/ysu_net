@@ -1,0 +1,10 @@
+{
+ "code": 200,
+ "message": "OK",
+ "data": {
+  "remembered": false,
+  "service": "",
+  "expirationDate": ""
+ },
+ "success": true
+}

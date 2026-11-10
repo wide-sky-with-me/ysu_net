@@ -172,6 +172,34 @@ class BackendTests(OfflineTestCase):
         backend.run_backend(self.config, "status", raw=True)
         self.assertIn("--raw", self.popen.call_args.args[0])
 
+    def test_self_requires_saved_credentials(self):
+        self.assertEqual(backend.run_backend(config.Config(), "self").code, 4)
+        self.assertEqual(backend.run_backend(config.Config(), "self").reason,
+                         "self_credentials")
+        self.popen.assert_not_called()
+
+    def test_self_kick_builds_action_and_target(self):
+        import types
+        args = types.SimpleNamespace(action="kick", target="1", yes=True)
+        backend.run_backend(self.config, "self", args=args)
+        command = self.popen.call_args.args[0]
+        self.assertEqual(command[-3:], ["kick", "1", "--yes"])
+
+    def test_self_list_omits_target(self):
+        import types
+        args = types.SimpleNamespace(action="list", target=None, yes=False)
+        backend.run_backend(self.config, "self", args=args)
+        self.assertEqual(self.popen.call_args.args[0][-1], "list")
+
+    def test_self_passes_raw_and_pins_api_backend(self):
+        self.config.backend = "browser"
+        backend.run_backend(self.config, "self", raw=True)
+        command = self.popen.call_args.args[0]
+        self.assertIn("ysu_net.auth.api", command)
+        self.assertNotIn("ysu_net.auth.browser", command)
+        self.assertIn("self", command)
+        self.assertIn("--raw", command)
+
 
 class CliTests(OfflineTestCase):
     def setUp(self):
@@ -197,6 +225,30 @@ class CliTests(OfflineTestCase):
     def test_stop_does_not_logout(self):
         self.assertEqual(cli.main(["stop"]), 0)
         self.runner.assert_not_called()
+
+    def test_self_dispatches_to_backend(self):
+        self.runner.return_value = Result(0, "自助服务\n在线设备：0 台\n")
+        self.assertEqual(cli.main(["self"]), 0)
+        self.assertEqual(self.runner.call_args.args[1], "self")
+        self.assertEqual(self.runner.call_args.kwargs["raw"], False)
+
+    def test_self_forwards_raw(self):
+        self.runner.return_value = Result(0, "{}")
+        self.assertEqual(cli.main(["self", "--raw"]), 0)
+        self.assertEqual(self.runner.call_args.kwargs["raw"], True)
+
+    def test_self_kick_forwards_target_and_yes(self):
+        self.runner.return_value = Result(0, "ok")
+        self.assertEqual(cli.main(["self", "kick", "2", "--yes"]), 0)
+        args = self.runner.call_args.kwargs["args"]
+        self.assertEqual(args.action, "kick")
+        self.assertEqual(args.target, "2")
+        self.assertTrue(args.yes)
+
+    def test_self_list_defaults_to_read_only(self):
+        self.runner.return_value = Result(0, "ok")
+        self.assertEqual(cli.main(["self"]), 0)
+        self.assertEqual(self.runner.call_args.kwargs["args"].action, "list")
 
     def test_stop_without_service_does_not_claim_to_stop_foreground_daemon(self):
         self.unit.unlink()
@@ -352,6 +404,23 @@ class InstallTests(OfflineTestCase):
         with exclusive_config(self.config), self.assertRaises(RuntimeError):
             install.main(["--uninstall"])
         self.assertTrue((self.bin / "ysu").exists())
+
+    def test_install_script_forwards_captcha_extra_to_uv_sync(self):
+        script = self.root / "install.sh"
+        script.write_text((Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8"), encoding="utf-8")
+        self.bin.mkdir()
+        fake_uv = self.bin / "uv"
+        fake_uv.write_text('#!/bin/sh\nprintf "uv:%s\\n" "$*"\n', encoding="utf-8")
+        fake_uv.chmod(0o755)
+        interpreter = self.root / ".venv/bin/python"
+        interpreter.write_text('#!/bin/sh\nprintf "py:%s\\n" "$*"\n', encoding="utf-8")
+        interpreter.chmod(0o755)
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ.get('PATH', '')}"}
+        result = subprocess.run(["bash", str(script), "--captcha", "--no-service"], env=env, text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout.splitlines(), [
+            "uv:sync --locked --extra captcha",
+            "py:-m ysu_net.manager.install --no-service",
+        ])
 
 
 class UnitValidationTests(OfflineTestCase):

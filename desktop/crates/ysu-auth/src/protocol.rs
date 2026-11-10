@@ -533,12 +533,24 @@ pub(crate) fn next_navigation(body: &str, base: &Url) -> Option<Url> {
 }
 
 async fn cas_login_url(http: &Transport, op: &Operation) -> Result<Url, AuthError> {
-    let mut url = http.endpoint("cas-sso/clientredirect")?;
     let service = http.endpoint("portal/entry/pc/authenticate;flowParams=undefined;from=")?;
+    cas_login_url_with(http, op, service.as_str()).await
+}
+
+/// Resolve the classic CAS login page for an arbitrary `service` value.
+///
+/// The self-service portal (`/self`) is a separate OAuth2 client that delegates
+/// back to the same CAS form; only `service` differs from the portal chain.
+pub(crate) async fn cas_login_url_with(
+    http: &Transport,
+    op: &Operation,
+    service: &str,
+) -> Result<Url, AuthError> {
+    let mut url = http.endpoint("cas-sso/clientredirect")?;
     url.query_pairs_mut()
         .append_pair("client_name", "sidadapter")
         .append_pair("accept-language", "zh-CN")
-        .append_pair("service", service.as_str());
+        .append_pair("service", service);
     for hop in 0..=REDIRECT_LIMIT {
         if url.origin() == http.cas.origin() && url.path().ends_with("/authserver/login") {
             return Ok(url);
@@ -555,14 +567,16 @@ async fn cas_login_url(http: &Transport, op: &Operation) -> Result<Url, AuthErro
                 .get(LOCATION)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| url.join(v).ok())
-                .ok_or_else(|| AuthError::query("统一认证跳转缺少有效地址"))?;
+                .ok_or_else(|| {
+                    AuthError::query("统一认证跳转缺少有效地址").or_reason(Reason::ResponseInvalid)
+                })?;
             http.allowed(&url)?;
         } else {
             r.ensure_success()?;
             break;
         }
     }
-    Err(AuthError::query("门户未返回有效统一认证登录地址"))
+    Err(AuthError::query("门户未返回有效统一认证登录地址").or_reason(Reason::ResponseInvalid))
 }
 
 pub(crate) struct LoginForm {
@@ -770,7 +784,7 @@ async fn fetch_captcha(
     .await
 }
 
-async fn api_cas_login(
+pub(crate) async fn api_cas_login(
     http: &Transport,
     url: Url,
     config: &Config,

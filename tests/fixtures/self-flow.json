@@ -1,0 +1,21 @@
+{
+ "code": 200,
+ "message": "OK",
+ "data": {
+  "isAreaBillingRule": false,
+  "availableFreeItems": [
+   {
+    "chargeItems": [
+     {
+      "name": "国内下行流量",
+      "totalFreeValueDesc": "60 GB 0.00 MB ",
+      "leftFreeValueDesc": "49 GB 977.47 MB ",
+      "usingPercentages": 16.7
+     }
+    ]
+   }
+  ],
+  "netserviceDetailDescs": null
+ },
+ "success": true
+}

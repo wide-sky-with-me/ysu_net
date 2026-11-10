@@ -81,6 +81,8 @@ async fn common_navigation_errors_identify_the_public_operation_without_network_
             DiagnosticOperation::Logout,
             DiagnosticOperation::SwitchService,
             DiagnosticOperation::VerifiedInfo,
+            DiagnosticOperation::SelfService,
+            DiagnosticOperation::SelfKick,
         ] {
             let client = AuthClient::new_local_fixture(config.clone()).unwrap();
             let error = match operation {
@@ -92,16 +94,21 @@ async fn common_navigation_errors_identify_the_public_operation_without_network_
                     client.switch_service("中国移动").await.map(|_| ())
                 }
                 DiagnosticOperation::VerifiedInfo => client.verified_info().await.map(|_| ()),
+                DiagnosticOperation::SelfService => client.self_snapshot().await.map(|_| ()),
+                DiagnosticOperation::SelfKick => client.self_kick("all").await.map(|_| ()),
                 DiagnosticOperation::Unknown => unreachable!(),
             }
             .unwrap_err();
             assert_eq!(error.code, QUERY_ERROR);
-            diagnostic(
-                &error,
-                operation,
-                DiagnosticStage::PortalNavigation,
-                expected_reason,
-            );
+            // 自助服务从 /cas-sso/clientredirect 起步，不经过门户入口，
+            // 所以它的导航失败发生在 CAS 阶段而不是 PortalNavigation。
+            let stage = match operation {
+                DiagnosticOperation::SelfService | DiagnosticOperation::SelfKick => {
+                    DiagnosticStage::CasNavigation
+                }
+                _ => DiagnosticStage::PortalNavigation,
+            };
+            diagnostic(&error, operation, stage, expected_reason);
         }
     }
 }

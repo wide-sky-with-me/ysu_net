@@ -1,0 +1,61 @@
+{
+ "code": 200,
+ "message": "OK",
+ "data": {
+  "accountInfo": {
+   "currentFee": "0.00",
+   "feeInTotal": 0.0,
+   "feeOutTotal": 0.0,
+   "discount": 0,
+   "discountCharge": false
+  },
+  "userInfo": {
+   "inhibitDesc": "",
+   "accountStateDesc": "",
+   "userStateDesc": "",
+   "canChargeFee": false,
+   "canResume": false
+  },
+  "policyInfo": {
+   "packageName": "硕士研究生60G",
+   "periodAndTimeOrFlowDetail": "0.00—60.00GB内免费",
+   "canChangePackage": false,
+   "policyId": "研究生60G",
+   "nextPackageName": "",
+   "hasPeriodRule": true
+  },
+  "periodInfo": {
+   "hasUsedCurrentPeriod": true,
+   "dateRangeDesc": "2026-11-01 至 2026-11-30",
+   "haveDays": "22",
+   "isUsedCurrentPeriod": true,
+   "noUsedPeriodDesc": ""
+  },
+  "usedInfo": {
+   "isGiftAmount": false,
+   "hasFreeTime": false,
+   "freeSessionTimeDesc": "0秒/0秒",
+   "hasFreeFlow": true,
+   "usedFreeDesc": "国内下行流量:10 GB 46.53 MB /60 GB 0.00 MB ",
+   "hasAvailableFlowBeyondPackage": false,
+   "availableFlowBeyondPackageList": [],
+   "hasChargeTime": false,
+   "chargeSessionTimeDesc": "0m",
+   "hasChargeFlow": false,
+   "chargeDesc": "10 GB 38.14 MB ",
+   "isAreaBillingRule": false,
+   "isAreaBillingRuleFlow": null,
+   "areaBillingRuleFLow": null,
+   "flowUsingPercentages": 16.74,
+   "flowChargeUsingPercentages": 0.0,
+   "timeUsingPercentages": 0.0,
+   "timeChargeUsingPercentages": 0.0,
+   "subRuleDesc": null,
+   "showPercent": null
+  },
+  "isShowFlowTab": true,
+  "isShowTimeTab": false,
+  "canChangePackage": false
+ },
+ "success": true
+}

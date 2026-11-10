@@ -47,6 +47,23 @@ export interface Accounts {
   quota: { state: 'unknown' | 'available' | 'zero_reported' | 'unlimited'; message: string };
   message: string;
 }
+export interface SelfDevice {
+  deviceName: string; deviceType: string; userMac: string; userIpv4: string | null;
+  onlineDuration: string; authType: string; currentDevice: boolean;
+  unifiedAuthentication: boolean; online: boolean;
+}
+export interface SelfService {
+  devices: SelfDevice[]; online: number;
+  package: { package: string; rule: string; period: string; used: string; percent: number | null; balance: string };
+  flow: { name: string; total: string; left: string; percent: number | null }[];
+  remember: { remembered: boolean | null; service: string; expires: string };
+}
+export interface SelfKick {
+  kicked: string[]; onlineBefore: number; onlineAfter: number; devices: SelfDevice[];
+}
+export function isSelfKick(value: SelfService | SelfKick | null | undefined): value is SelfKick {
+  return !!value && Array.isArray((value as SelfKick).kicked);
+}
 export interface Snapshot {
   sequence: number;
   accounts: Accounts;
@@ -58,6 +75,9 @@ export interface Snapshot {
   busy_message: string;
   info: { online: boolean; fields: Pair[]; items: Pair[] } | null;
   info_error: string;
+  self_service?: SelfService | null;
+  self_error?: string;
+  self_notice?: string;
   logs: { timestamp: string; level: LogLevel; message: string }[];
   environment: {
     version: string; rust: string; runtime: 'rust'; platform: string;
@@ -69,7 +89,7 @@ export interface CaptchaStatus { ready: boolean; path: string | null; bytes: num
 export interface CoreCommands {
   snapshot: Record<string, never>;
   observe: Record<string, never>;
-  action: { name: 'status' | 'info' | 'login' | 'logout' | 'switch' | 'set_service' | 'set_auto' | 'switch_account'; value?: string | boolean };
+  action: { name: 'status' | 'info' | 'login' | 'logout' | 'switch' | 'set_service' | 'set_auto' | 'switch_account' | 'self_service' | 'self_kick'; value?: string | boolean };
   save_config: ConfigChanges;
   save_account: SaveAccount;
   delete_account: { id: string };

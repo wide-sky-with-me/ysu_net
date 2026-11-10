@@ -18,6 +18,7 @@ mod navigation_diagnostic;
 mod presentation;
 mod protocol;
 mod quota;
+mod selfservice;
 mod trace;
 mod transport;
 
@@ -32,6 +33,7 @@ pub use diagnostic::{AuthDiagnostic, DiagnosticOperation, DiagnosticReason, Diag
 pub use info_observation::InfoObservation;
 pub use navigation_diagnostic::{NavigationDiagnostic, NavigationKind};
 pub use quota::{classify_quota, Quota, QuotaState};
+pub use selfservice::{SelfDevice, SelfFlow, SelfKick, SelfPackage, SelfRemember, SelfSnapshot};
 pub use trace::{Trace, TraceEvent, TraceRecord};
 pub const SERVICES: [&str; 4] = ["校园网", "中国移动", "中国联通", "中国电信"];
 pub const QUERY_ERROR: i32 = 2;
@@ -417,7 +419,40 @@ impl AuthClient {
             let op = self.operation();
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let mut session = self.session(&op).await?;
-            session.logout(&self.config, &op).await
+            let result = session.logout(&self.config, &op).await;
+            // A cached /self session must not outlive the logout it just made stale.
+            selfservice::forget_session(&self.config, self.local).await;
+            result
+        })
+        .await
+    }
+
+    /// Read-only self-service snapshot: devices, package, remaining flow.
+    ///
+    /// Logs in through the delegated `custom-self` chain; the session lives only
+    /// for this call.
+    pub async fn self_snapshot(&self) -> Result<SelfSnapshot, AuthError> {
+        self.diagnosed(DiagnosticOperation::SelfService, async {
+            let op = self.operation();
+            // The guard must stay bound for the whole operation: an unbound
+            // MutexGuard drops immediately and silently releases the lock.
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let service = selfservice::SelfService::open(&self.config, self.local, &op).await?;
+            service.snapshot(&op).await
+        })
+        .await
+    }
+
+    /// Take one device offline (`all` for every online device) and verify it.
+    pub async fn self_kick(&self, selector: &str) -> Result<SelfKick, AuthError> {
+        let selector = selector.to_string();
+        self.diagnosed(DiagnosticOperation::SelfKick, async {
+            let op = self.operation();
+            // The guard must stay bound for the whole operation: an unbound
+            // MutexGuard drops immediately and silently releases the lock.
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let service = selfservice::SelfService::open(&self.config, self.local, &op).await?;
+            service.kick(&op, &selector).await
         })
         .await
     }
@@ -483,6 +518,7 @@ mod navigation_diagnostic_tests;
 #[cfg(test)]
 mod quota_tests;
 #[cfg(test)]
+mod selfservice_tests;
 mod service_tests;
 #[cfg(test)]
 mod tests;

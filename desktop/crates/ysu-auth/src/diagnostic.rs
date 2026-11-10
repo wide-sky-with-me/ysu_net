@@ -14,6 +14,8 @@ pub enum DiagnosticOperation {
     Logout,
     SwitchService,
     VerifiedInfo,
+    SelfService,
+    SelfKick,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]

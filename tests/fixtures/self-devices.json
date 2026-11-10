@@ -1,0 +1,50 @@
+{
+ "code": 200,
+ "message": "OK",
+ "data": {
+  "onlineDevices": [
+   {
+    "onlineUserUuid": "00000000000000000000000000000001",
+    "deviceName": "我的设备",
+    "terminalType": 1,
+    "currentDevice": true,
+    "unifiedAuthentication": true,
+    "userMac": "02-00-00-00-00-01",
+    "userIpv4": "10.0.0.1",
+    "userIpv6": null,
+    "deviceType": "电脑",
+    "noSenseCreateTime": null,
+    "noSenseEndTime": null,
+    "bindNoSense": null,
+    "noSenseUuid": null,
+    "location": "",
+    "onlineDuration": "0时48分34秒",
+    "accessTime": 1794226425747,
+    "defaultServiceOperaporsConfigUuid": null,
+    "authType": "无线标准Portal接入"
+   },
+   {
+    "onlineUserUuid": "00000000000000000000000000000002",
+    "deviceName": "我的设备",
+    "terminalType": 2,
+    "currentDevice": false,
+    "unifiedAuthentication": false,
+    "userMac": "02-00-00-00-00-02",
+    "userIpv4": "10.0.0.2",
+    "userIpv6": null,
+    "deviceType": "手机",
+    "noSenseCreateTime": null,
+    "noSenseEndTime": null,
+    "bindNoSense": null,
+    "noSenseUuid": null,
+    "location": "",
+    "onlineDuration": "0时35分14秒",
+    "accessTime": 1794227226046,
+    "defaultServiceOperaporsConfigUuid": null,
+    "authType": "无线标准Portal接入"
+   }
+  ],
+  "offlineDevices": []
+ },
+ "success": true
+}

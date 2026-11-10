@@ -50,6 +50,14 @@ def parser():
     for command in ("status", "info"):
         p = sub.add_parser(command, help="查询校园网状态" if command == "status" else "查询账户、套餐与剩余流量（以门户提供为准）")
         p.add_argument("--raw", action="store_true", help="输出 JSON")
+    p = sub.add_parser("self", help="自助服务：查看我的设备；kick 下线指定设备")
+    p.add_argument("action", nargs="?", choices=("list", "kick"), default="list",
+                   help="list 查看（默认）；kick 下线设备")
+    p.add_argument("target", nargs="?", help="kick 的目标：设备编号（从 1 开始）或 all")
+    p.add_argument("--raw", action="store_true", help="输出 JSON")
+    p.add_argument("--yes", action="store_true", help="跳过下线确认")
+    p.add_argument("--fresh", action="store_true",
+                   help="忽略已保存的登录状态，强制重新登录")
     p = sub.add_parser("config", help="配置账号及运行参数")
     p.add_argument("action", choices=("show", "account", "set", "path"), default="show", nargs="?")
     p.add_argument("key", nargs="?")
@@ -424,15 +432,22 @@ def dispatch(args):
         ui.progress("正在跟随日志，按 Ctrl+C 退出查看。" if args.follow else f"读取最近 {args.lines} 行日志…")
         return subprocess.run(cmd).returncode
     action = "logout" if command in ("off", "logout") else command
-    if action in ("login", "logout", "status", "info"):
+    if action in ("login", "logout", "status", "info", "self"):
         config = load_config(path)
         raw = getattr(args, "raw", False)
         ui.progress({"login": "正在登录校园网，请稍候…", "logout": "正在下线并确认结果…",
-                     "status": "正在查询校园网状态…", "info": "正在读取账户信息…"}[action], raw=raw)
+                     "status": "正在查询校园网状态…", "info": "正在读取账户信息…",
+                     "self": "正在读取自助服务…"}[action], raw=raw)
         with exclusive_config(path) if action in ("login", "logout") else nullcontext():
             if action == "logout" and accounts_path(path).exists():
                 set_rotation(path, False)
-            result = run_backend(config, action, interactive=action in ("login", "logout") and sys.stdin.isatty(), raw=getattr(args, "raw", False))
+            result = run_backend(
+                config, action,
+                interactive=(action in ("login", "logout")
+                             or (action == "self" and args.action == "kick")) and sys.stdin.isatty(),
+                raw=getattr(args, "raw", False),
+                args=args,
+            )
         if raw and result.output and result.code in (0, 1):
             print(result.output, end="" if result.output.endswith("\n") else "\n")
         elif raw and result.code:

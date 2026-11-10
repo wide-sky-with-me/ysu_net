@@ -453,11 +453,16 @@ def _extract_cas_error_msg(html: str) -> str | None:
     return None
 
 
-def _get_cas_login_url_via_clientredirect(sess: requests.Session, debug: bool) -> str:
+def _get_cas_login_url_via_clientredirect(
+    sess: requests.Session, debug: bool, service: str | None = None
+) -> str:
     """
     通过 auth1 的 /cas-sso/clientredirect 获取真正 CAS 登录页 URL（带 service=...delegatedclientid=...）。
+
+    ``service`` 决定登录完成后回到哪个应用：默认是门户认证链；自助服务使用
+    ``/login/oauth2/code/custom-self``。两者落到同一个经典 CAS 表单。
     """
-    service = f"{URLS.base}/portal/entry/pc/authenticate;flowParams=undefined;from="
+    service = service or f"{URLS.base}/portal/entry/pc/authenticate;flowParams=undefined;from="
     params = {
         "client_name": "sidadapter",
         "accept-language": "zh-CN",
@@ -489,13 +494,14 @@ def _get_cas_login_url_via_clientredirect(sess: requests.Session, debug: bool) -
 
 
 def cas_login(
-    sess: requests.Session, username: str, password: str, debug: bool
+    sess: requests.Session, username: str, password: str, debug: bool,
+    service: str | None = None,
 ) -> None:
     """
     完整 CAS 登录流程：
       clientredirect -> GET login page -> (optional captcha) -> POST -> 跟随重定向回 auth1
     """
-    login_url = _get_cas_login_url_via_clientredirect(sess, debug=debug)
+    login_url = _get_cas_login_url_via_clientredirect(sess, debug=debug, service=service)
 
     dprint(debug, f"[CAS] GET {login_url}")
     r = sess.get(
@@ -979,6 +985,47 @@ def cmd_login(service: str, user: str, pwd: str, debug: bool, max_wait: int) -> 
 
 
 @managed_resources
+def cmd_self_cmd(args, debug: bool) -> str:
+    """Entry point for `self`; keeps credentials out of the printed result."""
+    from ysu_net.auth import selfservice
+
+    user = args.user or os.getenv("YSU_USER", "").strip()
+    pwd = args.password or os.getenv("YSU_PASS", "")
+    action = getattr(args, "action", "list") or "list"
+    raw = bool(getattr(args, "raw", False))
+
+    fresh = bool(getattr(args, "fresh", False))
+    if action != "kick":
+        return selfservice.cmd_self(user, pwd, URLS.base, URLS.cas_host,
+                                    raw=raw, debug=debug, fresh=fresh)
+
+    target = (getattr(args, "target", None) or "").strip()
+    if not target:
+        raise QueryError("kick 需要目标")
+    confirmed = bool(getattr(args, "yes", False))
+    if not confirmed:
+        if not sys.stdin.isatty():
+            raise QueryError("下线需要 --yes 确认")
+        if not _confirm_kick(target):
+            raise QueryError("已取消下线")
+    result = selfservice.kick(URLS.base, URLS.cas_host, user, pwd, target,
+                              debug=debug, fresh=fresh)
+    if raw:
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    return selfservice.format_kick(result)
+
+
+def _confirm_kick(target: str) -> bool:
+    tip = ("将下线编号 %s 的设备" % target) if target.lower() != "all" \
+        else "将下线全部在线设备"
+    print(f"{tip}。下线会中断该设备当前的网络连接，需要重新登录才能上网。")
+    try:
+        answer = input("继续？输入 yes 确认：").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer in ("yes", "y")
+
+
 def cmd_info(debug: bool, raw: bool) -> None:
     ctx = open_portal_get_session(debug=debug)
     sess, sid = ctx.sess, ctx.session_id
@@ -1388,6 +1435,20 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=NiceFormatter,
     )
 
+    p_self = sub.add_parser(
+        "self",
+        parents=[common],
+        help="自助服务：查看我的设备；kick 下线指定设备",
+        formatter_class=NiceFormatter,
+    )
+    p_self.add_argument("action", nargs="?", choices=("list", "kick"), default="list",
+                        help="list 查看（默认）；kick 下线设备")
+    p_self.add_argument("target", nargs="?",
+                        help="kick 的目标：设备编号（从 1 开始）或 all")
+    p_self.add_argument("--yes", action="store_true", help="跳过下线确认")
+    p_self.add_argument("--fresh", action="store_true",
+                        help="忽略已保存的登录状态，强制重新登录")
+
     sub.add_parser(
         "status",
         parents=[common],
@@ -1498,6 +1559,9 @@ def _run_shell(args: argparse.Namespace) -> None:
         if subcmd == "info":
             cmd_info(debug=debug, raw=bool(args.raw))
             continue
+        if subcmd == "self":
+            print(cmd_self_cmd(args, debug=debug))
+            continue
         if subcmd == "status":
             cmd_status(debug=debug, raw=bool(args.raw))
             continue
@@ -1538,6 +1602,12 @@ def main() -> None:
         )
     elif args.cmd == "info":
         cmd_info(debug=debug, raw=bool(args.raw))
+    elif args.cmd == "self":
+        if not args.user or not args.password:
+            ap.error(
+                "self 需要账号密码：用 -u/-p 或环境变量 YSU_USER/YSU_PASS"
+            )
+        print(cmd_self_cmd(args, debug=debug))
     elif args.cmd == "status":
         ok = cmd_status(debug=debug, raw=bool(args.raw))
         sys.exit(0 if ok else 1)

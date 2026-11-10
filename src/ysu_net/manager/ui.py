@@ -128,6 +128,9 @@ def result_message(action, result, service):
                 for line in clean(result.output).splitlines():
                     if line and not line.startswith(("[OK]", "在线：success", "网络状态：在线")):
                         print("  " + line)
+        elif action == "self" and result.output:
+            heading("自助服务")
+            print(clean(result.output).rstrip())
         elif result.output:
             heading("校园网账户信息")
             print(clean(result.output).rstrip())
@@ -138,5 +141,12 @@ def result_message(action, result, service):
         3: "结果尚未确认，可先运行 ysu status 查看当前状态。",
         4: "先 ysu stop，再用 ysu config account 检查账号，运行 ysu login 手动认证。",
     }.get(result.code)
+    # self 的固定分类文案已经自带处理方式，只有登录类失败才需要额外指引。
+    if action == "self" and result.reason and result.reason != "self_login":
+        next_step = None
+    elif action == "self" and result.code == 4:
+        next_step = "先确认账号可用（ysu config account），并在 ysu login 能成功后再试。"
+    elif action == "self" and result.code == 2:
+        next_step = "自助服务需要可用的统一认证登录；先确认 ysu login 正常，再重试。"
     if next_step:
         hint(next_step, stream=sys.stderr)

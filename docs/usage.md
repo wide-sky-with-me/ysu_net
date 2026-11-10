@@ -2,8 +2,9 @@
 
 [返回首页](../README.md) · [更新与迁移](migration.md) · [多账号热切换](accounts.md) · [开发说明](development.md)
 
-命令均在安装后使用。用户级配置位于 `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json`，
-系统级配置位于 `/etc/ysu-net/config.json`，系统级管理命令需要 `sudo ysu ...`。
+命令均在安装后使用。请在持久目录（如 `~/ysu_net` 或系统级 `/opt/ysu_net`，勿使用 `/tmp`）克隆并运行 `bash install.sh`，安装后保留源码与 `.venv`（移动目录后需重新运行 `bash install.sh`）：
+- **用户级（默认）**：命令位于 `~/.local/bin/{ysu,ysuon,ysuoff}`，配置位于 `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json`，服务位于 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/ysu-net.service`。
+- **系统级（`--system`）**：命令位于 `/usr/local/bin/{ysu,ysuon,ysuoff}`，配置位于 `/etc/ysu-net/config.json`，服务位于 `/etc/systemd/system/ysu-net.service`，管理命令需 `sudo ysu ...`。
 
 ## 命令
 
@@ -11,23 +12,32 @@
 | --- | --- |
 | `ysu` / `ysu menu` | 交互主菜单，16 进入多账号管理 |
 | `ysu accounts` / `ysu accounts menu` | 多账号交互菜单；管理账号、热切换与自动换号 |
+| `ysu accounts list [--raw]` | 查看账号簿与流量换号开关，可输出 JSON |
+| `ysu accounts save <ID> [--name 备注] [--user 账号] [--service 服务] [--backend api\|browser]` | 新增或更新账号条目并交互录入密码 |
+| `ysu accounts switch <ID>` | 核验在线身份后热切换到指定账号，失败时尝试恢复原连接 |
+| `ysu accounts delete <ID>` | 删除备用账号（当前活动账号不可直接删除） |
+| `ysu accounts rotation on\|off` | 开启或关闭零流量自动换号 |
 | `ysu login` | 登录一次；已运行守护时先 `ysu stop` |
-| `ysu on` / `ysuon` | 启动自动重连，认证结果查看状态或日志 |
+| `ysu on` / `ysuon` / `ysu start` | 启动自动重连，认证结果查看状态或日志 |
 | `ysu stop` | 停止自动重连，保留当前网络连接 |
 | `ysu off` / `ysuoff` / `ysu logout` | 先停止自动重连，再发起下线并验证结果 |
 | `ysu restart` | 重启自动重连并重新读取配置 |
 | `ysu status [--raw]` | 查询在线状态，可输出 JSON |
 | `ysu info [--raw]` | 查询在线信息和账户信息 |
+| `ysu self [--raw]` | 自助服务：我的设备、套餐、剩余流量与记住的上网选择 |
+| `ysu self kick <编号\|all> [--yes]` | 下线指定设备（会中断该设备的网络连接） |
 | `ysu service [服务名]` | 查看或配置下次登录使用的服务，不立即断线 |
 | `ysu switch <服务名>` | 立即切换并核验实际服务，失败时尝试恢复原连接 |
 | `ysu backend [api\|browser]` | 查看或切换认证实现 |
 | `ysu config account` | 设置账号密码 |
-| `ysu config show` / `ysu config path` | 查看脱敏配置 / 配置路径 |
+| `ysu config show [--raw]` / `ysu config path` | 查看脱敏配置（支持 JSON） / 配置路径 |
 | `ysu config set <配置项> <值>` | 修改运行参数 |
 | `ysu boot on\|off\|status` | 自启开关，与当前连接状态独立 |
-| `ysu logs [-f] [-n 50]` | 查看 / 跟随 systemd 日志 |
+| `ysu logs` / `ysu log [-f] [-n 50]` | 查看 / 跟随 systemd 日志 |
 | `ysu doctor [--network]` | 默认只检查本地；指定参数后查询校园网 |
 | `ysu daemon [--once]` | 前台守护 / 单次检查，用 Ctrl+C 停止 |
+
+全局选项放在子命令之前：`--scope user|system` 选择用户级或系统级范围，`--config <路径>` 指定独立配置文件；环境变量 `NO_COLOR=1` 禁用终端彩色输出。安装与卸载脚本位于项目根目录：`bash install.sh [--system] [--no-service] [--browser] [--captcha] [--offline]`、`bash uninstall.sh [--system] [--purge]`（`--purge` 同时清理配置与账号簿）。
 
 `service` 只保存配置，不断开当前连接。立即切换请先停止守护，再运行 `ysu switch 中国移动`。
 `switch` 会核对在线账号和实际服务，确认下线后登录目标服务，并用独立查询验证结果；只有成功才保存服务配置。
@@ -57,7 +67,34 @@ ysu doctor --network     # 额外核对在线状态、实际服务及 DNS/TLS �
 
 流量与其他账户条目按门户原文展示，不推算额度、不猜测单位，也不补造账户余额项目。剩余流量缺失显示“门户未提供”，不代表流量为零或不限量；可进一步到门户业务明细或运营商自助服务查询。
 
-`doctor` 默认不联网；`--network` 只查询，不登录、不下线、不切换运营商。后台异常、已开启自启但未开启 linger、实际服务与配置不一致时，会提示对应处理方式并返回 2。明确离线但门户可达不视为查询故障，会提示登录方法。未安装或主动停止后台服务仍可使用一次性命令。
+### 自助服务（ysu self）
+
+`ysu self` 登录自助服务（`auth1.ysu.edu.cn/self`）读取账户与设备数据。它与门户共用同一套统一身份认证，但走独立的 OAuth2 客户端，因此会自己完成一次 CAS 登录；登录结果不写入配置，也不改变当前连接。门户设备页另有解绑 MAC 与关闭无感知认证等操作，本工具未实现——本校当前关闭了自助解绑（`enableSelfUnbind=false`）。
+
+```bash
+ysu self                    # 我的设备、套餐、剩余流量、记住的上网选择
+ysu self --raw              # 同一份数据的 JSON
+ysu self kick 2             # 下线列表里的第 2 台设备（需确认）
+ysu self kick all --yes     # 下线全部在线设备（非交互环境必须带 --yes）
+```
+
+`kick` 的编号来自 `ysu self` 列表的顺序（从 1 开始），只接受当前在线且带门户标识的设备。下线后工具会重新读取一次设备列表核对结果，设备仍在在线就报错而不是报告成功。
+
+选择下线**本机**时会保留统一身份认证登录（只断 Portal，可重新上网）；下线**其他设备**会连同它的统一认证会话一起登出——这与门户网页的行为一致。任何一次下线都会中断目标设备当前的连接，它需要重新登录才能上网。
+
+输出的每个值都按门户原文展示，不做单位换算；门户未提供的项目显式标注，不补零。
+
+`ysu self` 默认复用已保存的登录状态：首次运行完整登录一次，之后 **30 分钟**内（`SESSION_TTL`）再次运行只做一次轻量校验，不再走密码登录。缓存保存在 `$XDG_CACHE_HOME/ysu-net/self-session.json`（默认 `~/.cache`），文件权限 `0600`，且绑定当前账号与门户地址——换账号或换 `base` 会直接失效，不会串用。
+
+```bash
+ysu self --fresh    # 忽略缓存，强制重新登录
+```
+
+输出第一行会写明会话来源（「复用已登录状态（未重新登录，缓存剩余 N 分钟）」或「本次新登录」），`--raw` 里是 `session.cached` / `session.expires_in`。
+
+缓存失效、过期、或校验不通过时会自动清除并重新登录一次。即便如此，失败后仍**不要循环重试**：连续失败会触发统一认证的 **IP 冻结（约 1 小时）**，正确密码的重复登录同样计入风控。
+
+`doctor` 默认不联网；`--network` 只查询，不登录、不下线、不切换运营商。API 方式下会一并显示`验证码识别`状态（`已就绪` / `按需人工处理`），未安装可选识别依赖不改变退出码。后台异常、已开启自启但未开启 linger、实际服务与配置不一致时，会提示对应处理方式并返回 2。明确离线但门户可达不视为查询故障，会提示登录方法。未安装或主动停止后台服务仍可使用一次性命令。
 
 ## 常见使用场景
 
@@ -180,9 +217,11 @@ uv run --extra browser python -m ysu_net.auth.browser login --service 校园网
 依赖统一维护在 `pyproject.toml`，具体版本由 `uv.lock` 锁定；已移除旧的 `requirements.txt`。
 ## 验证码识别
 
-CAS 要求验证码时不再一律停在人工处理。默认安装不含识别依赖，需要时显式安装可选组：
+CAS 要求验证码时不再一律停在人工处理。默认安装不含识别依赖，需要时显式安装可选组（后续运行 `install.sh` 升级时保留 `--captcha`）：
 
 ```bash
+bash install.sh --captcha
+# 或仅同步虚拟环境依赖：
 uv sync --locked --extra captcha
 ```
 

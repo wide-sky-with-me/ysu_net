@@ -24,7 +24,8 @@ use tokio::{
 };
 use ysu_auth::{
     AuthClient, AuthDiagnostic, AuthError, Config, DiagnosticOperation, DiagnosticReason,
-    DiagnosticStage, InfoObservation, Status, SERVICES,
+    DiagnosticStage, InfoObservation, SelfDevice, SelfKick, SelfPackage, SelfRemember,
+    SelfSnapshot, Status, SERVICES,
 };
 
 const MAX_REQUEST: usize = 32 * 1024;
@@ -54,6 +55,8 @@ pub(crate) enum Action {
     Switch(String),
     SwitchAccount(String),
     SetService(String),
+    SelfService,
+    SelfKick(String),
 }
 
 impl Action {
@@ -66,6 +69,8 @@ impl Action {
             Self::Switch(_) => "switch_service",
             Self::SwitchAccount(_) => "switch_account",
             Self::SetService(_) => "set_service",
+            Self::SelfService => "self_service",
+            Self::SelfKick(_) => "self_kick",
         }
     }
 }
@@ -89,7 +94,13 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
                 return false;
             }
             match object.get("name").and_then(Value::as_str) {
-                Some("status" | "info" | "login" | "logout") => !object.contains_key("value"),
+                Some("status" | "info" | "login" | "logout" | "self_service") => {
+                    !object.contains_key("value")
+                }
+                Some("self_kick") => object
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .is_some_and(|v| !v.is_empty() && v.len() <= 32),
                 Some("switch" | "set_service") => object
                     .get("value")
                     .and_then(Value::as_str)
@@ -221,6 +232,9 @@ struct State {
     busy: bool,
     busy_message: String,
     info: Value,
+    self_service: Value,
+    self_error: String,
+    self_notice: String,
     info_error: String,
     logs: VecDeque<Value>,
     environment: Value,
@@ -264,6 +278,9 @@ impl State {
             "status": self.status, "auto": self.auto, "busy": self.busy,
             "busy_message": self.text(&self.busy_message), "info": self.info,
             "info_error": self.text(&self.info_error), "logs": self.logs,
+            "self_service": self.self_service,
+            "self_error": self.text(&self.self_error),
+            "self_notice": self.text(&self.self_notice),
             "environment": self.environment, "accounts": self.accounts,
         });
         // Public identities must round-trip even when they happen to equal a password.
@@ -294,6 +311,9 @@ impl State {
         self.scrub(&mut value["accounts"]["message"]);
         self.scrub(&mut value["accounts"]["quota"]["message"]);
         self.scrub(&mut value["info"]);
+        self.scrub(&mut value["self_service"]);
+        self.scrub(&mut value["self_error"]);
+        self.scrub(&mut value["self_notice"]);
         self.scrub(&mut value["auto"]["message"]);
         if let Some(logs) = value["logs"].as_array_mut() {
             for log in logs {
@@ -382,6 +402,9 @@ impl Runtime {
             busy: false,
             busy_message: String::new(),
             info: Value::Null,
+            self_service: Value::Null,
+            self_error: String::new(),
+            self_notice: String::new(),
             info_error: String::new(),
             accounts,
             rotation_intent: None,
@@ -688,6 +711,8 @@ impl Runtime {
                     "switch_account" => {
                         Action::SwitchAccount(args["value"].as_str().unwrap().into())
                     }
+                    "self_service" => Action::SelfService,
+                    "self_kick" => Action::SelfKick(args["value"].as_str().unwrap().into()),
                     "switch" => Action::Switch(args["value"].as_str().unwrap().into()),
                     "set_service" => Action::SetService(args["value"].as_str().unwrap().into()),
                     _ => unreachable!(),
@@ -1078,6 +1103,66 @@ impl Worker {
                 self.phase = DiagnosticStage::OnlineState;
                 self.busy("正在查询连接状态");
                 let _ = self.status(&config).await;
+            }
+            Action::SelfService => {
+                self.phase = DiagnosticStage::AccountInfo;
+                self.busy("正在读取自助服务");
+                let result = self.runtime.backend.self_service(&config).await;
+                self.runtime.update(|state| match result {
+                    Ok(snapshot) => {
+                        state.self_service = snapshot;
+                        state.self_error.clear();
+                        state.self_notice.clear();
+                    }
+                    Err(error) => {
+                        state.self_service = Value::Null;
+                        state.self_error = format!(
+                            "自助服务读取失败，请稍后重试 [{}]",
+                            diagnostic_detail(self.action, self.phase, &error)
+                        );
+                    }
+                });
+            }
+            Action::SelfKick(selector) => {
+                self.phase = DiagnosticStage::UserOnline;
+                self.busy("正在下线设备");
+                let result = self.runtime.backend.self_kick(&config, &selector).await;
+                match result {
+                    Ok(kick) => {
+                        let notice = format!(
+                            "已下线 {} 台设备：在线 {} → {} 台",
+                            kick["kicked"].as_array().map_or(0, |v| v.len()),
+                            kick["onlineBefore"].as_u64().unwrap_or(0),
+                            kick["onlineAfter"].as_u64().unwrap_or(0),
+                        );
+                        // Re-read the full snapshot so the list and its 1-based
+                        // indices always match what the next kick will resolve.
+                        let refreshed = self.runtime.backend.self_service(&config).await;
+                        self.runtime.update(|state| {
+                            state.self_notice = notice;
+                            match refreshed {
+                                Ok(snapshot) => {
+                                    state.self_service = snapshot;
+                                    state.self_error.clear();
+                                }
+                                Err(error) => {
+                                    state.self_service = Value::Null;
+                                    state.self_error = format!(
+                                        "下线已提交，但重新读取失败 [{}]",
+                                        diagnostic_detail(self.action, self.phase, &error)
+                                    );
+                                }
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        let message = format!(
+                            "下线未完成 [{}]",
+                            diagnostic_detail(self.action, self.phase, &error)
+                        );
+                        self.runtime.update(|state| state.self_error = message);
+                    }
+                }
             }
             Action::Info => {
                 self.phase = DiagnosticStage::AccountInfo;
@@ -1643,6 +1728,85 @@ impl Backend {
             }
         }
     }
+    /// Read the self-service portal as JSON so the UI needs one shape.
+    async fn self_service(&self, config: &Config) -> Result<Value, AuthError> {
+        match self {
+            Self::Native(recording) => {
+                let client = AuthClient::new(config.clone())?.with_trace(recording.trace());
+                let snapshot: SelfSnapshot = client.self_snapshot().await?;
+                Ok(serde_json::to_value(snapshot).unwrap_or(Value::Null))
+            }
+            Self::Demo(demo) => {
+                let demo = demo.lock().unwrap();
+                let online = demo.online;
+                let snapshot = SelfSnapshot {
+                    devices: if online {
+                        vec![SelfDevice {
+                            device_name: "我的设备".into(),
+                            device_type: "电脑".into(),
+                            user_mac: "02-00-00-00-00-01".into(),
+                            user_ipv4: Some("10.0.0.1".into()),
+                            online_duration: "0时12分".into(),
+                            auth_type: "无线标准Portal接入".into(),
+                            current_device: true,
+                            unified_authentication: true,
+                            online_user_uuid: "fixture-device-1".into(),
+                            online: true,
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                    online: usize::from(online),
+                    package: SelfPackage {
+                        package: "硕士研究生60G".into(),
+                        rule: "0.00—60.00GB内免费".into(),
+                        period: "2026-11-01 至 2026-11-30".into(),
+                        used: "国内下行流量:10 GB 46.53 MB /60 GB 0.00 MB".into(),
+                        percent: Some(16.74),
+                        balance: "0.00".into(),
+                    },
+                    flow: vec![ysu_auth::SelfFlow {
+                        name: "国内下行流量".into(),
+                        total: "60 GB 0.00 MB".into(),
+                        left: "49 GB 977.47 MB".into(),
+                        percent: Some(16.7),
+                    }],
+                    remember: SelfRemember {
+                        remembered: Some(false),
+                        service: String::new(),
+                        expires: String::new(),
+                    },
+                };
+                Ok(serde_json::to_value(snapshot).unwrap_or(Value::Null))
+            }
+        }
+    }
+
+    /// Take one device offline and return the verified result.
+    async fn self_kick(&self, config: &Config, selector: &str) -> Result<Value, AuthError> {
+        match self {
+            Self::Native(recording) => {
+                let client = AuthClient::new(config.clone())?.with_trace(recording.trace());
+                let kick: SelfKick = client.self_kick(selector).await?;
+                Ok(serde_json::to_value(kick).unwrap_or(Value::Null))
+            }
+            Self::Demo(demo) => {
+                let mut demo = demo.lock().unwrap();
+                if !demo.online {
+                    return Err(AuthError::new(2, "设备编号超出范围"));
+                }
+                demo.online = false;
+                let kick = SelfKick {
+                    kicked: vec!["fixture-device-1".into()],
+                    online_before: 1,
+                    online_after: 0,
+                    devices: Vec::new(),
+                };
+                Ok(serde_json::to_value(kick).unwrap_or(Value::Null))
+            }
+        }
+    }
+
     async fn mutate(&self, config: &Config, action: &Action) -> Result<Status, AuthError> {
         match self {
             Self::Native(recording) => {
