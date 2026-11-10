@@ -564,6 +564,12 @@
     .account-editor { padding: 14px; }
     .account-editor .form-row { grid-template-columns: 84px minmax(0, 1fr); gap: 10px; }
   }
+  @media (max-width: 420px) {
+    /* Six destinations do not fit as a text row this narrow; keep icons only so
+       the rail never pushes the document past the viewport width. */
+    .sidebar nav button span { display: none; }
+    .sidebar nav button { justify-content: center; }
+  }
   @media (max-width: 520px) {
     html, body, #app { height: auto; min-height: 100%; }
     .app-shell { display: flex; flex-direction: column; min-height: 100dvh; height: auto; overflow: visible; }
