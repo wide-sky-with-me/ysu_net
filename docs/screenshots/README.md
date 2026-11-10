@@ -10,6 +10,6 @@
 | [desktop-account-dark.png](desktop-account-dark.png) | `dist/rust-desktop-preview/palettes/dark-blue-account.png` | `efcb0fd948eedd6fe63d8e7f716ceee6970276233d2329044b6cebf710f808a8` |
 | [desktop-accounts-dark.png](desktop-accounts-dark.png) | `dist/rust-desktop-preview/multi-account/editor-dark.png` | `5f3f6d7325c62e3a92322ec9059c4b61946d3ee4c93556a5a1b1c1daeaa2305e` |
 
-自 0.2.7 起侧栏新增“设备”页，但本目录还没有它的截图：现有三张来自 0.2.3，重新抓取需要新的云端界面验收产物，不能拿开发环境截图冒充实测。设备页的渲染由每次标签运行的 `browser-acceptance` 覆盖（320 / 390 / 700 / 1060 px 均检查溢出与可访问名称），只是不产出公开截图。
+自 0.2.7 起侧栏新增“设备”页，本目录暂未收录它的静态截图：现有三张来自 0.2.3，重新抓取需要按同套流程替换本目录图片，不能拿开发环境截图冒充实测。设备页的渲染由每次运行的 `browser-acceptance` 覆盖（320 / 390 / 700 / 1060 px 均检查溢出与可访问名称，并在构建产物中输出 `dist/rust-desktop-preview/compatibility/devices-light.png`）。
 
 更新时从新版本成功的云端验收产物选择截图，人工核对演示数据与图片内容，再同步 README 的版本说明和本页来源；图片保存在仓库内，首页不依赖 Actions 临时下载链接。

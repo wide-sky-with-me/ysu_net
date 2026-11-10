@@ -21,16 +21,16 @@
 
 ### 发行与候选状态
 
-**正式 v0.2.7 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.7.md)。主分支源码、开发产物与正式安装包按各自提交区分。
+**正式 v0.2.8 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.8.md)。主分支源码、开发产物与正式安装包按各自提交区分。
 
-0.2.7 新增**设备自助服务**：侧栏“设备”页直接读取校园网自助服务（`auth1.ysu.edu.cn/self`）的在线设备、套餐与剩余流量，并支持下线指定设备。0.2.6 引入的按需[验证码自动识别](docs/captcha-recognition-2026-11-07.md)（“设置 → 认证”，默认不启用）保持不变。
+0.2.8 修复 0.2.7 桌面“设备”页快照解析遗漏与自助服务委托 CAS 跨站跳转问题，并优化桌面设备页与 `ysu self` 展示；设备自助服务（读取 `auth1.ysu.edu.cn/self` 在线设备、套餐与剩余流量及下线指定设备）与 0.2.6 引入的按需[验证码自动识别](docs/captcha-recognition-2026-11-07.md)（“设置 → 认证”，默认不启用）保持兼容。
 
 | 系统 | 安装包（国内加速镜像 · GitHub 原链） |
 | --- | --- |
-| Windows 10 / 11 x64 | [国内镜像下载 EXE](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_windows-x64-setup.exe) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_windows-x64-setup.exe) |
-| Ubuntu 22.04 及更新，x86_64 | [国内镜像下载 DEB](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_linux-x64.deb) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_linux-x64.deb) |
-| macOS 13.5+，Apple 芯片 | [国内镜像下载 arm64 DMG](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_macos-arm64.dmg) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_macos-arm64.dmg) |
-| macOS 13.5+，Intel | [国内镜像下载 x64 DMG](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_macos-x64.dmg) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.7/YSU-Net_0.2.7_macos-x64.dmg) |
+| Windows 10 / 11 x64 | [国内镜像下载 EXE](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_windows-x64-setup.exe) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_windows-x64-setup.exe) |
+| Ubuntu 22.04 及更新，x86_64 | [国内镜像下载 DEB](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_linux-x64.deb) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_linux-x64.deb) |
+| macOS 13.5+，Apple 芯片 | [国内镜像下载 arm64 DMG](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_macos-arm64.dmg) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_macos-arm64.dmg) |
+| macOS 13.5+，Intel | [国内镜像下载 x64 DMG](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_macos-x64.dmg) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.8/YSU-Net_0.2.8_macos-x64.dmg) |
 
 Windows / macOS 可主动检查更新；本次仅提供完整包，没有差分附件。Linux 通过系统包手动升级。macOS 安装包未经过 Apple 公证，Safari 等浏览器下载并拖入“应用程序”后若提示“已损坏，无法打开”，在终端执行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"` 后再打开。旧 Qt / Inno 版和旧候选包先看[迁移说明](docs/migration.md#桌面-v024-升级)，更新与签名规则见[软件更新](docs/updates.md)。
 
@@ -100,6 +100,7 @@ YSU · 燕山大学校园网
    1  查看状态                  2  登录一次
    3  开启自动重连              4  停止重连并下线
    9  仅停止重连               13  账户与剩余流量
+  17  我的设备与自助服务
 
   配置与维护
    5  配置账号                  6  配置下次登录服务

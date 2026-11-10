@@ -1,6 +1,6 @@
 # auth1 /self 自助服务协议探测
 
-日期：2026-11-09，标签 v0.2.7 于 2026-11-10 发布。状态：**登录成功分支、四个只读接口与设备下线均已用真实账号跑通**，CLI（`ysu self`）与桌面（侧栏“设备”页）同步实现；解绑 MAC、关闭无感知与 PPSK 绑定未实现。方案与取舍归[提案](../.agents/notes/proposals/desktop/2026-11-09-self-service-protocol.md)，发行结果归[0.2.7 发布记录](desktop-release-0.2.7.md)。
+日期：2026-11-09，标签 v0.2.7 / v0.2.8 于 2026-11-10 发布。状态：**登录成功分支、四个只读接口与设备下线均已用真实账号跑通**，CLI（`ysu self`）与桌面（侧栏“设备”页）同步实现；解绑 MAC、关闭无感知与 PPSK 绑定未实现。方案与取舍归[提案](../.agents/notes/proposals/desktop/2026-11-09-self-service-protocol.md)，发行结果归[0.2.8 发布记录](desktop-release-0.2.8.md)（首版归[0.2.7 发布记录](desktop-release-0.2.7.md)）。
 
 本轮不修改任何产品代码的认证语义，所有脚本与原始结果在本地忽略目录 `build/self-protocol-probe/`。真实账号凭据只经环境变量传入，不落盘、不进日志、不进本文。
 
@@ -53,7 +53,7 @@ GET /cas-sso/clientredirect?client_name=sidadapter&service=…/login/oauth2/code
 
 因此协议级接入的登录成本不是「复刻 SPA」，而只是「多传一个 `service`」。
 
-## 登录墙后的接口（源码推断，未验证）
+## 登录墙后的接口（早期源码推断，后文已实测推翻）
 
 `/self/assets/index-DYI5xHTd.js` 的设备 API 模块：
 
@@ -163,7 +163,7 @@ ysu self --raw    # JSON
 记住的上网选择：未开启
 ```
 
-## 写操作仍然不做
+## 写操作仍然不做（第一阶段结论，后文已调整为实现设备下线）
 
 `devices/kick-offline/batch`、`devices/unbind/batch`、`nosense/unbind/batch`、`ppsk/self/bindMac` 四个写接口已从 SPA 分包中确认存在，但本轮**没有调用任何一个**，也没有为它们写代码。理由见提案：批量写没有幂等证据与失败语义证据，且「关无感知」会直接释放实名认证终端名额。
 
@@ -205,7 +205,7 @@ kickUnifiedAuthOffline = !au.value || tu.value
 
 `devices/unbind/batch` 用的是 `macBindInfoUuid`，而 `/sam/api/userself/devices` 的响应里**没有**这个字段（只有 `onlineUserUuid`、`noSenseUuid`），说明解绑列表来自另一个接口；加上本校 `enableSelfUnbind=false`，本轮不实现。
 
-## 已验证 / 未验证
+## 已验证 / 未验证（第一阶段快照，后续实测见下节）
 
 - ✅ 契约来源：SPA 分包源码（`myDevices-FqRS9b8o.js` 45 KB），调用点、字段名、成功判定都直接读到。
 - ✅ 实现：`ysu self kick <n|all>`，含下线前后两次读取的核验、本机/他机不同的 SSO 处理、非交互环境的 `--yes` 门槛。

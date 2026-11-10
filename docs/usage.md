@@ -10,7 +10,7 @@
 
 | 命令 | 作用 |
 | --- | --- |
-| `ysu` / `ysu menu` | 交互主菜单，16 进入多账号管理 |
+| `ysu` / `ysu menu` | 交互主菜单，16 进入多账号管理，17 查看我的设备与自助服务 |
 | `ysu accounts` / `ysu accounts menu` | 多账号交互菜单；管理账号、热切换与自动换号 |
 | `ysu accounts list [--raw]` | 查看账号簿与流量换号开关，可输出 JSON |
 | `ysu accounts save <ID> [--name 备注] [--user 账号] [--service 服务] [--backend api\|browser]` | 新增或更新账号条目并交互录入密码 |
