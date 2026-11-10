@@ -127,6 +127,26 @@ class UrlTests(OfflineTestCase):
                          base + "/login/oauth2/code/custom-self")
         self.assertTrue(selfservice.DEVICES.startswith("/sam/api/userself/"))
 
+    def test_seed_service_extracts_same_origin_oauth_callback(self):
+        base = "https://auth1.ysu.edu.cn"
+        oauth_cb = (
+            "https://auth1.ysu.edu.cn/cas-sso/oauth2.0/callbackAuthorize"
+            "?client_id=20231026142058188-9037-986575215"
+            "&redirect_uri=https%3A%2F%2Fauth1.ysu.edu.cn%2Flogin%252Foauth2%252Fcode%252Fcustom-self"
+            "&response_type=code&client_name=CasOAuthClient"
+        )
+        from urllib.parse import quote
+        seed_url = f"{base}/cas-sso/login?service={quote(oauth_cb, safe='')}"
+        self.assertEqual(selfservice.seed_service(seed_url, base), oauth_cb)
+        # Cross-origin, credentialed, or missing service falls back to callback_url
+        for bad in (
+            f"{base}/cas-sso/login",
+            f"{base}/cas-sso/login?service=https%3A%2F%2Foutside.invalid%2Fcb",
+            f"{base}/cas-sso/login?service=http%3A%2F%2Fauth1.ysu.edu.cn%2Fcb",
+            f"{base}/cas-sso/login?service=https%3A%2F%2Fuser%3Apass%40auth1.ysu.edu.cn%2Fcb",
+        ):
+            self.assertEqual(selfservice.seed_service(bad, base), selfservice.callback_url(base))
+
     def test_write_endpoints_are_an_explicit_allowlist(self):
         """写操作只能是已实现的下线接口；新增任何写接口都必须先改这里。"""
         read_only = {"SELF_PATH", "DEVICES", "PACKAGE_OVERVIEW",
@@ -352,6 +372,8 @@ class SessionCacheTests(OfflineTestCase):
     def test_stale_cache_is_cleared_before_relogin(self):
         selfservice.save_session(self.jar(SESSION="s"), self.BASE, "u")
         self.mock("ysu_net.auth.selfservice._still_authorised", return_value=False)
+        self.mock("ysu_net.auth.selfservice._seed_self",
+                  return_value=(False, selfservice.callback_url(self.BASE)))
         self.mock("ysu_net.auth.api.cas_login", side_effect=RuntimeError("x"))
         with self.assertRaises(QueryError):
             selfservice.open_session(self.BASE, "cas", "u", "p")
@@ -367,10 +389,21 @@ class SessionCacheTests(OfflineTestCase):
 
     def test_fresh_forces_login(self):
         selfservice.save_session(self.jar(SESSION="s"), self.BASE, "u")
+        oauth_cb = f"{self.BASE}/cas-sso/oauth2.0/callbackAuthorize?client_name=CasOAuthClient"
+        self.mock("ysu_net.auth.selfservice._seed_self", return_value=(False, oauth_cb))
         login = self.mock("ysu_net.auth.api.cas_login")
         self.mock("ysu_net.auth.selfservice.landed_in_self", return_value=True)
         session = selfservice.open_session(self.BASE, "cas", "u", "p", fresh=True)
-        login.assert_called_once()
+        login.assert_called_once_with(session, "u", "p", debug=False, service=oauth_cb)
+        self.assertFalse(selfservice.session_state(session)["cached"])
+
+    def test_seed_already_in_self_skips_cas_password_post(self):
+        self.mock("ysu_net.auth.selfservice._seed_self",
+                  return_value=(True, selfservice.callback_url(self.BASE)))
+        login = self.mock("ysu_net.auth.api.cas_login")
+        self.mock("ysu_net.auth.selfservice.landed_in_self", return_value=True)
+        session = selfservice.open_session(self.BASE, "cas", "u", "p", fresh=True)
+        login.assert_not_called()
         self.assertFalse(selfservice.session_state(session)["cached"])
 
     def test_render_reports_session_source(self):

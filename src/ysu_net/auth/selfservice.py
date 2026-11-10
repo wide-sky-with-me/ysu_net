@@ -18,6 +18,7 @@ import json
 import os
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -51,6 +52,33 @@ def self_service_url(base: str) -> str:
 
 def callback_url(base: str) -> str:
     return f"{base.rstrip('/')}/login/oauth2/code/custom-self"
+
+
+def _is_self_url(url: str) -> bool:
+    path = urlparse(url or "").path
+    return (path == "/self" or path.startswith("/self/")) and "/cas-sso/" not in path
+
+
+def seed_service(seed_url: str, base: str) -> str:
+    """Use the OAuth2 callbackAuthorize service from /self/index when same-origin."""
+    fallback = callback_url(base)
+    raw = (parse_qs(urlparse(seed_url or "").query).get("service") or [None])[0]
+    if not raw or len(raw) > 1024:
+        return fallback
+    parsed, expected = urlparse(raw), urlparse(base)
+    if (parsed.scheme, parsed.netloc) != (expected.scheme, expected.netloc):
+        return fallback
+    if parsed.username or parsed.password:
+        return fallback
+    return raw
+
+
+def _seed_self(session: requests.Session, base: str, timeout: int = 25) -> tuple[bool, str]:
+    """Visit /self/index first to initialise OAuth2 SavedRequest and callbackAuthorize."""
+    r = session.get(self_service_url(base), timeout=timeout, allow_redirects=True)
+    if r.status_code == 200 and _is_self_url(r.url):
+        return True, callback_url(base)
+    return False, seed_service(r.url, base)
 
 
 def _text(value) -> str:
@@ -163,7 +191,7 @@ def fetch(session: requests.Session, base: str, path: str, body: dict | None = N
 def landed_in_self(session: requests.Session, base: str, timeout: int = 25) -> bool:
     """True when the session reaches /self/index instead of bouncing to CAS."""
     r = session.get(self_service_url(base), timeout=timeout, allow_redirects=True)
-    return SELF_PATH.split("/")[-1] in r.url and "/cas-sso/" not in r.url
+    return r.status_code == 200 and _is_self_url(r.url)
 
 
 # Cache the cookie jar so repeated calls do not re-run a password login.
@@ -254,7 +282,7 @@ def _still_authorised(session: requests.Session, base: str, timeout: int = 15) -
         r = session.get(self_service_url(base), timeout=timeout, allow_redirects=True)
     except requests.RequestException:
         return False
-    return r.status_code == 200 and "/cas-sso/" not in r.url
+    return r.status_code == 200 and _is_self_url(r.url)
 
 
 def open_session(base: str, cas_host: str, username: str, password: str,
@@ -280,8 +308,9 @@ def open_session(base: str, cas_host: str, username: str, password: str,
 
     session = _new_portal_session()
     try:
-        cas_login(session, username, password, debug=debug,
-                  service=callback_url(base))
+        already_in, service = _seed_self(session, base)
+        if not already_in:
+            cas_login(session, username, password, debug=debug, service=service)
     except Exception as exc:  # re-raise with a stable prefix, keep the reason
         raise QueryError(f"自助服务登录失败：{exc}") from exc
     if not landed_in_self(session, base):

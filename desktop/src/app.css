@@ -481,6 +481,8 @@
   .notice-line { margin: 0 0 12px; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--success-soft); color: var(--success); font-size: 13px; font-weight: 550; }
   .hint-line { color: var(--muted); font-size: 13px; }
   .form-error { margin: 0 0 12px; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); font-size: 13px; font-weight: 550; }
+  .error-detail { margin: -8px 0 0; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--field); color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+  .form-error > .error-detail { display: block; margin: 6px 0 0; padding: 0; background: transparent; color: var(--danger); opacity: .82; }
   .danger-text { color: var(--danger); }
   .danger-text:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
 }

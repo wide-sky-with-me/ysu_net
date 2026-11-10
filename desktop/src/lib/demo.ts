@@ -146,10 +146,11 @@ export function createDemoTransport(search = ''): Transport {
           if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
           const before = state.self_service?.online ?? 0;
           if (!before) throw new Error('模拟：设备编号超出范围');
+          const count = value === 'all' ? before : 1;
           // Mirrors the desktop core: kick, then re-read the full snapshot.
-          state.self_notice = `已下线 1 台设备：在线 ${before} → ${before - 1} 台`;
+          state.self_notice = `已下线 ${count} 台设备：在线 ${before} → ${before - count} 台`;
           state.self_service = {
-            devices: [], online: before - 1,
+            devices: [], online: before - count,
             package: state.self_service!.package, flow: state.self_service!.flow, remember: state.self_service!.remember,
           };
           state.self_error = '';

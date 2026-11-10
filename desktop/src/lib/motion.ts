@@ -20,7 +20,7 @@ export const pageMotion: Action<HTMLElement, string> = (node, initialPage) => {
     frame = requestAnimationFrame(() => {
       frame = undefined;
       if (preference.matches || !node.isConnected) return;
-      const surfaces = node.querySelectorAll<HTMLElement>(':scope > .connection-overview, :scope > .account-summary, :scope > .account-fields, :scope > .settings-panel, :scope > .log-toolbar, :scope > .log-list, :scope > .empty-state');
+      const surfaces = node.querySelectorAll<HTMLElement>(':scope > .connection-overview, :scope > .account-summary, :scope > .account-fields, :scope > .device-content, :scope > .about-content, :scope > .settings-panel, :scope > .log-toolbar, :scope > .log-list, :scope > .empty-state');
       animations = [...surfaces].map((surface, index) => surface.animate(
         [{ opacity: 0.35, transform: 'translateY(8px)' }, { opacity: 1, transform: 'translateY(0)' }],
         { duration: 240, delay: Math.min(index, 2) * 24, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },

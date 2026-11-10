@@ -622,6 +622,13 @@ def cas_login(
             print(f"[CAS] hop[{i}] {rr.status_code} url={nxt} loc={loc2}")
         if rr.status_code in (301, 302, 303, 307, 308) and loc2:
             nxt = urljoin(rr.url, loc2)
+            base_https = URLS.base.rstrip("/")
+            if (
+                base_https.startswith("https://")
+                and rr.url.split("?", 1)[0].rstrip("/") == f"{base_https}/eportal/redirect.jsp"
+                and nxt.startswith("http://" + base_https.removeprefix("https://") + "/portal/portal-main")
+            ):
+                nxt = "https://" + nxt.removeprefix("http://")
             continue
         break
 

@@ -1051,15 +1051,17 @@ impl Worker {
         );
         let self_only = matches!(self.action, "self_service" | "self_kick");
         self.runtime.update(|state| {
-            state.log("error", &message);
             if self_only {
-                state.self_service = Value::Null;
-                state.self_error = format!(
+                let message = format!(
                     "自助服务操作超过时限，请稍后重试 [{}]",
                     diagnostic_detail(self.action, self.phase, &error)
                 );
+                state.log("error", &message);
+                state.self_service = Value::Null;
+                state.self_error = message;
                 return;
             }
+            state.log("error", &message);
             state.info = Value::Null;
             if account_only {
                 state.info_error = format!(
@@ -1126,7 +1128,9 @@ impl Worker {
                 self.busy("正在读取自助服务");
                 let result = self.runtime.backend.self_service(&config).await;
                 if let Err(error) = &result {
-                    self.error(error);
+                    self.runtime
+                        .recording
+                        .task(self.action, self.phase, Some(error));
                 }
                 self.runtime.update(|state| match result {
                     Ok(snapshot) => {
@@ -1136,11 +1140,18 @@ impl Worker {
                         state.log("info", "自助服务读取完成");
                     }
                     Err(error) => {
-                        state.self_service = Value::Null;
-                        state.self_error = format!(
-                            "自助服务读取失败，请稍后重试 [{}]",
+                        let prefix = if error.code == 4 {
+                            "自助服务认证未通过，请检查账号密码或稍后重试"
+                        } else {
+                            "自助服务读取失败，请稍后重试"
+                        };
+                        let message = format!(
+                            "{prefix} [{}]",
                             diagnostic_detail(self.action, self.phase, &error)
                         );
+                        state.self_service = Value::Null;
+                        state.self_error = message.clone();
+                        state.log("error", &message);
                     }
                 });
             }
@@ -1160,7 +1171,9 @@ impl Worker {
                         // indices always match what the next kick will resolve.
                         let refreshed = self.runtime.backend.self_service(&config).await;
                         if let Err(error) = &refreshed {
-                            self.error(error);
+                            self.runtime
+                                .recording
+                                .task(self.action, self.phase, Some(error));
                         }
                         self.runtime.update(|state| {
                             state.self_notice = notice.clone();
@@ -1171,22 +1184,29 @@ impl Worker {
                                     state.self_error.clear();
                                 }
                                 Err(error) => {
-                                    state.self_service = Value::Null;
-                                    state.self_error = format!(
+                                    let message = format!(
                                         "下线已提交，但重新读取失败 [{}]",
                                         diagnostic_detail(self.action, self.phase, &error)
                                     );
+                                    state.self_service = Value::Null;
+                                    state.self_error = message.clone();
+                                    state.log("error", &message);
                                 }
                             }
                         });
                     }
                     Err(error) => {
-                        self.error(&error);
+                        self.runtime
+                            .recording
+                            .task(self.action, self.phase, Some(&error));
                         let message = format!(
                             "下线未完成 [{}]",
                             diagnostic_detail(self.action, self.phase, &error)
                         );
-                        self.runtime.update(|state| state.self_error = message);
+                        self.runtime.update(|state| {
+                            state.self_error = message.clone();
+                            state.log("error", &message);
+                        });
                     }
                 }
             }
@@ -1617,6 +1637,8 @@ struct Demo {
     #[cfg(test)]
     info_calls: u32,
     #[cfg(test)]
+    self_error: Option<i32>,
+    #[cfg(test)]
     delay: Duration,
     #[cfg(test)]
     logins: u32,
@@ -1772,6 +1794,20 @@ impl Backend {
             Self::Demo(demo) => {
                 config.require_credentials()?;
                 let demo = demo.lock().unwrap();
+                #[cfg(test)]
+                if let Some(code) = demo.self_error {
+                    let mut error = AuthError::new(
+                        code,
+                        "fixture self https://fixture-user:fixture-secret@portal.invalid/?token=fixture-token",
+                    );
+                    error.diagnostic = AuthDiagnostic {
+                        operation: DiagnosticOperation::SelfService,
+                        stage: DiagnosticStage::CasCallback,
+                        reason: DiagnosticReason::RedirectBlocked,
+                        navigation: None,
+                    };
+                    return Err(error);
+                }
                 let online = demo.online;
                 let snapshot = SelfSnapshot {
                     devices: if online {

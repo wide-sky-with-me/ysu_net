@@ -883,7 +883,7 @@ pub(crate) async fn api_cas_login(
             .ok_or_else(|| {
                 AuthError::query("统一认证返回缺少有效跳转地址").because(Reason::ResponseInvalid)
             })?;
-        let after = http.get(next, op).await?;
+        let after = http.navigation_get(next, op).await?;
         after.ensure_success()?;
         if after.url.origin() != http.base.origin() {
             return Err(

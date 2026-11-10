@@ -561,6 +561,49 @@ fn respond(s: &mut State, r: Request) -> Response {
         "/eportal/operator/getAccountInfo" => Response::json(
             json!({"data":{"data":{"name":"Fixture Person","accountInfo":[{"title":"剩余流量","content":"1024 MB","link":"https://example.invalid/?token=private"},{"title":"套餐&余额","content":0},{"title":"在线设备","content":"1 台"}]}}}),
         ),
+        "/self/index" => {
+            if s.authenticated {
+                Response::html("<html><body>self portal</body></html>")
+            } else {
+                let cb = format!(
+                    "{}/cas-sso/oauth2.0/callbackAuthorize?client_name=CasOAuthClient",
+                    s.base
+                );
+                let encoded: String =
+                    url::form_urlencoded::byte_serialize(cb.as_bytes()).collect();
+                Response::redirect(&format!("{}/cas-sso/login?service={encoded}", s.base))
+            }
+        }
+        "/sam/api/userself/devices" => {
+            if r.headers.get("clienttype").map(String::as_str) != Some("self")
+                || r.headers.contains_key("isportal")
+            {
+                return Response::body(400, b"bad self headers".to_vec(), "text/plain");
+            }
+            Response::json(json!({
+                "code": 200,
+                "data": {
+                    "onlineDevices": [{
+                        "deviceName": "我的设备",
+                        "deviceType": "电脑",
+                        "userMac": "02-00-00-00-00-01",
+                        "userIpv4": "10.0.0.1",
+                        "onlineDuration": "0时05分",
+                        "authType": "无线标准Portal接入",
+                        "currentDevice": true,
+                        "unifiedAuthentication": true,
+                        "onlineUserUuid": "u-1"
+                    }],
+                    "offlineDevices": []
+                }
+            }))
+        }
+        "/sam/api/userself/package/overview" | "/sam/api/userself/package/flow" => {
+            Response::json(json!({"code": 200, "data": null}))
+        }
+        "/sam/api/userself/rememberService/current" => {
+            Response::json(json!({"code": 200, "data": {"remembered": false}}))
+        }
         _ => Response::body(404, Vec::new(), "text/plain"),
     }
 }
@@ -1125,6 +1168,50 @@ async fn form_action_host_and_successful_controls_are_verified() {
         "action='https://outside.invalid/login'",
     );
     assert!(LoginForm::parse(&malicious, &page, &http).is_err());
+}
+
+#[tokio::test]
+async fn self_snapshot_seeds_oauth_service_and_reuses_session() {
+    let f = Fixture::new();
+    let client = f.client();
+    let first = client.self_snapshot().await.unwrap();
+    assert_eq!(first.online, 1);
+    assert_eq!(first.devices.len(), 1);
+    assert_eq!(first.devices[0].online_user_uuid, "u-1");
+
+    let second = client.self_snapshot().await.unwrap();
+    assert_eq!(second.online, 1);
+
+    let state = f.state.lock().unwrap();
+    let seed_pos = state
+        .requests
+        .iter()
+        .position(|r| r.path == "/self/index")
+        .unwrap();
+    let redirect_pos = state
+        .requests
+        .iter()
+        .position(|r| r.path.starts_with("/cas-sso/clientredirect"))
+        .unwrap();
+    assert!(seed_pos < redirect_pos);
+    let path = &state.requests[redirect_pos].path;
+    let redirect_url = Url::parse(&format!("http://fixture{path}")).unwrap();
+    let expected = format!(
+        "{}/cas-sso/oauth2.0/callbackAuthorize?client_name=CasOAuthClient",
+        state.base
+    );
+    assert_eq!(
+        protocol::query(&redirect_url, "service").as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(
+        state
+            .requests
+            .iter()
+            .filter(|r| r.method == "POST" && r.path.starts_with("/authserver/login"))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

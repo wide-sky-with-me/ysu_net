@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice } from './presentation';
+import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice, splitDiagnosticError } from './presentation';
 import { demoSnapshot } from './demo';
 
 describe('connection carrier selection', () => {
@@ -138,5 +138,21 @@ describe('quota decoration is not quota evidence', () => {
     ['剩余流量', '-1 GB', false], ['账户余额', '80.00 元', false],
   ])('keeps decoration separate from the original value: %s / %s', (name, value, expected) => {
     expect(canAnimateQuota(name as string, value as string)).toBe(expected);
+  });
+});
+
+describe('diagnostic error splitting', () => {
+  it('separates human summary from structured diagnostic bracket suffix', () => {
+    expect(splitDiagnosticError(
+      '自助服务读取失败，请稍后重试 [action=self_service phase=account_info code=2 operation=self_service stage=cas_callback reason=redirect_blocked]',
+    )).toEqual({
+      summary: '自助服务读取失败，请稍后重试',
+      detail: 'action=self_service phase=account_info code=2 operation=self_service stage=cas_callback reason=redirect_blocked',
+    });
+    expect(splitDiagnosticError('账户信息获取失败，请稍后重试')).toEqual({
+      summary: '账户信息获取失败，请稍后重试',
+      detail: '',
+    });
+    expect(splitDiagnosticError('')).toEqual({ summary: '', detail: '' });
   });
 });

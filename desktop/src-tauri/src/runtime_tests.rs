@@ -1388,3 +1388,56 @@ async fn invalid_or_failed_startup_preference_save_does_not_publish_or_change_sn
     assert!(runtime.store.load_prefs().autostart_minimized);
     assert_query_only(&runtime);
 }
+
+#[tokio::test]
+async fn self_service_and_kick_errors_use_self_copy_and_preserve_connection_state() {
+    let (runtime, receiver) = fixture();
+    seed_online(&runtime);
+    let mut worker = Worker::new(runtime.clone(), receiver);
+    for (code, prefix) in [
+        (2, "自助服务读取失败，请稍后重试 ["),
+        (4, "自助服务认证未通过，请检查账号密码或稍后重试 ["),
+    ] {
+        demo(&runtime).lock().unwrap().self_error = Some(code);
+        worker.execute(Action::SelfService).await.unwrap();
+        let snapshot = runtime.snapshot();
+        assert_eq!(snapshot["status"]["online"], true);
+        assert_eq!(snapshot["info"]["online"], true);
+        assert!(snapshot["self_service"].is_null());
+        let error = snapshot["self_error"].as_str().unwrap();
+        assert!(error.starts_with(prefix), "unexpected self_error: {error}");
+        assert!(error.contains("action=self_service"));
+        assert!(error.contains("operation=self_service"));
+        assert!(!error.contains("查询未确认连接状态"));
+        let last_log = snapshot["logs"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["message"]
+            .as_str()
+            .unwrap();
+        assert_eq!(last_log, error);
+        for private in [
+            "fixture self",
+            "portal.invalid",
+            "fixture-secret",
+            "fixture-token",
+        ] {
+            assert!(!snapshot.to_string().contains(private));
+        }
+    }
+    demo(&runtime).lock().unwrap().self_error = None;
+    demo(&runtime).lock().unwrap().online = false;
+    worker.execute(Action::SelfKick("1".into())).await.unwrap();
+    let snapshot = runtime.snapshot();
+    let kick_error = snapshot["self_error"].as_str().unwrap();
+    assert!(kick_error.starts_with("下线未完成 [action=self_kick"));
+    let last_log = snapshot["logs"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["message"]
+        .as_str()
+        .unwrap();
+    assert_eq!(last_log, kick_error);
+}

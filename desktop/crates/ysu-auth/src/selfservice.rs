@@ -178,10 +178,22 @@ impl SelfService {
 
     /// Log in through the delegated CAS chain and land on `/self`.
     async fn login(http: &mut Transport, config: &Config, op: &Operation) -> Result<(), AuthError> {
-        let callback = http.endpoint(CALLBACK)?;
+        let seed = at(Stage::CasNavigation, async {
+            let reply = http.get(http.endpoint(SELF_INDEX)?, op).await?;
+            reply.ensure_success()?;
+            Ok::<_, AuthError>(reply)
+        })
+        .await?;
+        if is_self_page(&seed.url) {
+            return Ok(());
+        }
+        let service = match seed_service(&seed.url, &http.base) {
+            Some(url) => url,
+            None => http.endpoint(CALLBACK)?.to_string(),
+        };
         let url = at(
             Stage::CasNavigation,
-            protocol::cas_login_url_with(http, op, callback.as_str()),
+            protocol::cas_login_url_with(http, op, &service),
         )
         .await?;
         protocol::api_cas_login(http, url, config, op).await?;
@@ -352,17 +364,27 @@ impl SelfService {
     }
 }
 
+pub(crate) fn is_self_page(url: &url::Url) -> bool {
+    (url.path() == "/self" || url.path().starts_with("/self/"))
+        && !url.path().contains("/cas-sso/")
+}
+
+pub(crate) fn seed_service(seed_url: &url::Url, base: &url::Url) -> Option<String> {
+    let raw = protocol::query(seed_url, "service")?;
+    let parsed = url::Url::parse(&raw).ok()?;
+    (parsed.origin() == base.origin()
+        && parsed.username().is_empty()
+        && parsed.password().is_none())
+    .then_some(raw)
+}
+
 /// One lightweight GET decides whether a session still reaches `/self`.
 async fn authorised(http: &Transport, op: &Operation) -> bool {
     let Ok(url) = http.endpoint(SELF_INDEX) else {
         return false;
     };
     match at(Stage::CasNavigation, http.get(url, op)).await {
-        Ok(page) => {
-            page.status == 200
-                && (page.url.path() == "/self" || page.url.path().starts_with("/self/"))
-                && !page.url.path().contains("/cas-sso/")
-        }
+        Ok(page) => page.status == 200 && is_self_page(&page.url),
         Err(_) => false,
     }
 }

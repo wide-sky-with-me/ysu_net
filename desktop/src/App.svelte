@@ -18,7 +18,7 @@
   import { DEFAULT_ACCENT } from './lib/accents';
   import { createTransport } from './lib/bridge';
   import { beginStateObservation } from './lib/observation';
-  import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice } from './lib/presentation';
+  import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice, splitDiagnosticError } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
   import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
   import type { SelfDevice, SelfService } from './lib/protocol';
@@ -234,6 +234,8 @@
   }
 
   const selfData = $derived.by((): SelfService | null => snapshot?.self_service ?? null);
+  const infoError = $derived(splitDiagnosticError(snapshot?.info_error));
+  const selfError = $derived(splitDiagnosticError(snapshot?.self_error));
 
   function confirmKick(index: number, device: SelfDevice) {
     const name = device.deviceName && device.deviceName !== device.deviceType ? `${device.deviceName} · ${device.deviceType || '设备'}` : (device.deviceType || device.deviceName || '设备');
@@ -243,6 +245,16 @@
       message: `将断开 ${label} 的网络连接${device.currentDevice ? '；这是当前设备，下线后需要重新登录才能上网' : '，它需要重新登录才能上网'}。`,
       confirm: '确认下线', danger: true, icon: 'shield',
       run: () => { void action('self_kick', String(index)); },
+    };
+  }
+
+  function confirmKickAll() {
+    const hasCurrent = selfData?.devices.some((device) => device.online && device.currentDevice);
+    confirmation = {
+      title: '下线全部设备',
+      message: `将断开当前在线的 ${selfData?.online ?? 0} 台设备的网络连接${hasCurrent ? '（含本机，下线后需要重新登录）' : ''}。`,
+      confirm: '全部下线', danger: true, icon: 'shield',
+      run: () => { void action('self_kick', 'all'); },
     };
   }
 
@@ -473,7 +485,7 @@
           </section>
           <OnlineDetails fields={snapshot.info.fields} />
         {:else}
-          <div class="empty-state" class:error={accountState === 'error'}><Icon name={accountState === 'error' ? 'alert' : 'account'} size={32} /><h2 role={accountState === 'error' ? 'alert' : undefined}>{accountState === 'error' ? snapshot?.info_error : accountState === 'offline' ? '连接后查看账户信息' : accountState === 'unknown' ? '连接状态未知' : '尚未读取账户信息'}</h2><button type="button" class="primary-button" disabled={locked} onclick={() => accountState === 'offline' ? navigate('connection') : action('info')}>{accountState === 'error' ? '重试读取账户信息' : accountState === 'offline' ? '前往连接' : '读取账户信息'}</button></div>
+          <div class="empty-state" class:error={accountState === 'error'}><Icon name={accountState === 'error' ? 'alert' : 'account'} size={32} /><h2 role={accountState === 'error' ? 'alert' : undefined}>{accountState === 'error' ? infoError.summary : accountState === 'offline' ? '连接后查看账户信息' : accountState === 'unknown' ? '连接状态未知' : '尚未读取账户信息'}</h2>{#if accountState === 'error' && infoError.detail}<p class="error-detail numeric">{infoError.detail}</p>{/if}<button type="button" class="primary-button" disabled={locked} onclick={() => accountState === 'offline' ? navigate('connection') : action('info')}>{accountState === 'error' ? '重试读取账户信息' : accountState === 'offline' ? '前往连接' : '读取账户信息'}</button></div>
         {/if}
 
       {:else if page === 'devices'}
@@ -485,8 +497,11 @@
                   <h2 id="my-devices-heading">我的设备</h2>
                   <span class="inline-label" class:idle={!selfData.online}>{selfData.online} 台在线</span>
                 </div>
+                {#if selfData.online > 1}
+                  <button type="button" class="quiet-button danger-text" disabled={locked} onclick={confirmKickAll}>全部下线</button>
+                {/if}
               </div>
-              {#if snapshot?.self_error}<p class="form-error" role="alert">{snapshot.self_error}</p>{/if}
+              {#if snapshot?.self_error}<p class="form-error" role="alert"><span>{selfError.summary}</span>{#if selfError.detail}<small class="error-detail numeric">{selfError.detail}</small>{/if}</p>{/if}
               {#if snapshot?.self_notice}<p class="notice-line" role="status">{snapshot.self_notice}</p>{/if}
               {#if selfData.devices.length === 0}
                 <p class="hint-line">门户未返回任何设备。</p>
@@ -537,7 +552,8 @@
         {:else}
           <div class="empty-state" class:error={Boolean(snapshot?.self_error)}>
             <Icon name={snapshot?.self_error ? 'alert' : 'shield'} size={32} />
-            <h2 role={snapshot?.self_error ? 'alert' : undefined}>{snapshot?.self_error || '尚未读取设备'}</h2>
+            <h2 role={snapshot?.self_error ? 'alert' : undefined}>{selfError.summary || '尚未读取设备'}</h2>
+            {#if selfError.detail}<p class="error-detail numeric">{selfError.detail}</p>{/if}
             {#if snapshot?.self_notice}<p class="muted">{snapshot.self_notice}</p>{/if}
             {#if snapshot && (!snapshot.config.username || !snapshot.config.password_set)}
               <p class="muted">请先保存校园网账号和密码。</p>

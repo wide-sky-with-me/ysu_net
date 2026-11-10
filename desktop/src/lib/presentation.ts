@@ -52,3 +52,10 @@ export function accountInfoState(snapshot: Snapshot | null): 'error' | 'ready' |
 export function canAnimateQuota(name: string, value: string): boolean {
   return /流量|用量|额度/.test(name) && /^[+]?\d/.test(value.trim()) && Number.parseFloat(value) > 0;
 }
+
+/** Separate human-readable error copy from trailing `[action=...]` diagnostic metadata. */
+export function splitDiagnosticError(message: string | undefined | null): { summary: string; detail: string } {
+  const text = (message || '').trim();
+  const match = /^(.*?)\s+\[(action=[a-z0-9_]+(?:\s+[a-z0-9_]+=[a-z0-9_.-]+)+)\]$/i.exec(text);
+  return match ? { summary: match[1].trim(), detail: match[2] } : { summary: text, detail: '' };
+}
