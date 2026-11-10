@@ -8,10 +8,11 @@ BROWSER=0
 for arg in "$@"; do
   case "$arg" in
     --browser) BROWSER=1; SYNC_ARGS+=(--extra browser) ;;
+    --captcha) SYNC_ARGS+=(--extra captcha) ;;
     --offline) SYNC_ARGS+=(--offline) ;;
     --system|--no-service) INSTALL_ARGS+=("$arg") ;;
     -h|--help)
-      echo "用法：bash install.sh [--system] [--no-service] [--browser] [--offline]"
+      echo "用法：bash install.sh [--system] [--no-service] [--browser] [--captcha] [--offline]"
       echo "默认普通用户安装；--offline 使用已有 uv/Python/依赖缓存。"
       exit 0 ;;
     *) echo "未知参数：$arg" >&2; exit 2 ;;

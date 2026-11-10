@@ -14,6 +14,7 @@
 | 升级、旧 Qt / 候选包迁移及卸载 | [迁移指南](migration.md) |
 | DNS、门户跳转、状态或认证异常 | [排障](wiki/Troubleshooting.md) |
 | 断网前开启链路记录、离线保存调试证据 | [桌面调试记录](debug-recording.md)（自 0.2.4 起） |
+| 我的设备、套餐与自助服务查询 / 下线 | [CLI 自助服务](usage.md#自助服务ysu-self)、[桌面设备页](wiki/Desktop-Client.md#设备自助服务)、[协议探测记录](self-service-probe-2026-11-09.md) |
 | 反复遇到验证码、按需启用自动识别 | [CLI 验证码识别](usage.md#验证码识别)、[桌面验证码识别](tauri-desktop.md#验证码识别) |
 | 界面预览及截图来源 | [截图说明](screenshots/README.md)、[界面设计](rust-desktop-design.md) |
 
@@ -36,7 +37,9 @@
 
 [桌面验收导航](desktop-acceptance.md)按阶段串联正式发布、界面、安装和更新证据；每份记录注明源码、环境与未覆盖范围。
 
-- [验证码识别核验](captcha-recognition-2026-11-07.md)：三张真实样本、四平台云端门禁与未覆盖项；功能已合入 main，未随 0.2.5 发布。
+- [0.2.7 发布记录](desktop-release-0.2.7.md)：设备自助服务（桌面“设备”页与 `ysu self`）随版本发行。
+- [0.2.6 发布记录](desktop-release-0.2.6.md)与[0.2.5 发布记录](desktop-release-0.2.5.md)：各自标签的四平台门禁、独立浏览器验收、Python 分发与 13 个公开附件。
+- [验证码识别核验](captcha-recognition-2026-11-07.md)：三张真实样本、四平台云端门禁与未覆盖项；已随 0.2.6 正式发布。
 - [0.2.3 发布与真实认证验证](desktop-release-0.2.3.md)：四平台产物、签名及公开下载，21 的 Rust 登录 / 退出与 Windows 原生只读查询。
 - [21 Shell 链路对照](portal-21-review-2026-10-28.md)与[账号池实测](account-pool-21-review-2026-10-28.md)：保留当次 Python CLI 和守护切换证据。
 - [DNS / TLS 只读核验](portal-ip-fallback-2026-10-28.md)与[123 服务登录对照](portal-123-review-2026-10-27.md)：分别记录连接地址验证及 CAS 后服务拒绝。

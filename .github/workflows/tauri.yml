@@ -299,6 +299,7 @@ jobs:
           ditto "$volume/YSU Net.app" "$app"
           hdiutil detach "$volume"
           trap - EXIT
+          codesign --verify --deep --strict --verbose=2 "$app"
           plist="$app/Contents/Info.plist"
           value() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
           [ "$(value CFBundleIdentifier)" = io.github.wide-sky-with-me.ysunet ]

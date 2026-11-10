@@ -41,7 +41,7 @@
 | Ubuntu 22.04 及更新，x86_64 | 包名仍为 `ysu-net`；下载新版 `.deb` 后用 `sudo apt install ./新包.deb`（替换为实际文件名）正常升级。0.2.0 高于旧 0.1.0，无需 `--reinstall`。 |
 | macOS 13.5 及更新 | 按 Apple 芯片（arm64）或 Intel（x64）选择各自 `.dmg`，退出旧程序后替换“应用程序”中的客户端；不是通用二进制。 |
 
-Windows / macOS 安装包未签名，可能出现发布者或首次启动提示；仅从对应 Release 下载并核对附件 `SHA256SUMS`，按系统提示处理。Python `gui` 依赖和 `ysu-gui` 入口已移除，安装桌面版不需要 Python 环境；Linux Python CLI 独立保留，版本同步为 0.2.0。桌面构建与配置路径见[Tauri 说明](tauri-desktop.md)。
+Windows / macOS 安装包未经过 Windows Authenticode 或 Apple Developer ID 签名与公证，可能出现发布者或首次启动提示；仅从对应 Release 下载并核对附件 `SHA256SUMS`。macOS 从 Safari 等浏览器下载 `.dmg` 并拖入“应用程序”后，若因 `com.apple.quarantine` 隔离提示“已损坏，无法打开”，在终端执行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"` 后再打开。Python `gui` 依赖和 `ysu-gui` 入口已移除，安装桌面版不需要 Python 环境；Linux Python CLI 独立保留，版本同步为 0.2.0。桌面构建与配置路径见[Tauri 说明](tauri-desktop.md)。
 
 ## 更新 Linux 命令行安装
 
@@ -50,7 +50,7 @@ Windows / macOS 安装包未签名，可能出现发布者或首次启动提示�
 ```bash
 ysu stop
 git pull --ff-only
-bash install.sh                # 浏览器用户追加 --browser
+bash install.sh                # 按需追加 --captcha / --browser
 ysu doctor
 ysu on
 ```
@@ -66,7 +66,7 @@ bash install.sh
 
 系统级安装对应使用 `sudo systemctl stop ysu-net.service`、
 `sudo env PATH="$PATH" bash install.sh --system` 和 `sudo ysu on`。
-浏览器用户安装时追加 `--browser`。前台模式先按 Ctrl+C 停止守护，
+启用了验证码识别或浏览器方式的用户，更新时对应保留 `--captcha`、`--browser`。前台模式先按 Ctrl+C 停止守护，
 更新时保留 `--no-service`，最后重新运行 `ysu daemon`。
 如果 `git pull --ff-only` 提示存在本地修改或分支分歧，请先处理本地修改。
 

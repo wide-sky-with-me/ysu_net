@@ -7,7 +7,7 @@ Linux Python CLI 与 Tauri 桌面运行时独立；完整命令、参数、退�
 | 目标 | 命令 | 影响 |
 | --- | --- | --- |
 | 一次性登录 | `ysu login` | 访问认证服务；先停止正在运行的守护 |
-| 启用验证码识别 | `uv sync --extra captcha` | 装可选识别依赖，默认不装；未装时仍按原规则要求人工输入 |
+| 启用验证码识别 | `bash install.sh --captcha`（或 `uv sync --locked --extra captcha`） | 装可选识别依赖，默认不装；未装时仍按原规则要求人工输入 |
 | 查看状态/账户 | `ysu status` / `ysu info` | 访问校园网查询；输出可能包含识别信息 |
 | 本地排障 | `ysu doctor` | 默认不联网，不登录或下线 |
 | 校园网排障 | `ysu doctor --network` | 只查询，不登录、下线或切换 |

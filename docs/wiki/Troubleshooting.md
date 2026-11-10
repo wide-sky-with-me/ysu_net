@@ -6,6 +6,7 @@
 
 | 现象 | 最小检查与处理 |
 | --- | --- |
+| macOS 提示“已损坏，无法打开” | 安装包未经过 Apple 公证，Safari 等浏览器下载后会附加隔离属性。核对 `SHA256SUMS` 并拖入“应用程序”后，在终端运行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"` 再打开。 |
 | 找不到“关于”或界面与截图不同 | 自 0.2.2 起更新入口在“关于”；0.2.1 在“设置 → 外观与启动”底部。核对实际安装来源，旧版按[迁移指南](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md)升级。 |
 | 状态未知、查询失败或超时 | 确认接入校园网后只读刷新，无需先下线；关闭自动重连也可查询。`code=2` 是查询类失败，不能单独定位账号、DNS 或 TLS 根因。 |
 | 域名解析失败 | 0.2.3 的 Rust 传输和 Python 默认 API 支持精确校园域名的地址回退，仍保留域名与 TLS 校验；自定义域名、代理解析及 Python Browser 需单独核对 DNS。不要将配置地址改为 IP，详见[覆盖范围](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#dns-失败时的备用-ip)。 |

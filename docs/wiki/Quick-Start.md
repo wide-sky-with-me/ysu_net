@@ -15,9 +15,11 @@
 
 ## Linux 命令行初次安装
 
+在持久目录（如 `~/ysu_net`；系统级推荐 `/opt/ysu_net`，勿放在 `/tmp`）克隆并安装：
+
 ```bash
-git clone https://github.com/wide-sky-with-me/ysu_net.git
-cd ysu_net
+git clone https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net.git ~/ysu_net
+cd ~/ysu_net
 bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ysu config account
@@ -25,7 +27,7 @@ ysu service
 ysu doctor
 ```
 
-账号密码仅在本机交互输入，不要粘贴到反馈帖或命令参数。安装不会自动登录或启动重连；请保留源码目录与 `.venv`。接入校园网后手动确认连接：
+默认用户级安装将命令写入 `~/.local/bin/{ysu,ysuon,ysuoff}`、配置写入 `~/.config/ysu-net/config.json`、服务写入 `~/.config/systemd/user/ysu-net.service`（系统级对应 `/usr/local/bin`、`/etc/ysu-net`、`/etc/systemd/system`）。账号密码仅在本机交互输入，不要粘贴到反馈帖或命令参数。安装不会自动登录或启动重连；请保留源码目录与 `.venv`（移动目录后需重新运行 `bash install.sh`）。接入校园网后手动确认连接：
 
 ```bash
 ysu login
