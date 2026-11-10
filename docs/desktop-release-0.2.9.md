@@ -6,7 +6,7 @@
 
 ## 源码与产物
 
-标签 `v0.2.9` 指向对应发布提交，版本号在 `pyproject.toml`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/crates/ysu-auth/Cargo.toml` 与 `tauri.conf.json` 中一致。发布作业先通过四个平台构建、原生安装验收、独立浏览器验收与 Python 回归，再由 `release` 作业汇总附件。
+标签 `v0.2.9` 指向提交 `a52cc27`，版本号在 `pyproject.toml`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/crates/ysu-auth/Cargo.toml` 与 `tauri.conf.json` 中一致。发布作业先通过四个平台构建、原生安装验收、独立浏览器验收与 Python 回归，再由 `release` 作业汇总附件。
 
 | 附件 | 说明 |
 | --- | --- |
@@ -33,12 +33,19 @@
 
 ## 门禁结果
 
+| 运行 | 实际结果 |
+| --- | --- |
+| [Tauri 42803284736](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42803284736) | preflight、四个平台构建与安装验收、`browser-acceptance`、`release` 全部成功；13 个公开附件（期间 `macos-arm64` 首轮在托盘菜单冒烟等待时遇到瞬时超时，重跑失败作业后通过） |
+| [Mock 42803284320](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42803284320) | Python 回归（51 项）、分发构建与 wheel 数据检查成功 |
+| [Community 42803284270](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42803284270) | 社区文档、链接与表单检查成功 |
+| [Rust Auth 42803284631](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42803284631) | 无头 Rust 认证与 Chromium 门户契约验证成功 |
+
 | 检查 | 结果 |
 | --- | --- |
 | 本机真实校园网 Shell 核验（Python `selfservice.snapshot`） | `--fresh` 首次完整登录与第二次会话缓存复用均通过（`online=1`、套餐与流量项完整返回） |
 | 云端 `cargo test`（`ysu-auth` + `ysu-net`） | 通过，含 `/self/index` OAuth2 `service` 预热、会话复用及运行器自助服务错误日志测试 |
 | 云端 `npm run check`（svelte-check + tsc） | 0 错误 0 警告 |
-| 云端 `npm test` | 全部通过 |
+| 云端 `npm test` | 14 个文件 292 项通过 |
 | 云端 `browser-acceptance` | 10 套件全部通过 |
 | 云端四平台原生构建与安装冒烟 | Linux x64、Windows x64、macOS arm64、macOS x64 全部通过 |
 | 云端 Python 回归（`Mock tests`）与社区检查（`Community documents`） | 全部通过 |
