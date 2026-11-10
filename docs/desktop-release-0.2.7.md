@@ -1,12 +1,12 @@
 # 桌面 v0.2.7 发布
 
-日期：2026-11-10。状态：标签已推送，云端门禁运行中；四平台构建、安装验收、浏览器验收与 Python 分发结果待本次运行回填。本页只记录该标签的源码、产物与门禁，不把后续主分支提交算进本版本。
+日期：2026-11-10。状态：正式发布并成为 Latest；四个桌面平台构建、原生安装验收与独立浏览器验收通过，Python 分发包与摘要随附。本页只记录该标签的源码、产物与门禁，不把后续主分支提交算进本版本。
 
 当前行为归[桌面语义](tauri-desktop.md)，发布内容原文见[发布说明](../packaging/release-notes.md)，历史版本导航见[桌面验收](desktop-acceptance.md)。
 
 ## 源码与产物
 
-标签 `v0.2.7` 的版本号在 `pyproject.toml`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/crates/ysu-auth/Cargo.toml` 与 `tauri.conf.json` 中一致。发布作业先通过四个平台构建、原生安装验收、独立浏览器验收与 Python 回归，再由 `release` 作业汇总附件。
+标签 `v0.2.7` 指向提交 `b1bcb44`，版本号在 `pyproject.toml`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/crates/ysu-auth/Cargo.toml` 与 `tauri.conf.json` 中一致。发布作业先通过四个平台构建、原生安装验收、独立浏览器验收与 Python 回归，再由 `release` 作业汇总附件。
 
 | 附件 | 说明 |
 | --- | --- |
@@ -37,9 +37,20 @@
 
 | 运行 | 实际结果 |
 | --- | --- |
-| [Tauri CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml) | 待本次标签运行回填 |
-| [Mock](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/test.yml) | 待本次标签运行回填 |
-| [Community](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/community.yml) | 待本次标签运行回填 |
+| [Tauri 42752804815](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42752804815) | preflight、四个平台构建与安装验收、`browser-acceptance`、`release` 全部成功；13 个公开附件 |
+| [Mock 42752805056](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42752805056) | Python 回归、分发构建与 wheel 数据检查成功 |
+| [Community 42752804818](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42752804818) | 社区文档、链接与表单检查成功 |
+
+同标签的前三次运行不是通过成绩，保留作为修正依据：
+
+| 运行 | 失败点 | 修正 |
+| --- | --- | --- |
+| [42748937221](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42748937221) | `uv sync --locked` 报 lockfile 需要更新 | `pyproject.toml` 改版本后未重新生成 `uv.lock`，已补 `uv lock` |
+| [42750030258](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42750030258) | `rust_desktop_preview.py` 等不到设置页 tablist | 新增“设备”导航项使 Ctrl+数字 按数组下标漂移，改为每个页面固定 `key` |
+| [42751744507](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42751744507) | `multi_account_preview.py` 在 320px 报 `document_overflow` | 六项导航在窄视口放不下，≤420px 只保留图标 |
+| [42752804815](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42752804815) 的首轮提交前 | 同上，`get_by_role(button, name="设置")` 超时 | 用 `display: none` 隐藏文字会剥离可访问名称，改为 1px 视觉隐藏 |
+
+这些失败都在标签构建前由本机 dev server 复现并修正，最终运行一次通过。
 
 ## 验证范围
 
@@ -53,6 +64,7 @@
 | Python 回归 | 全量通过（排除 4 项既有的 `test_layout` 环境失败） |
 | `rustfmt --check` | 7 个 Rust 文件通过 |
 | 真实账号只读查询 | 通过；设备、套餐、流量、记住的上网选择均与门户一致 |
+| 窄视口布局（320 / 390 / 700 px） | 通过：无横向溢出，六个导航项均可用可访问名定位，见 `browser-acceptance` |
 | 真实设备下线 | **部分**：手机已确认下线（在线 2 → 1 台），但那次核验逻辑有缺陷（立即重读误报失败），修正后未再对真实设备复核 |
 | 桌面端真实登录 | **未执行**：本机为 WSL，图形界面的真实登录与下线留给使用者手动验证 |
 
