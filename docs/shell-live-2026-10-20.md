@@ -28,7 +28,7 @@
 | 空原始服务字段 | 门户 `service=校园网`、`realServiceName=null`，独立查询已在线且账号匹配，但 `login`、`doctor --network` 和切换返回 `2` | Python 与 Rust 将 JSON `null` 视为字段缺失；有效备用字段可核验。未知非 null 原始字段、类型异常及冲突仍失败；账号证据继续严格校验 |
 | 同名脚本遮蔽 | 从目标用户主目录运行安装命令执行旧同名脚本，因旧浏览器依赖缺失返回 `1`；从独立目录正常 | 包装器使用 Python `-P -m`，不让当前目录抢先提供同名模块。保留原目录、旧文件、显式环境和三个别名行为 |
 
-服务字段的当前规则见[使用说明](usage.md#命令)；包装器边界与已安装用户的更新要求见[开发说明](development.md#模块职责)和[迁移说明](migration.md#更新当前安装)。
+服务字段的当前规则见[使用说明](usage.md#命令)；包装器边界与已安装用户的更新要求见[开发说明](development.md#模块职责)和[迁移说明](migration.md#更新-linux-命令行安装)。
 
 实现：[Python 服务解析](../src/ysu_net/auth/common.py)、[Python 账号证据](../src/ysu_net/manager/account_switching.py)、[Rust 状态解析](../desktop/crates/ysu-auth/src/protocol.rs)、[Rust 账号核验](../desktop/crates/ysu-auth/src/lib.rs)、[包装器](../src/ysu_net/manager/install.py)。原生账户运行器复用 Rust AuthClient，无重复字段解析需要修改。
 

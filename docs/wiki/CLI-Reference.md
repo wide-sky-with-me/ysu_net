@@ -9,6 +9,8 @@ Linux Python CLI 与 Tauri 桌面运行时独立；完整命令、参数、退�
 | 一次性登录 | `ysu login` | 访问认证服务；先停止正在运行的守护 |
 | 启用验证码识别 | `bash install.sh --captcha`（或 `uv sync --locked --extra captcha`） | 装可选识别依赖，默认不装；未装时仍按原规则要求人工输入 |
 | 查看状态/账户 | `ysu status` / `ysu info` | 访问校园网查询；输出可能包含识别信息 |
+| 自助服务设备 | `ysu self [--raw]` | 登录自助服务读取设备、套餐与剩余流量；首次完整登录，之后 30 分钟内复用会话 |
+| 下线设备 | `ysu self kick <编号\|all> [--yes]` | **会中断目标设备的网络连接**；先确认，写后复核 |
 | 本地排障 | `ysu doctor` | 默认不联网，不登录或下线 |
 | 校园网排障 | `ysu doctor --network` | 只查询，不登录、下线或切换 |
 | 开启自动重连 | `ysu on` | 启动 systemd 重连服务，认证结果需另查 |

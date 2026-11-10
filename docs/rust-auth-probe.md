@@ -12,6 +12,8 @@
 | `ysu-auth-probe login` | 前查明确离线、配置有凭据 | 真实 `AuthClient::login` 成功后，再以新 Transport / Jar 查询，在线身份及服务均与配置一致 |
 | `ysu-auth-probe logout` | 前查在线，且身份 / 服务与配置一致 | 真实 `AuthClient::logout` 成功后，再以新 Transport / Jar 查询到明确离线 |
 
+自助服务（`AuthClient::self_snapshot` / `self_kick`）不在探针合同内：它需要另一套 OAuth2 客户端会话，探针目前只覆盖门户链的 status / login / logout。自助服务的验证走 CLI 实跑、桌面页面与标签运行的 `browser-acceptance`，边界见[0.2.7 发布记录](desktop-release-0.2.7.md#验证范围)。
+
 已在线的 login、已离线的 logout 返回前提未满足，不能被算成新的登录 / 退出通过。工具比产品的幂等入口严格，这是验证合同，不改变 GUI 的原有行为。前查、动作及后查共用配置 `operation_timeout` 的外层总预算；取消或超时不能保证撤销远端已接受的动作，控制器仍须独立查询和恢复。
 
 只从关闭后的 stdin 管道读取一份原 Config JSON，上限 64 KiB；不接受命令行凭据、配置文件参数或交互终端粘贴，未知参数 / 字段、无效配置和关闭 TLS 校验均在网络请求前拒绝。输入字节缓冲在使用后清零，工具不写配置、Cookie、页面或会话文件；它不接管用户原本已保存的配置文件。

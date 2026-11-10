@@ -16,6 +16,7 @@ Python 运行时代码位于 `src/ysu_net/`，通过安装包导入，不修改 
 | `auth/browser.py` | Playwright 认证及 UI 兜底 |
 | `auth/common.py` | 协议状态判断、异常退出码、资源清理 |
 | `auth/account.py` | 两个后端共用的账户解析、纯文本展示、缺失额度与零值处理 |
+| `auth/selfservice.py` | 自助服务（`/self`）的委托 CAS 登录、只读快照、设备下线与写后核验；会话缓存与 `--fresh` |
 | `auth/captcha.py` | 可选验证码后端（远端 / ddddocr / tesseract / 手工输入）的选择、结果校验与可用性判断；`ddddocr` 依赖属于可选组 `captcha` |
 | `manager/cli.py` | 命令分发和交互菜单 |
 | `manager/ui.py` | 终端颜色、状态提示、纯文本兼容和只读菜单说明 |
@@ -66,6 +67,7 @@ uv lock --check
 - `tests/test_manager.py`：配置、重连、进程、CLI、安装卸载、systemd 单元及命令包装器。
 - `tests/test_switching.py`：服务一致性、切换失败恢复、配置并发更新和脱敏错误分类。
 - `tests/test_account_info.py`：共享账户实现、嵌套响应、缺失值与零值、原始 JSON 兼容及诊断。
+- `tests/test_selfservice.py`：自助服务设备 / 套餐 / 流量 / 记住选择的解析与渲染、编号选择与越界拒绝、SSO 标志推导、写后核验失败、写端点白名单，以及会话缓存的往返、权限、换账号 / 换地址拒绝、TTL 过期与缓存命中不触发登录。全部离线，夹具为合成数据。Rust 侧对应 `selfservice_tests.rs`。
 - `tests/test_menu_help.py`：说明页入口、选项覆盖、返回菜单以及无操作副作用。
 - `tests/test_repository.py`：在临时 Git 仓库验证敏感文件忽略规则，不修改项目索引。
 - `tests/test_layout.py`：包入口、项目外调用，以及 user/system 三个包装命令对同名模块和包的启动隔离。

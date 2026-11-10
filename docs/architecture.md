@@ -21,11 +21,11 @@
 ysu_net/
 ├── install.sh / uninstall.sh        CLI 安装、卸载
 ├── src/ysu_net/
-│   ├── auth/                       Python CLI 认证、账户解析
+│   ├── auth/                       Python CLI 认证、账户解析、自助服务
 │   └── manager/                    CLI、配置、锁、守护与 systemd
 ├── desktop/
 │   ├── src/                        三平台共用 Svelte 界面与 IPC 类型
-│   ├── crates/ysu-auth/             Rust Portal/CAS、状态、切换、账户、CDP
+│   ├── crates/ysu-auth/             Rust Portal/CAS、状态、切换、账户、CDP、自助服务
 │   ├── src-tauri/src/               Rust 后台、配置、窗口、托盘、自启
 │   └── scripts/desktop.mjs          Node/Rust 原生构建入口
 ├── packaging/                      构建及浏览器、原生验收工具
@@ -38,6 +38,8 @@ ysu_net/
 两种语言不再共享同一认证执行器；变更协议时必须同时评估 Python 与 Rust，通过对应回归维护相同状态、账户和失败恢复语义。未知状态不当作离线，认证成功不以提交表单或收到 IPC 确认为依据。行为细节见[桌面运行语义](tauri-desktop.md#运行语义)与[CLI 开发](development.md)。
 
 验证码识别属于两侧各自实现的旁路，不是共享执行器：[CLI](../src/ysu_net/auth/captcha.py)把 ddddocr 作为可选依赖，[认证库](../desktop/crates/ysu-auth/src/captcha.rs)用 `tract` 跑同一份模型。模型既不进安装包，也不随登录下载，桌面端只在磁盘上已有模型时启用；未启用时两侧都回到需人工处理。语义见[桌面语义](tauri-desktop.md#验证码识别)。
+
+自助服务与门户是两条认证链：[CLI](../src/ysu_net/auth/selfservice.py)与[认证库](../desktop/crates/ysu-auth/src/selfservice.rs)各自实现 `/self` 的 OAuth2 登录与设备接口，但都复用本侧已有的 CAS 表单解析、验证码与密码加密，只把 `service` 换成 `/login/oauth2/code/custom-self`。两条链共享「未知状态不当作成功」的约定：设备下线写入前读一次列表、写入后按有限重试复核，目标仍在在线集合中即报失败。会话复用策略两侧不同——CLI 落盘缓存，桌面端只在进程内缓存，取舍见[安全说明](security.md#资料边界)与[桌面语义](tauri-desktop.md#设备自助服务)。
 
 DNS 回退的已核验域名与地址由[包内 JSON](../src/ysu_net/auth/campus-addresses.json)统一维护，Rust 编译时嵌入，Python 默认 API 随包读取；解析、TLS 与各后端覆盖范围集中见[网络语义](tauri-desktop.md#dns-失败时的备用-ip)。该能力纳入 0.2.3，云端与真实环境验证分别见[发布记录](desktop-release-0.2.3.md)。
 
