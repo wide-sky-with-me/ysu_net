@@ -365,8 +365,7 @@ impl SelfService {
 }
 
 pub(crate) fn is_self_page(url: &url::Url) -> bool {
-    (url.path() == "/self" || url.path().starts_with("/self/"))
-        && !url.path().contains("/cas-sso/")
+    (url.path() == "/self" || url.path().starts_with("/self/")) && !url.path().contains("/cas-sso/")
 }
 
 pub(crate) fn seed_service(seed_url: &url::Url, base: &url::Url) -> Option<String> {

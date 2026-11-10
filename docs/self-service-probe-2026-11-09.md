@@ -1,6 +1,6 @@
 # auth1 /self 自助服务协议探测
 
-日期：2026-11-09，标签 v0.2.7 / v0.2.8 于 2026-11-10 发布。状态：**登录成功分支、四个只读接口与设备下线均已用真实账号跑通**，CLI（`ysu self`）与桌面（侧栏“设备”页）同步实现；解绑 MAC、关闭无感知与 PPSK 绑定未实现。方案与取舍归[提案](../.agents/notes/proposals/desktop/2026-11-09-self-service-protocol.md)，发行结果归[0.2.8 发布记录](desktop-release-0.2.8.md)（首版归[0.2.7 发布记录](desktop-release-0.2.7.md)）。
+日期：2026-11-09，标签 v0.2.7 / v0.2.8 / v0.2.9 于 2026-11-10 发布。状态：**登录成功分支、四个只读接口与设备下线均已用真实账号跑通**，CLI（`ysu self`）与桌面（侧栏“设备”页）同步实现；解绑 MAC、关闭无感知与 PPSK 绑定未实现。方案与取舍归[提案](../.agents/notes/proposals/desktop/2026-11-09-self-service-protocol.md)，发行结果归[0.2.9 发布记录](desktop-release-0.2.9.md)（前序归[0.2.8 发布记录](desktop-release-0.2.8.md)与[0.2.7 发布记录](desktop-release-0.2.7.md)）。
 
 本轮不修改任何产品代码的认证语义，所有脚本与原始结果在本地忽略目录 `build/self-protocol-probe/`。真实账号凭据只经环境变量传入，不落盘、不进日志、不进本文。
 

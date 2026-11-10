@@ -1,3 +1,17 @@
+## YSU Net v0.2.9
+
+修复真实校园网下桌面端与 CLI 读取自助服务时因缺少 `/self/index` OAuth2 会话预热触发 `stage=cas_callback reason=redirect_blocked` 的问题，并完善桌面端“设备”页批量下线与错误诊断展示。三平台桌面客户端与独立 Linux Python CLI 同步版本，配置与账号簿保持兼容，沿用原更新公钥，不更换 0.2.1 正式更新信任锚。
+
+### 自助服务 OAuth2 会话预热与回调修复
+
+- 修复 `ysu-auth`（Rust）与 `ysu_net.auth.selfservice`（Python）未先访问 `GET /self/index` 初始化 `SESSION@/` 与 `SESSION@/cas-sso/` 即直接请求 `/cas-sso/clientredirect`，导致 CAS 登录回调丢失 `SavedRequest` 并落入 `/eportal/redirect.jsp -> http://auth1.ysu.edu.cn/portal/portal-main` 明文跳转而被拦截的问题；现统一先请求 `/self/index` 提取同源 OAuth2 `callbackAuthorize` 的 `service` 参数，5 步纯 HTTPS 跳转直达 `/self/index`，并兼容回调链中的同源门户地址 HTTPS 升级。
+- 已在真实校园网环境下完成首次登录与会话缓存复用的实测核验。
+
+### 桌面端日志与界面优化
+
+- 修复桌面运行器在自助服务读取或设备下线失败时向“日志”页记录通用连接状态查询文案的问题，使日志条目与“设备”页错误提示保持一致。
+- 桌面“设备”页在多台设备在线时新增“全部下线”按钮（支持二次确认）；将“设备”页与“账户”页空状态的诊断后缀（`[action=...]`）与错误主标题分离展示，并为“设备”页补齐页面切换入场动效。
+
 ## YSU Net v0.2.8
 
 修复 0.2.7 桌面端“设备”页读取后无法展示数据或错误提示的缺陷，补强自助服务委托 CAS 登录跳转链，并优化桌面端与 CLI 的设备自助服务界面排版。三平台桌面客户端与独立 Linux Python CLI 同步版本，配置与账号簿保持兼容，沿用原更新公钥，不更换 0.2.1 正式更新信任锚。

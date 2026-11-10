@@ -37,6 +37,7 @@
 
 [桌面验收导航](desktop-acceptance.md)按阶段串联正式发布、界面、安装和更新证据；每份记录注明源码、环境与未覆盖范围。
 
+- [0.2.9 发布记录](desktop-release-0.2.9.md)：修复自助服务 `/self/index` OAuth2 会话预热与 `redirect_blocked` 回调问题，完善设备页批量下线与错误诊断展示。
 - [0.2.8 发布记录](desktop-release-0.2.8.md)：修复桌面“设备”页快照解析与自助服务跳转链，优化双端设备展示。
 - [0.2.7 发布记录](desktop-release-0.2.7.md)：设备自助服务（桌面“设备”页与 `ysu self`）首次随版本发行。
 - [0.2.6 发布记录](desktop-release-0.2.6.md)与[0.2.5 发布记录](desktop-release-0.2.5.md)：各自标签的四平台门禁、独立浏览器验收、Python 分发与 13 个公开附件。

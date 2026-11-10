@@ -1409,11 +1409,7 @@ async fn self_service_and_kick_errors_use_self_copy_and_preserve_connection_stat
         assert!(error.contains("action=self_service"));
         assert!(error.contains("operation=self_service"));
         assert!(!error.contains("查询未确认连接状态"));
-        let last_log = snapshot["logs"]
-            .as_array()
-            .unwrap()
-            .last()
-            .unwrap()["message"]
+        let last_log = snapshot["logs"].as_array().unwrap().last().unwrap()["message"]
             .as_str()
             .unwrap();
         assert_eq!(last_log, error);
@@ -1432,11 +1428,7 @@ async fn self_service_and_kick_errors_use_self_copy_and_preserve_connection_stat
     let snapshot = runtime.snapshot();
     let kick_error = snapshot["self_error"].as_str().unwrap();
     assert!(kick_error.starts_with("下线未完成 [action=self_kick"));
-    let last_log = snapshot["logs"]
-        .as_array()
-        .unwrap()
-        .last()
-        .unwrap()["message"]
+    let last_log = snapshot["logs"].as_array().unwrap().last().unwrap()["message"]
         .as_str()
         .unwrap();
     assert_eq!(last_log, kick_error);
