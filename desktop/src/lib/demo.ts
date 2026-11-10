@@ -111,7 +111,7 @@ export function createDemoTransport(search = ''): Transport {
               for (const item of state.accounts.items) item.current = item.id === target.id;
               Object.assign(state.config, { username: target.username, service: target.service, backend: target.backend, password_set: target.password_set });
               state.status = { online: true, service: target.service, user: target.username, ip: '10.24.16.83', message: '模拟：独立查询已确认目标账号在线' };
-              state.info = null; state.info_error = ''; state.accounts.quota = { state: 'unknown', message: '目标账号剩余流量待核心确认' };
+              state.info = null; state.info_error = ''; state.self_service = null; state.self_error = ''; state.self_notice = ''; state.accounts.quota = { state: 'unknown', message: '目标账号剩余流量待核心确认' };
               state.accounts.message = `已确认切换到${target.label || target.username}`; log('目标账号切换与核验完成');
             }
             state.busy = false; state.busy_message = ''; publish();
@@ -128,9 +128,10 @@ export function createDemoTransport(search = ''): Transport {
         }
         if (name === 'logout') {
           state.status = { online: false, service: null, user: '', ip: '', message: '模拟：已断开连接' };
-          state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.info = null; state.info_error = ''; state.accounts.auto_switch = false;
+          state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.info = null; state.info_error = ''; state.self_service = null; state.self_error = ''; state.self_notice = ''; state.accounts.auto_switch = false;
         }
         if (name === 'self_service') {
+          if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
           state.self_service = {
             devices: state.status?.online ? [{ deviceName: '我的设备', deviceType: '电脑', userMac: '02-00-00-00-00-01', userIpv4: state.status.ip, onlineDuration: '0时12分', authType: '无线标准Portal接入', currentDevice: true, unifiedAuthentication: true, online: true }] : [],
             online: state.status?.online ? 1 : 0,
@@ -139,8 +140,10 @@ export function createDemoTransport(search = ''): Transport {
             remember: { remembered: false, service: '', expires: '' },
           };
           state.self_error = '';
+          state.self_notice = '';
         }
         if (name === 'self_kick') {
+          if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
           const before = state.self_service?.online ?? 0;
           if (!before) throw new Error('模拟：设备编号超出范围');
           // Mirrors the desktop core: kick, then re-read the full snapshot.
@@ -187,6 +190,7 @@ export function createDemoTransport(search = ''): Transport {
         const oldCurrent = current();
         state.config = { ...state.config, ...changes, password_set: password ? true : state.config.password_set };
         if (!oldCurrent || oldCurrent.username !== state.config.username) {
+          state.info = null; state.info_error = ''; state.self_service = null; state.self_error = ''; state.self_notice = '';
           if (oldCurrent) {
             if (oldCurrent.id === 'current') oldCurrent.id = (nextId++).toString(16).padStart(32, '0');
             oldCurrent.current = false;

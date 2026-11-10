@@ -35,7 +35,7 @@ def parser():
     ap = FriendlyParser(
         prog="ysu", description="燕山大学校园网 · 登录与自动重连",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="首次使用\n  ysu config account    配置账号密码\n  ysu doctor            检查本地环境\n  ysu on                启动自动重连\n\n常用操作\n  ysu                   打开交互菜单\n  ysu status            查看连接状态\n  ysu info              查看账户与剩余流量\n  ysu doctor --network  诊断连接与实际服务\n  ysu logs -f           跟随运行日志\n  ysu off               停止重连并下线\n\n脚本输出：ysu info --raw；禁用颜色：NO_COLOR=1 ysu info",
+        epilog="首次使用\n  ysu config account    配置账号密码\n  ysu doctor            检查本地环境\n  ysu on                启动自动重连\n\n常用操作\n  ysu                   打开交互菜单\n  ysu status            查看连接状态\n  ysu info              查看账户与剩余流量\n  ysu self              查看或下线在线设备\n  ysu doctor --network  诊断连接与实际服务\n  ysu logs -f           跟随运行日志\n  ysu off               停止重连并下线\n\n脚本输出：ysu info --raw；禁用颜色：NO_COLOR=1 ysu info",
     )
     ap.add_argument("--scope", choices=("user", "system"), default="user", help="服务安装范围")
     ap.add_argument("--config", type=Path, help="指定配置文件")
@@ -251,7 +251,7 @@ def menu(args, path):
         "1": ["status"], "2": ["login"], "3": ["on"], "4": ["off"],
         "5": ["config", "account"], "6": ["service"], "7": ["doctor"], "8": ["logs"],
         "9": ["stop"], "10": ["boot", "on"], "11": ["boot", "off"], "12": ["config", "show"],
-        "13": ["info"], "14": ["doctor", "--network"], "16": ["accounts"],
+        "13": ["info"], "14": ["doctor", "--network"], "16": ["accounts"], "17": ["self"],
     }
     while True:
         ui.heading("YSU · 燕山大学校园网")
@@ -265,7 +265,7 @@ def menu(args, path):
         ui.row("网络状态", "按 1 查询")
         ui.hint("首次使用或不确定操作影响？输入 15（或 h / ?）查看选项说明。")
         ui.section("连接管理")
-        ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连", "13  账户与剩余流量"])
+        ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连", "13  账户与剩余流量", "17  我的设备与自助服务"])
         ui.section("配置与维护")
         ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", "14  联网诊断 doctor", " 8  查看日志", "12  查看配置", "10  开启自启", "11  关闭自启", "16  多账号与自动换号", "15  选项说明（用途与影响）"])
         print()
@@ -437,7 +437,7 @@ def dispatch(args):
         raw = getattr(args, "raw", False)
         ui.progress({"login": "正在登录校园网，请稍候…", "logout": "正在下线并确认结果…",
                      "status": "正在查询校园网状态…", "info": "正在读取账户信息…",
-                     "self": "正在读取自助服务…"}[action], raw=raw)
+                     "self": "正在下线设备并确认结果…" if getattr(args, "action", "list") == "kick" else "正在读取自助服务…"}[action], raw=raw)
         with exclusive_config(path) if action in ("login", "logout") else nullcontext():
             if action == "logout" and accounts_path(path).exists():
                 set_rotation(path, False)

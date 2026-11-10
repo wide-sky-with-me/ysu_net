@@ -825,6 +825,8 @@ def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
 
     online = get_online_info(ctx.request, sid, debug=debug)
     if not (online and is_online(online)):
+        from ysu_net.auth import selfservice
+        selfservice.clear_session()
         print("[OK] 当前已离线")
         print(format_info(online, None))
         return
@@ -843,6 +845,8 @@ def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
     while time.monotonic() < deadline:
         last = get_online_info(ctx.request, sid, debug=debug)
         if last and (not is_online(last)):
+            from ysu_net.auth import selfservice
+            selfservice.clear_session()
             print("[OK] 已下线")
             print(format_info(last, None))
             return
@@ -863,6 +867,8 @@ def cmd_logout(debug: bool, max_wait: int, headed: bool) -> None:
         while time.monotonic() < deadline:
             last = get_online_info(ctx.request, sid, debug=debug)
             if last and (not is_online(last)):
+                from ysu_net.auth import selfservice
+                selfservice.clear_session()
                 print("[OK] 已下线（UI 兜底成功）")
                 print(format_info(last, None))
                 break

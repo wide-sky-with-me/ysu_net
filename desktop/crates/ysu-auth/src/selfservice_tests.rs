@@ -1,5 +1,5 @@
 //! Selection and coercion rules for the self-service device list.
-use crate::selfservice::{select, text_of};
+use crate::selfservice::{parse_flow, parse_package, select, text_of};
 use crate::SelfDevice;
 use serde_json::json;
 
@@ -91,4 +91,18 @@ fn device_deserializes_from_portal_shape() {
     assert_eq!(parsed.user_ipv4, None);
     assert!(!parsed.online, "online 由分组决定，默认 false");
     assert_eq!(parsed.online_user_uuid, "uuid-x");
+}
+
+#[test]
+fn null_package_and_flow_data_do_not_abort_device_read() {
+    let pkg = parse_package(&json!({ "code": 200, "data": null })).unwrap();
+    assert_eq!(pkg.package, "");
+    assert_eq!(pkg.percent, None);
+    let flow = parse_flow(&json!({ "code": 200, "data": null })).unwrap();
+    assert!(flow.is_empty());
+
+    assert!(parse_package(&json!({ "code": 200 })).is_err());
+    assert!(parse_package(&json!({ "code": 200, "data": "x" })).is_err());
+    assert!(parse_flow(&json!({ "code": 200 })).is_err());
+    assert!(parse_flow(&json!({ "code": 200, "data": "x" })).is_err());
 }

@@ -1195,11 +1195,14 @@ def _wait_until_offline(
 
 @managed_resources
 def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
+    from ysu_net.auth import selfservice
+
     ctx = open_portal_get_session(debug=debug)
     sess, sid = ctx.sess, ctx.session_id
 
     online = get_online_info(sess, sid, debug=debug)
     if not (online and is_online(online)):
+        selfservice.clear_session()
         print("[OK] 当前已离线")
         print(format_info(online, None))
         return
@@ -1225,6 +1228,7 @@ def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
         referer=finish_final,
     )
     if last and (not is_online(last)):
+        selfservice.clear_session()
         print("[OK] 已下线")
         print(format_info(last, None))
         return
@@ -1233,6 +1237,7 @@ def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
         sess, sid, debug=debug, deadline_ts=deadline, referer=finish_final
     )
     if last and (not is_online(last)):
+        selfservice.clear_session()
         print("[OK] 已下线")
         print(format_info(last, None))
         return
@@ -1260,6 +1265,7 @@ def cmd_logout(debug: bool, max_wait: int, user: str, pwd: str) -> None:
                 referer=finish_final2,
             )
             if last and (not is_online(last)):
+                selfservice.clear_session()
                 print("[OK] 已下线")
                 print(format_info(last, None))
                 return
@@ -1406,7 +1412,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="缺少账号/密码时使用交互输入",
     )
     common.add_argument(
-        "--raw", action="store_true", help="输出完整 JSON（仅 info 有意义）"
+        "--raw", action="store_true", help="输出完整 JSON（info/status/self）"
     )
 
     ap = argparse.ArgumentParser(
@@ -1415,7 +1421,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="燕山大学校园网登录脚本（auth1.ysu.edu.cn）——纯 requests 版",
     )
     sub = ap.add_subparsers(
-        dest="cmd", required=True, metavar="{login,info,logout,status,shell}"
+        dest="cmd", required=True, metavar="{login,info,self,logout,status,shell}"
     )
 
     p_login = sub.add_parser(
@@ -1519,13 +1525,14 @@ def _run_shell(args: argparse.Namespace) -> None:
         if cmdline in ("exit", "quit", "q"):
             return
         if cmdline in ("help", "?"):
-            print("commands: login, info, logout, status, service, exit")
+            print("commands: login, info, self, logout, status, service, exit")
             print("examples:")
             print("  login")
             print("  login 2")
             print("  service 中国移动")
             print("  logout")
             print("  info")
+            print("  self")
             print("  status")
             continue
 

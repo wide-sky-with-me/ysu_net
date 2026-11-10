@@ -14,6 +14,34 @@ describe('snapshot contract', () => {
     expect(parseSnapshot(older).info_error).toBe('');
     for (const info_error of [null, false, 7, {}, []]) expect(() => parseSnapshot({ ...snapshot, info_error })).toThrow('账户读取错误');
   });
+  it('preserves self-service snapshots, errors and notices while stripping internal identifiers', async () => {
+    const transport = createDemoTransport();
+    await transport.request('action', { name: 'self_service' });
+    const loaded = parseSnapshot(await transport.request('snapshot', {}));
+    expect(loaded.self_service?.online).toBe(1);
+    expect(loaded.self_service?.devices).toHaveLength(1);
+    expect(loaded.self_service?.devices[0]).not.toHaveProperty('onlineUserUuid');
+    expect(loaded.self_service?.package.package).toBe('硕士研究生60G');
+    expect(loaded.self_service?.flow[0]?.left).toBe('49 GB 977.47 MB');
+    expect(loaded.self_error).toBe('');
+    expect(loaded.self_notice).toBe('');
+
+    await transport.request('action', { name: 'self_kick', value: '1' });
+    const kicked = parseSnapshot(await transport.request('snapshot', {}));
+    expect(kicked.self_service?.online).toBe(0);
+    expect(kicked.self_notice).toContain('已下线 1 台设备');
+
+    await transport.request('action', { name: 'logout' });
+    const loggedOut = parseSnapshot(await transport.request('snapshot', {}));
+    expect(loggedOut.self_service).toBeNull();
+    expect(loggedOut.self_error).toBe('');
+    expect(loggedOut.self_notice).toBe('');
+
+    const base = demoSnapshot();
+    expect(() => parseSnapshot({ ...base, self_service: { devices: 'bad' } })).toThrow('自助服务数据格式异常');
+    expect(() => parseSnapshot({ ...base, self_error: 123 })).toThrow('自助服务错误格式异常');
+    expect(() => parseSnapshot({ ...base, self_notice: false })).toThrow('自助服务通知格式异常');
+  });
   it('defaults legacy startup mode to tray but rejects malformed native mode values', () => {
     const data = demoSnapshot();
     const { autostart_minimized: _, ...legacy } = data.prefs;

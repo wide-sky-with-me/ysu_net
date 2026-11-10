@@ -42,6 +42,9 @@ impl Runtime {
             }
         } else {
             state.info = Value::Null;
+            state.self_service = Value::Null;
+            state.self_error.clear();
+            state.self_notice.clear();
         }
         if let Some(intent) = state.rotation_intent {
             accounts["auto_switch"] = intent.into();
@@ -260,6 +263,9 @@ impl Worker {
             state.remember(&plan.source.password);
             state.remember(&plan.target.password);
             state.info = Value::Null;
+            state.self_service = Value::Null;
+            state.self_error.clear();
+            state.self_notice.clear();
         });
         if !automatic {
             self.rotation.cooling.remove(&plan.target.username);
@@ -356,6 +362,9 @@ impl Worker {
         self.rotation.zero = None;
         self.runtime.update(|state| {
             state.info = Value::Null;
+            state.self_service = Value::Null;
+            state.self_error.clear();
+            state.self_notice.clear();
             state.accounts["quota"] = unknown_quota("账号已切换，等待查询新的剩余流量");
             state.accounts["message"] = "已独立确认切换账号".into();
             state.log("success", "已独立确认账号及运营商，活动配置已保存");

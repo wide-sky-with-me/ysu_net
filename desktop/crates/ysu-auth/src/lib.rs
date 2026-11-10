@@ -142,7 +142,7 @@ impl Config {
         Ok(())
     }
 
-    fn require_credentials(&self) -> Result<(), AuthError> {
+    pub fn require_credentials(&self) -> Result<(), AuthError> {
         if self.username.is_empty() || self.password.is_empty() {
             Err(AuthError::interaction("请先配置账号和密码"))
         } else {
@@ -429,16 +429,23 @@ impl AuthClient {
 
     /// Read-only self-service snapshot: devices, package, remaining flow.
     ///
-    /// Logs in through the delegated `custom-self` chain; the session lives only
-    /// for this call.
+    /// Logs in through the delegated `custom-self` chain and reuses the in-memory
+    /// session while it stays within `SESSION_TTL`.
     pub async fn self_snapshot(&self) -> Result<SelfSnapshot, AuthError> {
         self.diagnosed(DiagnosticOperation::SelfService, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
             let op = self.operation();
             // The guard must stay bound for the whole operation: an unbound
             // MutexGuard drops immediately and silently releases the lock.
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let service = selfservice::SelfService::open(&self.config, self.local, &op).await?;
-            service.snapshot(&op).await
+            let result = service.snapshot(&op).await;
+            if result.is_err() {
+                selfservice::forget_session(&self.config, self.local).await;
+            }
+            result
         })
         .await
     }
@@ -447,12 +454,19 @@ impl AuthClient {
     pub async fn self_kick(&self, selector: &str) -> Result<SelfKick, AuthError> {
         let selector = selector.to_string();
         self.diagnosed(DiagnosticOperation::SelfKick, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
             let op = self.operation();
             // The guard must stay bound for the whole operation: an unbound
             // MutexGuard drops immediately and silently releases the lock.
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let service = selfservice::SelfService::open(&self.config, self.local, &op).await?;
-            service.kick(&op, &selector).await
+            let result = service.kick(&op, &selector).await;
+            if result.is_err() {
+                selfservice::forget_session(&self.config, self.local).await;
+            }
+            result
         })
         .await
     }

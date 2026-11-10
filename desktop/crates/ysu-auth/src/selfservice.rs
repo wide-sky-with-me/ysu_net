@@ -203,10 +203,22 @@ impl SelfService {
         body: &serde_json::Value,
         op: &Operation,
     ) -> Result<serde_json::Value, AuthError> {
+        let url = self.http.endpoint(path)?;
         let referer = self.index_url().ok();
+        let mut headers = self.http.api_headers(&url, referer.as_ref());
+        headers.remove("isportal");
+        headers.insert(
+            "clienttype",
+            reqwest::header::HeaderValue::from_static("self"),
+        );
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("application/json;charset=UTF-8"),
+        );
+        let bytes = serde_json::to_vec(body).map_err(|_| AuthError::query("请求编码失败"))?;
         let reply = self
             .http
-            .json_post(path, body, referer.as_ref(), op)
+            .once(reqwest::Method::POST, url, headers, Some(bytes), op)
             .await?;
         // State-changing calls never follow redirects, so a 3xx here means the
         // portal bounced us to the login page: the session is gone.
@@ -253,9 +265,9 @@ impl SelfService {
         let devices = self.devices(op).await?;
         let online = devices.iter().filter(|d| d.online).count();
 
-        let package = self.parse_package(&self.post(PACKAGE, &json!({}), op).await?)?;
-        let flow = self.parse_flow(&self.post(FLOW, &json!({}), op).await?)?;
-        let remember = self.parse_remember(&self.post(REMEMBER, &json!({}), op).await?)?;
+        let package = parse_package(&self.post(PACKAGE, &json!({}), op).await?)?;
+        let flow = parse_flow(&self.post(FLOW, &json!({}), op).await?)?;
+        let remember = parse_remember(&self.post(REMEMBER, &json!({}), op).await?)?;
 
         Ok(SelfSnapshot {
             devices,
@@ -263,65 +275,6 @@ impl SelfService {
             package,
             flow,
             remember,
-        })
-    }
-
-    fn parse_package(&self, payload: &serde_json::Value) -> Result<SelfPackage, AuthError> {
-        let data = &payload["data"];
-        if !data.is_object() {
-            return Err(AuthError::query("自助服务套餐响应结构异常")
-                .at(Stage::Unknown)
-                .or_reason(Reason::ResponseInvalid));
-        }
-        Ok(SelfPackage {
-            package: text_of(&data["policyInfo"]["packageName"]),
-            rule: text_of(&data["policyInfo"]["periodAndTimeOrFlowDetail"]),
-            period: text_of(&data["periodInfo"]["dateRangeDesc"]),
-            used: text_of(&data["usedInfo"]["usedFreeDesc"]),
-            percent: data["usedInfo"]["flowUsingPercentages"].as_f64(),
-            balance: text_of(&data["accountInfo"]["currentFee"]),
-        })
-    }
-
-    fn parse_flow(&self, payload: &serde_json::Value) -> Result<Vec<SelfFlow>, AuthError> {
-        let data = &payload["data"];
-        if !data.is_object() {
-            return Err(AuthError::query("自助服务流量响应结构异常")
-                .at(Stage::Unknown)
-                .or_reason(Reason::ResponseInvalid));
-        }
-        let mut rows = Vec::new();
-        if let Some(groups) = data["availableFreeItems"].as_array() {
-            for group in groups {
-                let Some(items) = group["chargeItems"].as_array() else {
-                    continue;
-                };
-                for item in items {
-                    rows.push(SelfFlow {
-                        name: text_of(&item["name"]),
-                        total: text_of(&item["totalFreeValueDesc"]),
-                        left: text_of(&item["leftFreeValueDesc"]),
-                        percent: item["usingPercentages"].as_f64(),
-                    });
-                }
-            }
-        }
-        Ok(rows)
-    }
-
-    fn parse_remember(&self, payload: &serde_json::Value) -> Result<SelfRemember, AuthError> {
-        let data = &payload["data"];
-        if !data.is_object() {
-            return Ok(SelfRemember {
-                remembered: None,
-                service: String::new(),
-                expires: String::new(),
-            });
-        }
-        Ok(SelfRemember {
-            remembered: data["remembered"].as_bool(),
-            service: text_of(&data["service"]),
-            expires: text_of(&data["expirationDate"]),
         })
     }
 
@@ -405,9 +358,93 @@ async fn authorised(http: &Transport, op: &Operation) -> bool {
         return false;
     };
     match at(Stage::CasNavigation, http.get(url, op)).await {
-        Ok(page) => page.status == 200 && page.url.as_str().contains("/self/"),
+        Ok(page) => {
+            page.status == 200
+                && (page.url.path() == "/self" || page.url.path().starts_with("/self/"))
+                && !page.url.path().contains("/cas-sso/")
+        }
         Err(_) => false,
     }
+}
+
+pub(crate) fn parse_package(payload: &serde_json::Value) -> Result<SelfPackage, AuthError> {
+    let Some(data) = payload.get("data") else {
+        return Err(AuthError::query("自助服务套餐响应结构异常")
+            .at(Stage::Unknown)
+            .or_reason(Reason::ResponseInvalid));
+    };
+    if data.is_null() {
+        return Ok(SelfPackage {
+            package: String::new(),
+            rule: String::new(),
+            period: String::new(),
+            used: String::new(),
+            percent: None,
+            balance: String::new(),
+        });
+    }
+    if !data.is_object() {
+        return Err(AuthError::query("自助服务套餐响应结构异常")
+            .at(Stage::Unknown)
+            .or_reason(Reason::ResponseInvalid));
+    }
+    Ok(SelfPackage {
+        package: text_of(&data["policyInfo"]["packageName"]),
+        rule: text_of(&data["policyInfo"]["periodAndTimeOrFlowDetail"]),
+        period: text_of(&data["periodInfo"]["dateRangeDesc"]),
+        used: text_of(&data["usedInfo"]["usedFreeDesc"]),
+        percent: data["usedInfo"]["flowUsingPercentages"].as_f64(),
+        balance: text_of(&data["accountInfo"]["currentFee"]),
+    })
+}
+
+pub(crate) fn parse_flow(payload: &serde_json::Value) -> Result<Vec<SelfFlow>, AuthError> {
+    let Some(data) = payload.get("data") else {
+        return Err(AuthError::query("自助服务流量响应结构异常")
+            .at(Stage::Unknown)
+            .or_reason(Reason::ResponseInvalid));
+    };
+    if data.is_null() {
+        return Ok(Vec::new());
+    }
+    if !data.is_object() {
+        return Err(AuthError::query("自助服务流量响应结构异常")
+            .at(Stage::Unknown)
+            .or_reason(Reason::ResponseInvalid));
+    }
+    let mut rows = Vec::new();
+    if let Some(groups) = data["availableFreeItems"].as_array() {
+        for group in groups {
+            let Some(items) = group["chargeItems"].as_array() else {
+                continue;
+            };
+            for item in items {
+                rows.push(SelfFlow {
+                    name: text_of(&item["name"]),
+                    total: text_of(&item["totalFreeValueDesc"]),
+                    left: text_of(&item["leftFreeValueDesc"]),
+                    percent: item["usingPercentages"].as_f64(),
+                });
+            }
+        }
+    }
+    Ok(rows)
+}
+
+pub(crate) fn parse_remember(payload: &serde_json::Value) -> Result<SelfRemember, AuthError> {
+    let data = &payload["data"];
+    if !data.is_object() {
+        return Ok(SelfRemember {
+            remembered: None,
+            service: String::new(),
+            expires: String::new(),
+        });
+    }
+    Ok(SelfRemember {
+        remembered: data["remembered"].as_bool(),
+        service: text_of(&data["service"]),
+        expires: text_of(&data["expirationDate"]),
+    })
 }
 
 pub(crate) fn text_of(value: &serde_json::Value) -> String {

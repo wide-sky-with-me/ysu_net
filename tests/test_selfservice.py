@@ -64,6 +64,9 @@ class FlowTests(OfflineTestCase):
         with self.assertRaises(QueryError):
             selfservice.parse_flow({"code": 200})
 
+    def test_null_data_returns_empty_flow(self):
+        self.assertEqual(selfservice.parse_flow({"code": 200, "data": None}), {"items": []})
+
 
 class PackageTests(OfflineTestCase):
     def test_reads_policy_period_and_usage(self):
@@ -77,6 +80,11 @@ class PackageTests(OfflineTestCase):
     def test_missing_data_fails_closed(self):
         with self.assertRaises(QueryError):
             selfservice.parse_package({"data": "x"})
+
+    def test_null_data_returns_empty_package(self):
+        out = selfservice.parse_package({"code": 200, "data": None})
+        self.assertEqual(out["package"], "")
+        self.assertIsNone(out["percent"])
 
 
 class RememberTests(OfflineTestCase):
@@ -101,8 +109,8 @@ class RenderTests(OfflineTestCase):
 
     def test_render_keeps_every_portal_value(self):
         text = selfservice.format_snapshot(self.snapshot())
-        for expected in ("在线设备：2 台", "硕士研究生60G", "49 GB 977.47 MB",
-                         "2026-11-01 至 2026-11-30", "记住的上网选择：未开启"):
+        for expected in ("在线设备：2 台", "1. 我的设备（在线，本机）", "硕士研究生60G", "49 GB 977.47 MB",
+                         "国内下行流量", "2026-11-01 至 2026-11-30", "记住的上网选择：未开启"):
             self.assertIn(expected, text)
 
     def test_render_never_invents_missing_flow(self):
@@ -120,16 +128,16 @@ class UrlTests(OfflineTestCase):
         self.assertTrue(selfservice.DEVICES.startswith("/sam/api/userself/"))
 
     def test_write_endpoints_are_an_explicit_allowlist(self):
-        """写操作只能是已知的两个；新增任何写接口都必须先改这里。"""
-        read_only = {"SELF_PATH", "DELEGATE_CLIENT", "DEVICES", "PACKAGE_OVERVIEW",
-                     "PACKAGE_FLOW", "REMEMBER_CURRENT", "AGGREGATE_INIT",
+        """写操作只能是已实现的下线接口；新增任何写接口都必须先改这里。"""
+        read_only = {"SELF_PATH", "DEVICES", "PACKAGE_OVERVIEW",
+                     "PACKAGE_FLOW", "REMEMBER_CURRENT",
                      "_MAX_TEXT", "_MAX_DEVICES", "SESSION_TTL",
                      "KICK_VERIFY_SECONDS", "KICK_VERIFY_INTERVAL"}
         writes = {n for n in dir(selfservice)
                   if n.isupper() and not n.startswith("_") and n not in read_only}
-        self.assertEqual(writes, {"KICK_OFFLINE", "NOSENSE_UNBIND"})
+        self.assertEqual(writes, {"KICK_OFFLINE"})
         # 破坏性更强、本项目未实现的动作必须缺席
-        for forbidden in ("UNBIND_BATCH", "BIND_MAC", "PASSWORD", "DEACTIVATE"):
+        for forbidden in ("NOSENSE_UNBIND", "UNBIND_BATCH", "BIND_MAC", "PASSWORD", "DEACTIVATE"):
             self.assertNotIn(forbidden, writes)
 
 
@@ -201,6 +209,11 @@ class SelectTests(OfflineTestCase):
     def test_all_keeps_only_online(self):
         picked = selfservice.select_devices(self.rows(), "all")
         self.assertEqual([r["_uuid"] for r in picked], ["u-self", "u-phone"])
+
+    def test_all_with_no_online_devices_fails_closed(self):
+        with self.assertRaises(QueryError) as ctx:
+            selfservice.select_devices([self.rows()[2]], "all")
+        self.assertIn("没有可下线的在线设备", str(ctx.exception))
 
     def test_offline_target_is_refused(self):
         with self.assertRaises(QueryError) as ctx:

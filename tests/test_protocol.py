@@ -160,8 +160,10 @@ class ProtocolTests(OfflineTestCase):
         self.mock("ysu_net.auth.api.get_online_info", side_effect=[ONLINE, ONLINE, OFFLINE])
         self.mock("ysu_net.auth.api._prepare_logout_context", return_value="https://example.invalid/finish")
         post = self.mock("ysu_net.auth.api._post_offline", return_value=(200, {}))
+        clear = self.mock("ysu_net.auth.selfservice.clear_session")
         api.cmd_logout(False, 5, "", "")
         post.assert_called_once()
+        clear.assert_called_once()
         self.assertIn("已下线", self.output.getvalue())
 
     def test_logout_timeout_is_failure(self):

@@ -236,7 +236,8 @@
   const selfData = $derived.by((): SelfService | null => snapshot?.self_service ?? null);
 
   function confirmKick(index: number, device: SelfDevice) {
-    const label = `${device.deviceType || '设备'}（${device.userMac || '无 MAC'}）`;
+    const name = device.deviceName && device.deviceName !== device.deviceType ? `${device.deviceName} · ${device.deviceType || '设备'}` : (device.deviceType || device.deviceName || '设备');
+    const label = `${name}（${device.userMac || '无 MAC'}）`;
     confirmation = {
       title: '下线该设备',
       message: `将断开 ${label} 的网络连接${device.currentDevice ? '；这是当前设备，下线后需要重新登录才能上网' : '，它需要重新登录才能上网'}。`,
@@ -399,7 +400,7 @@
     {/if}
     <header class="page-header">
       <h1>{pageTitle}</h1>
-      {#if page === 'account'}<button type="button" class="text-button header-account-action" onclick={() => navigate('settings')}>管理账号</button>{/if}
+      {#if page === 'account' || page === 'devices'}<button type="button" class="text-button header-account-action" onclick={() => navigate('settings')}>管理账号</button>{/if}
       {#if page === 'connection' || page === 'account' || page === 'devices'}
         <button type="button" class="icon-button header-action" aria-label={page === 'account' ? '刷新账户' : page === 'devices' ? '刷新设备' : '刷新状态'} aria-busy={busy} title="刷新（F5）" disabled={busy || transport.mode === 'web'} onclick={() => available ? action(page === 'account' ? 'info' : page === 'devices' ? 'self_service' : 'status') : initialize()}><Icon name="refresh" size={18} /></button>
       {/if}
@@ -472,56 +473,80 @@
           </section>
           <OnlineDetails fields={snapshot.info.fields} />
         {:else}
-          <div class="empty-state"><Icon name={accountState === 'error' ? 'alert' : 'account'} size={32} /><h2 role={accountState === 'error' ? 'alert' : undefined}>{accountState === 'error' ? snapshot?.info_error : accountState === 'offline' ? '连接后查看账户信息' : accountState === 'unknown' ? '连接状态未知' : '尚未读取账户信息'}</h2><button type="button" class="primary-button" disabled={locked} onclick={() => accountState === 'offline' ? navigate('connection') : action('info')}>{accountState === 'error' ? '重试读取账户信息' : accountState === 'offline' ? '前往连接' : '读取账户信息'}</button></div>
+          <div class="empty-state" class:error={accountState === 'error'}><Icon name={accountState === 'error' ? 'alert' : 'account'} size={32} /><h2 role={accountState === 'error' ? 'alert' : undefined}>{accountState === 'error' ? snapshot?.info_error : accountState === 'offline' ? '连接后查看账户信息' : accountState === 'unknown' ? '连接状态未知' : '尚未读取账户信息'}</h2><button type="button" class="primary-button" disabled={locked} onclick={() => accountState === 'offline' ? navigate('connection') : action('info')}>{accountState === 'error' ? '重试读取账户信息' : accountState === 'offline' ? '前往连接' : '读取账户信息'}</button></div>
         {/if}
 
       {:else if page === 'devices'}
-        <section class="settings-section" aria-live="polite">
-          <div class="section-heading">
-            <h2>我的设备</h2>
-            <button type="button" class="text-button" disabled={locked} onclick={() => { void action('self_service'); }}>{selfData ? '刷新' : '读取'}</button>
+        {#if selfData}
+          <div class="device-content" aria-live="polite">
+            <section class="settings-section" aria-labelledby="my-devices-heading">
+              <div class="section-heading">
+                <div class="device-heading-title">
+                  <h2 id="my-devices-heading">我的设备</h2>
+                  <span class="inline-label" class:idle={!selfData.online}>{selfData.online} 台在线</span>
+                </div>
+              </div>
+              {#if snapshot?.self_error}<p class="form-error" role="alert">{snapshot.self_error}</p>{/if}
+              {#if snapshot?.self_notice}<p class="notice-line" role="status">{snapshot.self_notice}</p>{/if}
+              {#if selfData.devices.length === 0}
+                <p class="hint-line">门户未返回任何设备。</p>
+              {:else}
+                <ul class="device-list" aria-label="设备列表">
+                  {#each selfData.devices as device, index}
+                    <li class="device-row" class:offline={!device.online}>
+                      <div class="device-main">
+                        <strong>{device.deviceType || device.deviceName || '设备'}</strong>
+                        {#if device.deviceName && device.deviceName !== device.deviceType}<span class="device-name">{device.deviceName}</span>{/if}
+                        {#if device.currentDevice}<span class="badge">本机</span>{/if}
+                        {#if !device.online}<span class="badge muted">离线</span>{/if}
+                      </div>
+                      <dl class="device-meta">
+                        <div><dt>MAC</dt><dd class="numeric">{device.userMac || '—'}</dd></div>
+                        <div><dt>IP</dt><dd class="numeric">{device.userIpv4 || '—'}</dd></div>
+                        <div><dt>在线时长</dt><dd class="numeric">{device.onlineDuration || '—'}</dd></div>
+                        <div><dt>接入</dt><dd>{device.authType || '—'}</dd></div>
+                      </dl>
+                      {#if device.online}
+                        <button type="button" class="quiet-button danger-text" disabled={locked} onclick={() => confirmKick(index + 1, device)}>下线</button>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </section>
+            {#if selfData.package.package || selfData.package.balance || selfData.flow.length || selfData.remember.remembered !== null}
+              <section class="settings-section" aria-labelledby="self-summary-heading">
+                <div class="section-heading"><h2 id="self-summary-heading">套餐与自助设置</h2></div>
+                <dl class="device-meta summary">
+                  <div><dt>套餐</dt><dd>{selfData.package.package ? `${selfData.package.package}${selfData.package.rule ? `（${selfData.package.rule}）` : ''}` : '门户未提供'}</dd></div>
+                  <div><dt>计费周期</dt><dd class="numeric">{selfData.package.period || '门户未提供'}</dd></div>
+                  <div><dt>已用流量</dt><dd class="numeric">{selfData.package.used || '门户未提供'}</dd></div>
+                  {#if selfData.flow.length}
+                    {#each selfData.flow as flowItem}
+                      <div><dt>{flowItem.name || '剩余流量'}</dt><dd class="numeric">{flowItem.left}{flowItem.total ? ` / ${flowItem.total}` : ''}</dd></div>
+                    {/each}
+                  {:else}
+                    <div><dt>剩余流量</dt><dd>门户未提供</dd></div>
+                  {/if}
+                  <div><dt>账户余额</dt><dd class="numeric">{selfData.package.balance || '门户未提供'}</dd></div>
+                  <div><dt>记住的上网选择</dt><dd>{selfData.remember.remembered === true ? `${selfData.remember.service || '已开启'}${selfData.remember.expires ? `（${selfData.remember.expires}）` : ''}` : selfData.remember.remembered === false ? '未开启' : '门户未提供'}</dd></div>
+                </dl>
+              </section>
+            {/if}
           </div>
-          {#if snapshot?.self_error}<p class="form-error" role="alert">{snapshot.self_error}</p>{/if}
-          {#if snapshot?.self_notice}<p class="notice-line">{snapshot.self_notice}</p>{/if}
-          {#if selfData}
-            {#if selfData.devices.length === 0}
-              <p class="hint-line">门户未返回任何设备。</p>
+        {:else}
+          <div class="empty-state" class:error={Boolean(snapshot?.self_error)}>
+            <Icon name={snapshot?.self_error ? 'alert' : 'shield'} size={32} />
+            <h2 role={snapshot?.self_error ? 'alert' : undefined}>{snapshot?.self_error || '尚未读取设备'}</h2>
+            {#if snapshot?.self_notice}<p class="muted">{snapshot.self_notice}</p>{/if}
+            {#if snapshot && (!snapshot.config.username || !snapshot.config.password_set)}
+              <p class="muted">请先保存校园网账号和密码。</p>
+              <button type="button" class="primary-button" disabled={locked} onclick={() => navigate('settings')}>设置账号</button>
             {:else}
-              <ul class="device-list">
-                {#each selfData.devices as device, index}
-                  <li class="device-row" class:offline={!device.online}>
-                    <div class="device-main">
-                      <strong>{device.deviceType || '设备'}</strong>
-                      {#if device.currentDevice}<span class="badge">本机</span>{/if}
-                      {#if !device.online}<span class="badge muted">离线</span>{/if}
-                    </div>
-                    <dl class="device-meta">
-                      <div><dt>MAC</dt><dd>{device.userMac || '—'}</dd></div>
-                      <div><dt>IP</dt><dd>{device.userIpv4 || '—'}</dd></div>
-                      <div><dt>在线时长</dt><dd>{device.onlineDuration || '—'}</dd></div>
-                      <div><dt>接入</dt><dd>{device.authType || '—'}</dd></div>
-                    </dl>
-                    {#if device.online}
-                      <button type="button" class="quiet-button danger-text" disabled={locked} onclick={() => confirmKick(index + 1, device)}>下线</button>
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
+              <button type="button" class="primary-button" disabled={locked} onclick={() => { void action('self_service'); }}>{snapshot?.self_error ? '重试读取设备' : '读取自助服务'}</button>
             {/if}
-            {#if selfData.package?.package}
-              <dl class="device-meta summary">
-                <div><dt>套餐</dt><dd>{selfData.package.package}（{selfData.package.rule}）</dd></div>
-                <div><dt>计费周期</dt><dd>{selfData.package.period}</dd></div>
-                <div><dt>已用</dt><dd>{selfData.package.used}</dd></div>
-                {#if selfData.flow[0]}<div><dt>剩余流量</dt><dd>{selfData.flow[0].left} / {selfData.flow[0].total}</dd></div>{/if}
-                <div><dt>余额</dt><dd>{selfData.package.balance}</dd></div>
-                <div><dt>记住的上网选择</dt><dd>{selfData.remember.remembered === true ? selfData.remember.service || '已开启' : selfData.remember.remembered === false ? '未开启' : '门户未提供'}</dd></div>
-              </dl>
-            {/if}
-          {:else if !snapshot?.self_error}
-            <div class="empty-state"><Icon name="shield" size={32} /><h2>尚未读取设备</h2><button type="button" class="primary-button" disabled={locked} onclick={() => { void action('self_service'); }}>读取自助服务</button></div>
-          {/if}
-        </section>
+          </div>
+        {/if}
 
       {:else if page === 'settings'}
         <SettingsTabs selected={settingsSection} onchange={chooseSettings} />

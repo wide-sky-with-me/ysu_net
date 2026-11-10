@@ -77,7 +77,12 @@ describe('native bridge', () => {
     const stop = await transport.subscribe(handler);
     await transport.request('save_config', { username: 'fixture-only', password: 'fixture-only' });
     await transport.request('action', { name: 'login' });
+    await transport.request('action', { name: 'self_service' });
+    expect(await transport.request('snapshot', {})).toMatchObject({ self_service: { online: 1 } });
+    await transport.request('action', { name: 'self_kick', value: '1' });
+    expect(await transport.request('snapshot', {})).toMatchObject({ self_service: { online: 0 } });
     await transport.request('action', { name: 'logout' });
+    expect(await transport.request('snapshot', {})).toMatchObject({ self_service: null, self_error: '', self_notice: '' });
     await transport.setAutostart(true);
     expect((await transport.getDesktopSettings()).autostart).toBe(true);
     expect(await transport.setStartupMode(false)).toMatchObject({ prefs: { autostart_minimized: false } });

@@ -996,6 +996,8 @@ impl Worker {
             "login" => DiagnosticOperation::Login,
             "logout" => DiagnosticOperation::Logout,
             "switch_service" => DiagnosticOperation::SwitchService,
+            "self_service" => DiagnosticOperation::SelfService,
+            "self_kick" => DiagnosticOperation::SelfKick,
             _ => DiagnosticOperation::Unknown,
         };
         local_auth_error(code, operation, stage, reason)
@@ -1010,7 +1012,14 @@ impl Worker {
             "{CONFIG_ERROR} [{}]",
             diagnostic_detail(self.action, DiagnosticStage::Config, &error)
         );
+        let self_only = matches!(self.action, "self_service" | "self_kick");
         self.runtime.update(|state| {
+            state.log("error", &message);
+            if self_only {
+                state.self_service = Value::Null;
+                state.self_error = message.clone();
+                return;
+            }
             state.info = Value::Null;
             if account_only {
                 state.info_error = message.clone();
@@ -1019,7 +1028,6 @@ impl Worker {
                 state.status =
                     json!({"online":null, "service":null, "user":"", "ip":"", "message":message});
             }
-            state.log("error", &message);
         });
     }
 
@@ -1041,7 +1049,17 @@ impl Worker {
             "操作超过时限，请重新查询实际状态 [{}]",
             diagnostic_detail(self.action, self.phase, &error)
         );
+        let self_only = matches!(self.action, "self_service" | "self_kick");
         self.runtime.update(|state| {
+            state.log("error", &message);
+            if self_only {
+                state.self_service = Value::Null;
+                state.self_error = format!(
+                    "自助服务操作超过时限，请稍后重试 [{}]",
+                    diagnostic_detail(self.action, self.phase, &error)
+                );
+                return;
+            }
             state.info = Value::Null;
             if account_only {
                 state.info_error = format!(
@@ -1052,7 +1070,6 @@ impl Worker {
             // Info now includes an independent status query; a whole-operation timeout leaves it unconfirmed.
             state.status =
                 json!({"online":null, "service":null, "user":"", "ip":"", "message":message});
-            state.log("error", &message);
         });
     }
 
@@ -1108,11 +1125,15 @@ impl Worker {
                 self.phase = DiagnosticStage::AccountInfo;
                 self.busy("正在读取自助服务");
                 let result = self.runtime.backend.self_service(&config).await;
+                if let Err(error) = &result {
+                    self.error(error);
+                }
                 self.runtime.update(|state| match result {
                     Ok(snapshot) => {
                         state.self_service = snapshot;
                         state.self_error.clear();
                         state.self_notice.clear();
+                        state.log("info", "自助服务读取完成");
                     }
                     Err(error) => {
                         state.self_service = Value::Null;
@@ -1138,8 +1159,12 @@ impl Worker {
                         // Re-read the full snapshot so the list and its 1-based
                         // indices always match what the next kick will resolve.
                         let refreshed = self.runtime.backend.self_service(&config).await;
+                        if let Err(error) = &refreshed {
+                            self.error(error);
+                        }
                         self.runtime.update(|state| {
-                            state.self_notice = notice;
+                            state.self_notice = notice.clone();
+                            state.log("success", &notice);
                             match refreshed {
                                 Ok(snapshot) => {
                                     state.self_service = snapshot;
@@ -1156,6 +1181,7 @@ impl Worker {
                         });
                     }
                     Err(error) => {
+                        self.error(&error);
                         let message = format!(
                             "下线未完成 [{}]",
                             diagnostic_detail(self.action, self.phase, &error)
@@ -1330,6 +1356,13 @@ impl Worker {
                             .await?;
                     }
                     self.runtime.update(|state| {
+                        if matches!(action, Action::Logout) {
+                            state.info = Value::Null;
+                            state.info_error.clear();
+                            state.self_service = Value::Null;
+                            state.self_error.clear();
+                            state.self_notice.clear();
+                        }
                         state.log(
                             "success",
                             match action {
@@ -1737,6 +1770,7 @@ impl Backend {
                 Ok(serde_json::to_value(snapshot).unwrap_or(Value::Null))
             }
             Self::Demo(demo) => {
+                config.require_credentials()?;
                 let demo = demo.lock().unwrap();
                 let online = demo.online;
                 let snapshot = SelfSnapshot {
@@ -1791,6 +1825,7 @@ impl Backend {
                 Ok(serde_json::to_value(kick).unwrap_or(Value::Null))
             }
             Self::Demo(demo) => {
+                config.require_credentials()?;
                 let mut demo = demo.lock().unwrap();
                 if !demo.online {
                     return Err(AuthError::new(2, "设备编号超出范围"));

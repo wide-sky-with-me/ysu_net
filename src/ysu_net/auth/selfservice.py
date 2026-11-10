@@ -1,4 +1,4 @@
-"""Read-only access to the auth1 self-service portal (/self).
+"""Access to the auth1 self-service portal (/self) and device offline control.
 
 The portal is a separate OAuth2 client (``custom-self``) that shares the same
 CAS identity as the eportal chain but keeps its own local session.  Login is
@@ -6,9 +6,8 @@ delegated back to ``cer.ysu.edu.cn`` through ``/cas-sso/clientredirect``, which
 lands on the *classic* CAS form this project already drives — the only new
 input is the ``service`` value.
 
-Everything here is read-only.  The portal's device page is a write console
-(kick-offline / unbind / disable no-sense authentication); those endpoints are
-deliberately not implemented.  Verified against the live portal on 2026-11-09:
+Snapshot queries are read-only; explicit device actions only touch the allowlisted
+kick-offline endpoint.  Verified against the live portal on 2026-11-09:
 plain cookies are enough — no Bearer token, no request-body encryption.
 
 Decision: .agents/notes/proposals/desktop/2026-11-09-self-service-protocol.md
@@ -17,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from pathlib import Path
 
@@ -26,17 +24,14 @@ import requests
 from .common import QueryError
 
 SELF_PATH = "/self/index"
-DELEGATE_CLIENT = "sidadapter"
 
 DEVICES = "/sam/api/userself/devices"
 PACKAGE_OVERVIEW = "/sam/api/userself/package/overview"
 PACKAGE_FLOW = "/sam/api/userself/package/flow"
 REMEMBER_CURRENT = "/sam/api/userself/rememberService/current"
-AGGREGATE_INIT = "/sam/api/userself/protected/aggregate/init"
 KICK_OFFLINE = "/sam/api/userself/devices/kick-offline/batch"
 KICK_VERIFY_SECONDS = 12.0
 KICK_VERIFY_INTERVAL = 3.0
-NOSENSE_UNBIND = "/sam/api/userself/nosense/unbind/batch"
 
 _DEVICE_FIELDS = (
     ("deviceName", "设备名称"),
@@ -56,32 +51,6 @@ def self_service_url(base: str) -> str:
 
 def callback_url(base: str) -> str:
     return f"{base.rstrip('/')}/login/oauth2/code/custom-self"
-
-
-def delegated_login_url(session: requests.Session, base: str, cas_host: str,
-                        timeout: int = 25) -> str:
-    """Resolve the classic CAS login URL that carries the /self callback.
-
-    Returns the URL; the caller completes the normal CAS form with
-    ``api.cas_login``-equivalent fields.  Raises QueryError when the delegation
-    does not reach the configured CAS host.
-    """
-    prefix = f"{cas_host.rstrip('/')}/authserver/login"
-    r = session.get(
-        f"{base.rstrip('/')}/cas-sso/clientredirect",
-        params={"client_name": DELEGATE_CLIENT, "service": callback_url(base),
-                "accept-language": "zh-CN"},
-        timeout=timeout, allow_redirects=False,
-    )
-    for _ in range(12):
-        if not (r.is_redirect or r.is_permanent_redirect):
-            break
-        loc = r.headers.get("Location") or r.headers.get("location") or ""
-        if prefix in loc:
-            return loc
-        r = session.get(requests.compat.urljoin(r.url, loc), timeout=timeout,
-                        allow_redirects=False)
-    raise QueryError("自助服务委托登录未到达统一认证地址")
 
 
 def _text(value) -> str:
@@ -109,7 +78,6 @@ def parse_devices(payload) -> dict:
             row["本机"] = "是" if item.get("currentDevice") is True else "否"
             # 核验用的原始标识，渲染时不显示
             row["_uuid"] = _text(item.get("onlineUserUuid"))
-            row["_nosense"] = _text(item.get("noSenseUuid"))
             row["_unified"] = item.get("unifiedAuthentication") is True
             rows.append(row)
     return {"online": sum(1 for r in rows if r["在线"] == "是"),
@@ -118,6 +86,8 @@ def parse_devices(payload) -> dict:
 
 def parse_flow(payload) -> dict:
     """Remaining traffic as the portal states it; no unit conversion."""
+    if isinstance(payload, dict) and "data" in payload and payload["data"] is None:
+        return {"items": []}
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
         raise QueryError("自助服务流量响应结构异常")
@@ -138,6 +108,15 @@ def parse_flow(payload) -> dict:
 
 
 def parse_package(payload) -> dict:
+    if isinstance(payload, dict) and "data" in payload and payload["data"] is None:
+        return {
+            "package": "",
+            "rule": "",
+            "period": "",
+            "used": "",
+            "percent": None,
+            "balance": "",
+        }
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
         raise QueryError("自助服务套餐响应结构异常")
@@ -329,13 +308,17 @@ def snapshot(base: str, cas_host: str, username: str, password: str,
              debug: bool = False, fresh: bool = False) -> dict:
     """Read-only snapshot: devices, package, remaining flow, remembered service."""
     session = open_session(base, cas_host, username, password, debug=debug, fresh=fresh)
-    return {
-        "session": session_state(session),
-        "devices": parse_devices(fetch(session, base, DEVICES)),
-        "package": parse_package(fetch(session, base, PACKAGE_OVERVIEW)),
-        "flow": parse_flow(fetch(session, base, PACKAGE_FLOW)),
-        "remember": parse_remember(fetch(session, base, REMEMBER_CURRENT)),
-    }
+    try:
+        return {
+            "session": session_state(session),
+            "devices": parse_devices(fetch(session, base, DEVICES)),
+            "package": parse_package(fetch(session, base, PACKAGE_OVERVIEW)),
+            "flow": parse_flow(fetch(session, base, PACKAGE_FLOW)),
+            "remember": parse_remember(fetch(session, base, REMEMBER_CURRENT)),
+        }
+    except Exception:
+        clear_session()
+        raise
 
 
 def format_snapshot(snap: dict) -> str:
@@ -350,7 +333,7 @@ def format_snapshot(snap: dict) -> str:
         lines.append("会话：本次新登录")
     dev = snap.get("devices") or {}
     lines.append(f"在线设备：{dev.get('online', 0)} 台 / 共 {dev.get('total', 0)} 条")
-    for row in dev.get("rows") or []:
+    for index, row in enumerate(dev.get("rows") or [], 1):
         bits = [f"{k}={row[k]}" for k in ("类型", "MAC", "IP", "在线时长", "接入方式")
                 if row.get(k)]
         tags = []
@@ -358,7 +341,7 @@ def format_snapshot(snap: dict) -> str:
             tags.append("在线")
         if row.get("本机") == "是":
             tags.append("本机")
-        head = f"  - {row.get('设备名称') or '未命名'}"
+        head = f"  {index}. {row.get('设备名称') or '未命名'}"
         if tags:
             head += f"（{'，'.join(tags)}）"
         lines.append(head + ("  " + " ".join(bits) if bits else ""))
@@ -378,8 +361,9 @@ def format_snapshot(snap: dict) -> str:
     flow = snap.get("flow") or {}
     for item in flow.get("items") or []:
         pct = item.get("percent")
+        name = f"（{item['name']}）" if item.get("name") else ""
         suffix = f"（已用 {pct}%）" if isinstance(pct, (int, float)) else ""
-        lines.append(f"剩余流量：{item.get('left') or '门户未提供'} / {item.get('total') or '—'}{suffix}")
+        lines.append(f"剩余流量：{item.get('left') or '门户未提供'} / {item.get('total') or '—'}{name}{suffix}")
     if not flow.get("items"):
         lines.append("剩余流量：门户未提供（不代表 0 或不限量）")
 
@@ -402,12 +386,11 @@ def cmd_self(username: str, password: str, base: str, cas_host: str,
 
 
 # ---------------------------------------------------------------------------
-# Writes.  The portal's device page is a control console; these three calls are
-# the only state-changing endpoints this module touches.
+# Writes.  The portal's device page is a control console; kick-offline is the
+# only state-changing endpoint this module touches.
 #
 # Contract, read from /self/assets/myDevices-*.js (2026-11-09):
 #   kick-offline/batch  {onlineUserUuids: [...], kickUnifiedAuthOffline: bool}
-#   nosense/unbind/batch{noSenseUuids: [...]}
 # The SPA derives `kickUnifiedAuthOffline` as `!au || tu`, where `au` becomes
 # true when the target is the current device that logged in through unified
 # auth.  So kicking yourself keeps your SSO session (you can log back in),
@@ -427,12 +410,6 @@ def kick_offline(session: requests.Session, base: str, uuids, *,
                   "kickUnifiedAuthOffline": bool(kick_unified)})
 
 
-def unbind_nosense(session: requests.Session, base: str, uuids) -> dict:
-    if not uuids:
-        raise QueryError("没有指定要关闭无感知的设备")
-    return fetch(session, base, NOSENSE_UNBIND, {"noSenseUuids": list(uuids)})
-
-
 def kick_unified_flag(row) -> bool:
     """Mirror the portal's own rule for whether to end the SSO session too."""
     return not (row.get("_unified") is True and row.get("本机") == "是")
@@ -441,7 +418,10 @@ def kick_unified_flag(row) -> bool:
 def select_devices(rows, selector: str) -> list:
     """Resolve `all` or a 1-based index against the last rendered list."""
     if selector.strip().lower() in ("all", "全部"):
-        return [r for r in rows if r.get("在线") == "是" and r.get("_uuid")]
+        picked = [r for r in rows if r.get("在线") == "是" and r.get("_uuid")]
+        if not picked:
+            raise QueryError("没有可下线的在线设备")
+        return picked
     try:
         index = int(selector)
     except (TypeError, ValueError):
@@ -460,24 +440,28 @@ def kick(base: str, cas_host: str, username: str, password: str, selector: str,
          debug: bool = False, fresh: bool = False) -> dict:
     """Kick one device (by 1-based index) or `all`, then verify by re-reading."""
     session = open_session(base, cas_host, username, password, debug=debug, fresh=fresh)
-    before = parse_devices(fetch(session, base, DEVICES))
-    targets = select_devices(before["rows"], selector)
+    try:
+        before = parse_devices(fetch(session, base, DEVICES))
+        targets = select_devices(before["rows"], selector)
 
-    kicked = []
-    for row in targets:
-        flag = kick_unified_flag(row)
-        kick_offline(session, base, [row["_uuid"]], kick_unified=flag)
-        kicked.append({"uuid": row["_uuid"], "type": row.get("类型", ""),
-                       "current": row.get("本机") == "是",
-                       "unified_offline": flag})
+        kicked = []
+        for row in targets:
+            flag = kick_unified_flag(row)
+            kick_offline(session, base, [row["_uuid"]], kick_unified=flag)
+            kicked.append({"uuid": row["_uuid"], "type": row.get("类型", ""),
+                           "current": row.get("本机") == "是",
+                           "unified_offline": flag})
 
-    after, still = _await_offline(session, base, [k["uuid"] for k in kicked])
-    if still:
-        raise KickVerifyError(
-            f"下线请求已提交，但仍有 {len(still)} 台设备显示在线"
-        )
-    return {"kicked": kicked, "online_before": before["online"],
-            "online_after": after["online"], "rows": after["rows"]}
+        after, still = _await_offline(session, base, [k["uuid"] for k in kicked])
+        if still:
+            raise KickVerifyError(
+                f"下线请求已提交，但仍有 {len(still)} 台设备显示在线"
+            )
+        return {"kicked": kicked, "online_before": before["online"],
+                "online_after": after["online"], "rows": after["rows"]}
+    except Exception:
+        clear_session()
+        raise
 
 
 def _await_offline(session: requests.Session, base: str, uuids,

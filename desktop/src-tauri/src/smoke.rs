@@ -99,6 +99,36 @@ async fn verify(app: &tauri::AppHandle) -> Result<Value, String> {
         snapshot["info"]["online"] == true && snapshot["busy"] == false
     })
     .await?;
+    bridge
+        .request("action", json!({"name": "self_service"}))
+        .await?;
+    wait_for(&bridge, |snapshot| {
+        snapshot["self_service"]["online"] == 1 && snapshot["busy"] == false
+    })
+    .await?;
+    bridge
+        .request("action", json!({"name": "self_kick", "value": "1"}))
+        .await?;
+    wait_for(&bridge, |snapshot| {
+        snapshot["self_service"]["online"] == 0
+            && snapshot["self_notice"]
+                .as_str()
+                .is_some_and(|n| !n.is_empty())
+            && snapshot["busy"] == false
+    })
+    .await?;
+    bridge.request("action", json!({"name": "login"})).await?;
+    wait_for(&bridge, |snapshot| {
+        snapshot["status"]["online"] == true && snapshot["busy"] == false
+    })
+    .await?;
+    bridge
+        .request("action", json!({"name": "self_service"}))
+        .await?;
+    wait_for(&bridge, |snapshot| {
+        snapshot["self_service"]["online"] == 1 && snapshot["busy"] == false
+    })
+    .await?;
     let saved = bridge.request("save_account", json!({"label":"备用账号", "username":"native-fixture-b", "password":"native-fixture-b", "service":"中国移动", "backend":"api", "enabled":true})).await?;
     let id = saved["accounts"]["items"]
         .as_array()
@@ -117,6 +147,7 @@ async fn verify(app: &tauri::AppHandle) -> Result<Value, String> {
     let selected = wait_for(&bridge, |snapshot| {
         snapshot["status"]["user"] == "native-fixture-b"
             && snapshot["config"]["username"] == "native-fixture-b"
+            && snapshot["self_service"].is_null()
             && snapshot["busy"] == false
     })
     .await?;

@@ -61,9 +61,6 @@ export interface SelfService {
 export interface SelfKick {
   kicked: string[]; onlineBefore: number; onlineAfter: number; devices: SelfDevice[];
 }
-export function isSelfKick(value: SelfService | SelfKick | null | undefined): value is SelfKick {
-  return !!value && Array.isArray((value as SelfKick).kicked);
-}
 export interface Snapshot {
   sequence: number;
   accounts: Accounts;
@@ -117,10 +114,52 @@ export interface Transport {
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown): value is string => typeof value === 'string';
 const bool = (value: unknown): value is boolean => typeof value === 'boolean';
-const nullableText = (value: unknown) => value === null || text(value);
+const nullableText = (value: unknown): value is string | null => value === null || text(value);
+const nullableNumber = (value: unknown): value is number | null => value === null || (typeof value === 'number' && Number.isFinite(value));
+const nullableBool = (value: unknown): value is boolean | null => value === null || bool(value);
 const pairs = (value: unknown): value is Pair[] => Array.isArray(value) && value.every((pair) => Array.isArray(pair) && pair.length === 2 && pair.every(text));
 const enumValue = <T extends string>(value: unknown, values: readonly T[]): value is T => text(value) && values.includes(value as T);
 const seconds = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 86400;
+
+function parseSelfService(value: unknown): SelfService | null {
+  if (value === undefined || value === null) return null;
+  if (!object(value) || !Array.isArray(value.devices) || !Number.isSafeInteger(value.online) || Number(value.online) < 0 ||
+      !object(value.package) || !Array.isArray(value.flow) || !object(value.remember)) {
+    throw new Error('桌面核心自助服务数据格式异常');
+  }
+  const devices = value.devices.map((d): SelfDevice => {
+    if (!object(d) || !text(d.deviceName) || !text(d.deviceType) || !text(d.userMac) || !nullableText(d.userIpv4) ||
+        !text(d.onlineDuration) || !text(d.authType) || !bool(d.currentDevice) || !bool(d.unifiedAuthentication) || !bool(d.online)) {
+      throw new Error('桌面核心设备条目格式异常');
+    }
+    return {
+      deviceName: d.deviceName, deviceType: d.deviceType, userMac: d.userMac,
+      userIpv4: d.userIpv4, onlineDuration: d.onlineDuration,
+      authType: d.authType, currentDevice: d.currentDevice,
+      unifiedAuthentication: d.unifiedAuthentication, online: d.online,
+    };
+  });
+  const pkg = value.package;
+  if (!text(pkg.package) || !text(pkg.rule) || !text(pkg.period) || !text(pkg.used) || !nullableNumber(pkg.percent) || !text(pkg.balance)) {
+    throw new Error('桌面核心套餐信息格式异常');
+  }
+  const flow = value.flow.map((f) => {
+    if (!object(f) || !text(f.name) || !text(f.total) || !text(f.left) || !nullableNumber(f.percent)) {
+      throw new Error('桌面核心流量条目格式异常');
+    }
+    return { name: f.name, total: f.total, left: f.left, percent: f.percent };
+  });
+  const rem = value.remember;
+  if (!nullableBool(rem.remembered) || !text(rem.service) || !text(rem.expires)) {
+    throw new Error('桌面核心记住选择格式异常');
+  }
+  return {
+    devices, online: Number(value.online),
+    package: { package: pkg.package, rule: pkg.rule, period: pkg.period, used: pkg.used, percent: pkg.percent, balance: pkg.balance },
+    flow,
+    remember: { remembered: rem.remembered, service: rem.service, expires: rem.expires },
+  };
+}
 
 const accountId = (value: unknown): value is string => text(value) && (value === 'current' || /^[a-f0-9]{32}$/.test(value));
 
@@ -157,6 +196,9 @@ export function parseSnapshot(value: unknown): Snapshot {
   if (!bool(value.busy) || !text(value.busy_message)) throw new Error('桌面核心任务状态格式异常');
   if (i !== null && (!object(i) || !bool(i.online) || !pairs(i.fields) || !pairs(i.items))) throw new Error('桌面核心账户信息格式异常');
   if (value.info_error !== undefined && !text(value.info_error)) throw new Error('桌面核心账户读取错误格式异常');
+  const selfService = parseSelfService(value.self_service);
+  if (value.self_error !== undefined && !text(value.self_error)) throw new Error('桌面核心自助服务错误格式异常');
+  if (value.self_notice !== undefined && !text(value.self_notice)) throw new Error('桌面核心自助服务通知格式异常');
   if (!Array.isArray(value.logs) || !value.logs.every((log) => object(log) && text(log.timestamp) && enumValue(log.level, ['info', 'success', 'error']) && text(log.message))) throw new Error('桌面核心日志格式异常');
   if (!object(e) || ![e.version, e.rust, e.platform].every(text) || e.runtime !== 'rust' || ![e.browser_available, e.browser_component_available].every(bool)) throw new Error('桌面核心环境信息格式异常');
   // Select the public contract so an accidental extra password field never enters UI state.
@@ -173,6 +215,9 @@ export function parseSnapshot(value: unknown): Snapshot {
     busy: value.busy, busy_message: value.busy_message,
     info: i === null ? null : { online: i.online as boolean, fields: i.fields as Pair[], items: i.items as Pair[] },
     info_error: value.info_error === undefined ? '' : value.info_error as string,
+    self_service: selfService,
+    self_error: value.self_error === undefined ? '' : value.self_error as string,
+    self_notice: value.self_notice === undefined ? '' : value.self_notice as string,
     logs: value.logs.map((log) => ({ timestamp: log.timestamp as string, level: log.level as LogLevel, message: log.message as string })),
     environment: { version: e.version as string, rust: e.rust as string, runtime: 'rust', platform: e.platform as string, browser_available: e.browser_available as boolean, browser_component_available: e.browser_component_available as boolean },
   };
