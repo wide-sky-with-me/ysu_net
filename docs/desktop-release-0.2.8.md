@@ -6,7 +6,7 @@
 
 ## 源码与产物
 
-标签 `v0.2.8` 的版本号在 `pyproject.toml`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/crates/ysu-auth/Cargo.toml` 与 `tauri.conf.json` 中一致。发布作业先通过四个平台构建、原生安装验收、独立浏览器验收与 Python 回归，再由 `release` 作业汇总附件。
+标签 `v0.2.8` 指向提交 `a23c6f3`，版本号在 `pyproject.toml`、`desktop/package.json`、`desktop/src-tauri/Cargo.toml`、`desktop/crates/ysu-auth/Cargo.toml` 与 `tauri.conf.json` 中一致。发布作业先通过四个平台构建、原生安装验收、独立浏览器验收与 Python 回归，再由 `release` 作业汇总附件。
 
 | 附件 | 说明 |
 | --- | --- |
@@ -17,7 +17,7 @@
 | `ysu_net_login-0.2.8-py3-none-any.whl` / `.tar.gz` | 独立 Python CLI 分发 |
 | `latest.json`、`SHA256SUMS` | 更新清单与摘要 |
 
-沿用 0.2.1 的正式更新公钥，不更换信任锚；Windows / macOS 的软件内更新支持完整包（及云端达到收益阈值时的签名差分补丁）。
+沿用 0.2.1 的正式更新公钥，不更换信任锚；本版本共发布 13 个完整资产，Windows / macOS 的软件内更新使用完整包。
 
 ## 本版内容
 
@@ -33,6 +33,12 @@
 - **CLI `ysu self`**：去除重复的“自助服务”标题行，区分查询与下线进度提示，并在流量行补充显示门户流量项名称。
 
 ## 门禁结果
+
+| 运行 | 实际结果 |
+| --- | --- |
+| [Tauri 42789798190](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42789798190) | preflight、四个平台构建与安装验收、`browser-acceptance`、`release` 全部成功；13 个公开附件（期间 `macos-arm64` 首轮在 `rust-toolchain` 初始化遇到瞬时网络错误，重跑失败作业后通过） |
+| [Mock 42789797994](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42789797994) | Python 回归（51 项）、分发构建与 wheel 数据检查成功 |
+| [Community 42789798162](https://github.com/wide-sky-with-me/ysu_net/actions/runs/42789798162) | 社区文档、链接与表单检查成功 |
 
 | 检查 | 结果 |
 | --- | --- |
