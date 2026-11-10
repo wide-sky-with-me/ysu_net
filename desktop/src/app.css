@@ -565,9 +565,20 @@
     .account-editor .form-row { grid-template-columns: 84px minmax(0, 1fr); gap: 10px; }
   }
   @media (max-width: 420px) {
-    /* Six destinations do not fit as a text row this narrow; keep icons only so
-       the rail never pushes the document past the viewport width. */
-    .sidebar nav button span { display: none; }
+    /* Six destinations do not fit as a text row this narrow, so the label is
+       hidden visually only: `display: none` would strip the button's accessible
+       name and break name-based navigation (and screen readers). */
+    .sidebar nav button span {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
     .sidebar nav button { justify-content: center; }
   }
   @media (max-width: 520px) {
