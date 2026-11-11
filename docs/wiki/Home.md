@@ -1,30 +1,19 @@
-# ysu-net 使用导航
+# YSU Net 使用指南
 
-社区维护的燕山大学校园网管理工具，提供独立 Linux Python 命令行与 Windows / Linux / macOS Tauri 桌面客户端。本页是入门导航，详细行为以安装版本对应的文档为准；本项目不是学校或运营商的官方服务。
+欢迎使用 **YSU Net** 燕山大学校园网连接与管理工具。本 Wiki 提供快速上手、桌面端与命令行操作指南及常见问题排障。
 
-## 从这里开始
+## 选择你的使用方式
 
-| 你的环境或目标 | 文档 |
-| --- | --- |
-| 第一次安装，选择版本 | [快速开始](Quick-Start.md) |
-| Windows / Linux / macOS 桌面客户端 | [桌面客户端](Desktop-Client.md) |
-| Linux、服务器、systemd 或前台守护 | [命令行入口](CLI-Reference.md) |
-| 查看或下线校园网在线设备 | [桌面客户端](Desktop-Client.md#设备自助服务) · [命令行入口](CLI-Reference.md) |
-| 安装、连接、重连或状态异常 | [排障与已知问题](Troubleshooting.md) |
-| 查找完整指南、实现与验证记录 | [文档导航](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/README.md) |
-| 分享反馈、日志或截图 | [隐私与反馈](Privacy-and-Reporting.md) |
-| 文档、测试或代码贡献 | [参与贡献](Contributing.md) |
+- **Windows / Linux / macOS 桌面客户端**：提供图形界面、系统托盘驻留、开机自启与软件内更新（Windows / macOS），直接前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应安装包即可使用，无需配置 Python 环境。
+- **Linux 命令行与后台守护 (`ysu`)**：适合 Linux 桌面、服务器、WSL 与 SSH 终端，通过 `bash install.sh` 安装，支持 `systemd` 后台自动重连与无感认证自动续约。
 
-## 先分清版本
+> 同一台设备上请只开启桌面端或命令行其中一套后台自动重连，避免两个程序同时竞争登录。
 
-正式版本与当前源码的区别统一见[首页发行状态](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)，安装包从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 选择对应系统、架构的附件。本页不另维护 Latest 版本号；合入主分支、版本号相同或 CI 成功都不等于发布新版，功能以实际安装来源和对应版本说明为准。自 0.2.0 起桌面已由 Qt 迁移为 Tauri；旧 Qt 标签与附件仅保留历史，不作为当前下载入口。
+## 核心功能导航
 
-安装和本地诊断可在校外完成，登录与校园网状态查询需要接入校园网。API 是默认认证方式；桌面可选本机 Edge / Chrome，CLI 的浏览器依赖独立安装。缺少流量时显示“门户未提供”，不代表零额度或不限量。编译、打包和产品测试只在 GitHub Actions 执行，本机不回退编译；需要开发版请先看[云端构建路线](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)。
-
-## 社区入口
-
-[使用问答](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a) · [改进想法](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/ideas) · [版本公告](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/announcements) · [故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose)
-
-公开资料只保留复现所需信息。真实账号、密码、会话、Cookie、Token、IP/MAC、个人资料、配置、HAR 与原始认证材料留在本机；分享前先看 [隐私与反馈](Privacy-and-Reporting.md)。
-
-本导航的审查源位于 [docs/wiki](https://github.com/wide-sky-with-me/ysu_net/tree/main/docs/wiki)，详细说明从[文档导航](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/README.md)进入，界面预览见[截图说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/screenshots/README.md)。
+- **[快速开始](Quick-Start.md)**：3 分钟完成桌面客户端或 Linux 命令行的首次安装与校园网连接。
+- **[桌面客户端指南](Desktop-Client.md)**：连接控制、套餐流量查询、在线设备管理、**7 天无感认证与到期自动续约**、多账号池切换及外观设置。
+- **[命令行速查](CLI-Reference.md)**：`ysu` 日常连接、`ysu self` 无感认证与自动续约、`ysu account` 多账号池等高频终端命令速查（完整手册见 [docs/usage.md](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)）。
+- **[常见问题排障](Troubleshooting.md)**：登录失败、已连接却无法上网、无感认证换号冲突、验证码挑战与服务异常的排查方法。
+- **[隐私与反馈](Privacy-and-Reporting.md)**：提交 Issue / Discussion 前的脱敏注意事项与反馈入口。
+- **[参与贡献](Contributing.md)**：参与文档完善、问题复现与代码贡献的协作说明。

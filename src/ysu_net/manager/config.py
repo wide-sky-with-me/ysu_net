@@ -111,3 +111,123 @@ def public_config(config):
     data["username"] = "已配置" if config.username else "未配置"
     data["password"] = "已配置" if config.password else "未配置"
     return data
+
+
+NOSENSE_SERVICES = ("", "套餐默认服务") + SERVICES
+
+
+def nosense_path(path):
+    return Path(path).with_suffix(".nosense.json")
+
+
+def _validate_nosense_rule(data):
+    from ysu_net.auth.selfservice import normalize_mac
+
+    if not isinstance(data, dict) or set(data) - {"auto_renew", "target_mac", "service"}:
+        raise ValueError("无感认证配置字段无效")
+    auto_renew = data.get("auto_renew", False)
+    raw_mac = data.get("target_mac", "")
+    service = data.get("service", "")
+    if type(auto_renew) is not bool:
+        raise ValueError("auto_renew 须为布尔值")
+    if not isinstance(raw_mac, str):
+        raise ValueError("target_mac 须为字符串")
+    raw_mac = raw_mac.strip()
+    if raw_mac and raw_mac.lower() != "current":
+        mac = normalize_mac(raw_mac)
+        if not mac:
+            raise ValueError("MAC 地址格式无效")
+    else:
+        mac = ""
+    if not isinstance(service, str) or service.strip() not in NOSENSE_SERVICES:
+        raise ValueError("无感认证缺省服务无效")
+    return {
+        "auto_renew": auto_renew,
+        "target_mac": mac,
+        "service": service.strip(),
+    }
+
+
+def _validate_nosense(data):
+    if not isinstance(data, dict) or set(data) - {"version", "auto_renew", "target_mac", "service", "accounts"}:
+        raise ValueError("无感认证配置字段无效")
+    version = data.get("version", 1)
+    if type(version) is not int or version != 1:
+        raise ValueError("无感认证配置版本无效")
+    base_rule = _validate_nosense_rule({
+        "auto_renew": data.get("auto_renew", False),
+        "target_mac": data.get("target_mac", ""),
+        "service": data.get("service", ""),
+    })
+    raw_accounts = data.get("accounts", {})
+    if not isinstance(raw_accounts, dict) or len(raw_accounts) > 32:
+        raise ValueError("无感认证账号池配置无效")
+    accounts = {}
+    for username, entry in raw_accounts.items():
+        if (not isinstance(username, str) or not username.strip()
+                or username != username.strip()
+                or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in username)
+                or len(username.encode("utf-8")) > 256):
+            raise ValueError("无感认证账号名无效")
+        accounts[username] = _validate_nosense_rule(entry)
+    return {
+        "version": 1,
+        **base_rule,
+        "accounts": accounts,
+    }
+
+
+def load_nosense(path):
+    file = nosense_path(path)
+    if not file.exists() and not file.is_symlink():
+        return {"version": 1, "auto_renew": False, "target_mac": "", "service": "", "accounts": {}}
+    if file.is_symlink():
+        raise ValueError("无感认证配置路径为符号链接")
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        raise ValueError("无法读取无感认证配置") from exc
+    return _validate_nosense(data)
+
+
+def save_nosense(path, *, auto_renew=None, target_mac=None, service=None,
+                 account=None, remove_account=None):
+    from .locking import configuration_write
+
+    file = nosense_path(path)
+    with configuration_write(path):
+        try:
+            current = load_nosense(path)
+        except ValueError:
+            current = {"version": 1, "auto_renew": False, "target_mac": "", "service": "", "accounts": {}}
+        accounts = dict(current.get("accounts", {}))
+        if remove_account is not None:
+            accounts.pop(remove_account, None)
+        if account is not None:
+            entry = dict(accounts.get(account, {"auto_renew": False, "target_mac": "", "service": ""}))
+            if auto_renew is not None:
+                entry["auto_renew"] = auto_renew
+            if target_mac is not None:
+                entry["target_mac"] = target_mac
+            if service is not None:
+                entry["service"] = service
+            accounts[account] = entry
+        elif remove_account is None:
+            if auto_renew is not None:
+                current["auto_renew"] = auto_renew
+            if target_mac is not None:
+                current["target_mac"] = target_mac
+            if service is not None:
+                current["service"] = service
+        current["accounts"] = accounts
+        validated = _validate_nosense(current)
+        file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, temporary = tempfile.mkstemp(prefix=".nosense-", dir=file.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(validated, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            os.replace(temporary, file)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return validated

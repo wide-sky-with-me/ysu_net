@@ -1,44 +1,62 @@
 # 快速开始
 
-[返回导航](Home.md) · [桌面客户端](Desktop-Client.md) · [命令行入口](CLI-Reference.md)
+[返回导航](Home.md) · [桌面客户端](Desktop-Client.md) · [命令行速查](CLI-Reference.md) · [常见问题排障](Troubleshooting.md)
 
-## 选择安装方式
+在开始前，请先确认设备已接入燕山大学校园网有线或无线网络（能够访问校园网门户 `auth1.ysu.edu.cn`）。
 
-- Windows / Linux / macOS 桌面：使用 Tauri 桌面客户端，见 [桌面客户端](Desktop-Client.md)；服务器/无桌面环境使用命令行版。
-- Linux 命令行：需要 Git、uv 和 Python 3.12 及以上；systemd 可选，没有用户总线时可使用前台守护。
+---
 
-正式桌面安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 的 Assets；当前正式 / 候选状态统一见[首页](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)，本页不另维护 Latest 版本号。不要把 Source code ZIP 当安装程序，也不要用旧 Qt 附件代替 Tauri。需要开发产物时走[独立分支的云端构建](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)，不在本机编译或运行产品测试。旧安装迁移见[桌面客户端](Desktop-Client.md)。
+## 方式一：桌面客户端（Windows / Ubuntu / macOS）
 
-## 桌面初次连接
+1. **下载安装**：前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应系统的安装包：
+   - **Windows 10/11 x64**：运行 `YSU-Net_0.3.0_windows-x64-setup.exe` 完成安装。
+   - **Ubuntu 22.04+ x64**：执行 `sudo apt install ./YSU-Net_0.3.0_linux-x64.deb`。
+   - **macOS 13.5+**：按芯片架构选择 `macos-arm64.dmg`（Apple 芯片）或 `macos-x64.dmg`（Intel），拖入「应用程序」。首次打开若提示无法打开，可在终端运行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"`。
+2. **填写账号**：打开客户端，进入侧栏 **设置 → 账号**，输入学号/工号与密码，选择默认运营商（校园网 / 中国移动 / 中国联通 / 中国电信）并保存。
+3. **一键连接**：回到 **连接** 页点击 **立即连接**，并按需开启 **自动重连**。
+4. **开启 7 天无感认证（可选）**：进入侧栏 **设备** 页，点击 **读取设备**，在「无感认证（7天）」区域点击 **开启本机 7 天无感认证** 并勾选 **到期前自动续约**，即可免去每周重复认证。
 
-安装对应系统 / 架构的正式附件后，在“设置 → 校园网账号”保存账号和服务，再到“连接”页登录并核对独立查询结果。需要持续重连时再开启“自动重连”；账户只读查询无需先断开。配图与完整步骤见[桌面客户端](Desktop-Client.md#连接与日常使用)。
+更多桌面端功能请参阅 [桌面客户端指南](Desktop-Client.md)。
 
-## Linux 命令行初次安装
+---
 
-在持久目录（如 `~/ysu_net`；系统级推荐 `/opt/ysu_net`，勿放在 `/tmp`）克隆并安装：
+## 方式二：Linux 命令行 (`ysu`)
+
+### 1. 安装
 
 ```bash
-git clone https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net.git ~/ysu_net
-cd ~/ysu_net
-bash install.sh
+git clone https://github.com/wide-sky-with-me/ysu_net.git
+cd ysu_net
+bash install.sh                  # 如需自动识别验证码可加 --captcha
 export PATH="$HOME/.local/bin:$PATH"
-ysu config account
-ysu service
-ysu doctor
 ```
 
-默认用户级安装将命令写入 `~/.local/bin/{ysu,ysuon,ysuoff}`、配置写入 `~/.config/ysu-net/config.json`、服务写入 `~/.config/systemd/user/ysu-net.service`（系统级对应 `/usr/local/bin`、`/etc/ysu-net`、`/etc/systemd/system`）。账号密码仅在本机交互输入，不要粘贴到反馈帖或命令参数。安装不会自动登录或启动重连；请保留源码目录与 `.venv`（移动目录后需重新运行 `bash install.sh`）。接入校园网后手动确认连接：
+### 2. 配置账号与运营商
 
 ```bash
-ysu login
-ysu status
-ysu on
+ysu config account               # 交互输入学号/工号与密码
+ysu service                      # 选择运营商：校园网 / 中国移动 / 中国联通 / 中国电信
 ```
 
-`ysu on` 启动的是自动重连服务，不等于已经认证成功。可选 `ysu boot on` 控制自启；没有 systemd 时采用 [无服务安装方式](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#常见使用场景)。远端机器的下线、切换与停止操作先阅读其影响，不要在唯一连接通道上盲目试验。
+### 3. 登录并开启自动守护
 
-完整前提、PATH、自启、系统级安装、离线安装及浏览器依赖见 [README](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md) 与 [使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)。更新/卸载见 [迁移说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md)。
+```bash
+ysu on                           # 立即登录并开启后台自动重连
+ysu status                       # 查看当前连接状态与守护运行情况
+ysu info                         # 查看套餐与剩余流量
+```
 
-## 最小自检
+### 4. 开启 7 天无感认证与自动续约（推荐）
 
-先做本地诊断；接入校园网后按需单独查询状态，确认操作影响后再登录或停止连接，每次只改变一个条件。查看或下线在线设备用桌面侧栏“设备”页或 `ysu self`，它需要额外完成一次统一身份认证，不改变当前连接。不要为读取账户而先下线。桌面用法见[桌面客户端](Desktop-Client.md)，异常按[排障页](Troubleshooting.md)分流，反馈前先[脱敏](Privacy-and-Reporting.md)。
+```bash
+# 为本机开启 7 天无感认证，并开启到期前 24 小时后台自动续约
+ysu self nosense current --service 中国联通 --auto-renew
+```
+
+### 5. 断开连接
+
+```bash
+ysu off                          # 停止后台自动重连并下线当前校园网连接
+```
+
+更多命令行用法见 [命令行速查](CLI-Reference.md) 与 [完整手册](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)。

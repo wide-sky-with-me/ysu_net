@@ -2,6 +2,8 @@ import { normalizeAccent, type Accent } from './accents';
 
 export const SERVICES = ['校园网', '中国移动', '中国联通', '中国电信'] as const;
 export type Service = (typeof SERVICES)[number];
+export const NOSENSE_SERVICES = ['套餐默认服务', '中国移动', '中国联通', '中国电信'] as const;
+export type NoSenseService = (typeof NOSENSE_SERVICES)[number];
 export type Theme = 'system' | 'light' | 'dark';
 export type Pair = [string, string];
 export type LogLevel = 'info' | 'success' | 'error';
@@ -51,6 +53,19 @@ export interface SelfDevice {
   deviceName: string; deviceType: string; userMac: string; userIpv4: string | null;
   onlineDuration: string; authType: string; currentDevice: boolean;
   unifiedAuthentication: boolean; online: boolean;
+  bindNoSense?: boolean; noSenseExpires?: string; defaultService?: string;
+}
+export interface NoSenseAccountRule {
+  auto_renew: boolean;
+  target_mac: string;
+  service: string;
+}
+export interface NoSenseState {
+  auto_renew: boolean;
+  target_mac: string;
+  service: string;
+  accounts?: Record<string, NoSenseAccountRule>;
+  message: string;
 }
 export interface SelfService {
   devices: SelfDevice[]; online: number;
@@ -75,6 +90,7 @@ export interface Snapshot {
   self_service?: SelfService | null;
   self_error?: string;
   self_notice?: string;
+  nosense?: NoSenseState;
   logs: { timestamp: string; level: LogLevel; message: string }[];
   environment: {
     version: string; rust: string; runtime: 'rust'; platform: string;
@@ -86,7 +102,8 @@ export interface CaptchaStatus { ready: boolean; path: string | null; bytes: num
 export interface CoreCommands {
   snapshot: Record<string, never>;
   observe: Record<string, never>;
-  action: { name: 'status' | 'info' | 'login' | 'logout' | 'switch' | 'set_service' | 'set_auto' | 'switch_account' | 'self_service' | 'self_kick'; value?: string | boolean };
+  action: { name: 'status' | 'info' | 'login' | 'logout' | 'switch' | 'set_service' | 'set_auto' | 'switch_account' | 'self_service' | 'self_kick' | 'self_nosense_enable' | 'self_nosense_disable' | 'self_device_service' | 'self_nosense_renew'; value?: string | boolean };
+  nosense: { account?: string; remove?: boolean; auto_renew?: boolean; target_mac?: string; service?: string };
   save_config: ConfigChanges;
   save_account: SaveAccount;
   delete_account: { id: string };
@@ -129,7 +146,10 @@ function parseSelfService(value: unknown): SelfService | null {
   }
   const devices = value.devices.map((d): SelfDevice => {
     if (!object(d) || !text(d.deviceName) || !text(d.deviceType) || !text(d.userMac) || !nullableText(d.userIpv4) ||
-        !text(d.onlineDuration) || !text(d.authType) || !bool(d.currentDevice) || !bool(d.unifiedAuthentication) || !bool(d.online)) {
+        !text(d.onlineDuration) || !text(d.authType) || !bool(d.currentDevice) || !bool(d.unifiedAuthentication) || !bool(d.online) ||
+        (d.bindNoSense !== undefined && !bool(d.bindNoSense)) ||
+        (d.noSenseExpires !== undefined && !text(d.noSenseExpires)) ||
+        (d.defaultService !== undefined && !text(d.defaultService))) {
       throw new Error('桌面核心设备条目格式异常');
     }
     return {
@@ -137,6 +157,9 @@ function parseSelfService(value: unknown): SelfService | null {
       userIpv4: d.userIpv4, onlineDuration: d.onlineDuration,
       authType: d.authType, currentDevice: d.currentDevice,
       unifiedAuthentication: d.unifiedAuthentication, online: d.online,
+      bindNoSense: d.bindNoSense === undefined ? false : d.bindNoSense,
+      noSenseExpires: d.noSenseExpires === undefined ? '' : d.noSenseExpires,
+      defaultService: d.defaultService === undefined ? '' : d.defaultService,
     };
   });
   const pkg = value.package;
@@ -199,6 +222,21 @@ export function parseSnapshot(value: unknown): Snapshot {
   const selfService = parseSelfService(value.self_service);
   if (value.self_error !== undefined && !text(value.self_error)) throw new Error('桌面核心自助服务错误格式异常');
   if (value.self_notice !== undefined && !text(value.self_notice)) throw new Error('桌面核心自助服务通知格式异常');
+  const n = value.nosense;
+  if (n !== undefined && (!object(n) || !bool(n.auto_renew) || !text(n.target_mac) || !text(n.service) || !text(n.message) ||
+      (n.accounts !== undefined && (!object(n.accounts) || Object.entries(n.accounts).some(([k, v]) => !k.trim() || !object(v) || !bool(v.auto_renew) || !text(v.target_mac) || !text(v.service)))))) throw new Error('桌面核心无感配置格式异常');
+  const nosenseAccounts: Record<string, NoSenseAccountRule> = {};
+  if (n !== undefined && object(n.accounts)) {
+    for (const [k, v] of Object.entries(n.accounts)) {
+      if (object(v)) {
+        nosenseAccounts[k] = {
+          auto_renew: v.auto_renew as boolean,
+          target_mac: v.target_mac as string,
+          service: v.service as string,
+        };
+      }
+    }
+  }
   if (!Array.isArray(value.logs) || !value.logs.every((log) => object(log) && text(log.timestamp) && enumValue(log.level, ['info', 'success', 'error']) && text(log.message))) throw new Error('桌面核心日志格式异常');
   if (!object(e) || ![e.version, e.rust, e.platform].every(text) || e.runtime !== 'rust' || ![e.browser_available, e.browser_component_available].every(bool)) throw new Error('桌面核心环境信息格式异常');
   // Select the public contract so an accidental extra password field never enters UI state.
@@ -218,6 +256,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     self_service: selfService,
     self_error: value.self_error === undefined ? '' : value.self_error as string,
     self_notice: value.self_notice === undefined ? '' : value.self_notice as string,
+    nosense: n === undefined ? { auto_renew: false, target_mac: '', service: '', accounts: {}, message: '' } : { auto_renew: n.auto_renew as boolean, target_mac: n.target_mac as string, service: n.service as string, accounts: nosenseAccounts, message: n.message as string },
     logs: value.logs.map((log) => ({ timestamp: log.timestamp as string, level: log.level as LogLevel, message: log.message as string })),
     environment: { version: e.version as string, rust: e.rust as string, runtime: 'rust', platform: e.platform as string, browser_available: e.browser_available as boolean, browser_component_available: e.browser_component_available as boolean },
   };
@@ -324,6 +363,12 @@ export function advanceLogFloor(previous: Snapshot['logs'], next: Snapshot['logs
     if (overlap <= next.length && previous.slice(removed).every((log, index) => same(log, next[index]))) return Math.max(0, floor - removed);
   }
   return 0;
+}
+
+export function normalizeMac(value: string): string | null {
+  const hex = value.trim().replace(/[:-]/g, '').toUpperCase();
+  if (!/^[0-9A-F]{12}$/.test(hex)) return null;
+  return hex.match(/.{2}/g)!.join('-');
 }
 
 export function formatLogTime(timestamp: string): string {

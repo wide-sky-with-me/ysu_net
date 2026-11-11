@@ -1,6 +1,6 @@
 import argparse
 from contextlib import nullcontext
-from dataclasses import fields
+from dataclasses import fields, replace
 import getpass
 import importlib.util
 import json
@@ -14,7 +14,8 @@ from .backend import run_backend
 from .accounts import (accounts_path, delete_account, environment_override, load_accounts,
                        public_accounts, save_account, set_rotation)
 from .account_switching import switch_account
-from .config import Config, SERVICES, config_path, load_config, public_config, update_config
+from .config import (Config, NOSENSE_SERVICES, SERVICES, config_path, load_config,
+                     load_nosense, public_config, save_nosense, update_config)
 from .control import request_control
 from .daemon import run_daemon
 from .locking import exclusive_config
@@ -50,12 +51,21 @@ def parser():
     for command in ("status", "info"):
         p = sub.add_parser(command, help="查询校园网状态" if command == "status" else "查询账户、套餐与剩余流量（以门户提供为准）")
         p.add_argument("--raw", action="store_true", help="输出 JSON")
-    p = sub.add_parser("self", help="自助服务：查看我的设备；kick 下线指定设备")
-    p.add_argument("action", nargs="?", choices=("list", "kick"), default="list",
-                   help="list 查看（默认）；kick 下线设备")
-    p.add_argument("target", nargs="?", help="kick 的目标：设备编号（从 1 开始）或 all")
+    p = sub.add_parser("self", help="自助服务：查看设备、下线设备、无感认证、缺省服务与自动续约")
+    p.add_argument("action", nargs="?",
+                   choices=("list", "kick", "nosense", "unbind", "service", "renew"),
+                   default="list",
+                   help="list 查看（默认）；kick 下线；nosense 开启无感；unbind 关闭无感；service 缺省服务；renew 续约或管理自动续约")
+    p.add_argument("target", nargs="?",
+                   help="设备编号（从 1 开始）、MAC 地址、current、all；renew 支持 on / off / status")
+    p.add_argument("--service", choices=NOSENSE_SERVICES[1:], default=None,
+                   help="无感认证缺省服务（套餐默认服务/校园网/中国移动/中国联通/中国电信）")
+    p.add_argument("--mac", default=None,
+                   help="自动续约锁定的设备 MAC（配合 ysu self renew on 使用）")
+    p.add_argument("--account", default=None,
+                   help="指定账号池中的用户名或账号 id（默认跟随当前活动账号）")
     p.add_argument("--raw", action="store_true", help="输出 JSON")
-    p.add_argument("--yes", action="store_true", help="跳过下线确认")
+    p.add_argument("--yes", action="store_true", help="跳过下线确认或强制立即续约")
     p.add_argument("--fresh", action="store_true",
                    help="忽略已保存的登录状态，强制重新登录")
     p = sub.add_parser("config", help="配置账号及运行参数")
@@ -433,11 +443,74 @@ def dispatch(args):
         return subprocess.run(cmd).returncode
     action = "logout" if command in ("off", "logout") else command
     if action in ("login", "logout", "status", "info", "self"):
-        config = load_config(path)
         raw = getattr(args, "raw", False)
+        self_action = getattr(args, "action", "list") or "list"
+        self_target = (getattr(args, "target", None) or "").strip().lower()
+        account_arg = (getattr(args, "account", None) or "").strip()
+        if action == "self" and self_action == "renew" and self_target in ("on", "off", "status"):
+            account_user = None
+            if account_arg and account_arg.lower() != "current":
+                try:
+                    book = load_accounts(path)
+                    matched = next((item for item in book["accounts"]
+                                    if item["username"] == account_arg or item["id"] == account_arg), None)
+                    account_user = matched["username"] if matched else account_arg
+                except (OSError, ValueError):
+                    account_user = account_arg
+            if self_target == "status":
+                nosense = load_nosense(path)
+                if raw:
+                    print(json.dumps(nosense, ensure_ascii=False, indent=2))
+                else:
+                    ui.heading("无感认证自动续约")
+                    ui.row("跟随活动账号", "已开启" if nosense["auto_renew"] else "已关闭")
+                    ui.row("目标设备", nosense["target_mac"] or "本机或当前绑定设备")
+                    ui.row("缺省服务", nosense["service"] or "保持设备现有设置")
+                    if nosense.get("accounts"):
+                        ui.section("账号池独立续约")
+                        for uname, rule in nosense["accounts"].items():
+                            state = "已开启" if rule["auto_renew"] else "已关闭"
+                            mac = rule["target_mac"] or "本机"
+                            svc = rule["service"] or "跟随账号"
+                            ui.row(uname, f"{state} · {mac} · {svc}")
+                return 0
+            nosense = save_nosense(
+                path,
+                auto_renew=(self_target == "on"),
+                target_mac=args.mac if getattr(args, "mac", None) is not None else None,
+                service=args.service if getattr(args, "service", None) is not None else None,
+                account=account_user,
+            )
+            if raw:
+                print(json.dumps(nosense, ensure_ascii=False, indent=2))
+            else:
+                rule = nosense["accounts"][account_user] if account_user else nosense
+                scope_label = f"账号 {account_user} 的" if account_user else ""
+                ui.message(f"{scope_label}无感认证自动续约已开启。" if rule["auto_renew"]
+                           else f"{scope_label}无感认证自动续约已关闭。", "success")
+                ui.row("目标设备", rule["target_mac"] or "本机或当前绑定设备")
+                ui.row("缺省服务", rule["service"] or "保持设备现有设置")
+            return 0
+        config = load_config(path)
+        if action == "self" and account_arg and account_arg.lower() != "current":
+            book = load_accounts(path, config=config)
+            matched = next((item for item in book["accounts"]
+                            if item["username"] == account_arg or item["id"] == account_arg), None)
+            if matched is None:
+                raise ValueError("未在账号簿中找到指定账号")
+            config = replace(config, username=matched["username"], password=matched["password"],
+                             service=matched["service"], backend=matched["backend"])
+        self_progress = {
+            "list": "正在读取自助服务…",
+            "kick": "正在下线设备并确认结果…",
+            "nosense": "正在开启无感认证并核验结果…",
+            "unbind": "正在关闭无感认证并核验结果…",
+            "service": "正在修改设备缺省服务并核验结果…",
+            "renew": "正在检查并续约无感认证…",
+        }.get(self_action, "正在读取自助服务…")
         ui.progress({"login": "正在登录校园网，请稍候…", "logout": "正在下线并确认结果…",
                      "status": "正在查询校园网状态…", "info": "正在读取账户信息…",
-                     "self": "正在下线设备并确认结果…" if getattr(args, "action", "list") == "kick" else "正在读取自助服务…"}[action], raw=raw)
+                     "self": self_progress}[action], raw=raw)
         with exclusive_config(path) if action in ("login", "logout") else nullcontext():
             if action == "logout" and accounts_path(path).exists():
                 set_rotation(path, False)

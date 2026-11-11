@@ -148,16 +148,17 @@ class UrlTests(OfflineTestCase):
             self.assertEqual(selfservice.seed_service(bad, base), selfservice.callback_url(base))
 
     def test_write_endpoints_are_an_explicit_allowlist(self):
-        """写操作只能是已实现的下线接口；新增任何写接口都必须先改这里。"""
+        """写操作只能是已实现的下线与无感认证接口；新增任何写接口都必须先改这里。"""
         read_only = {"SELF_PATH", "DEVICES", "PACKAGE_OVERVIEW",
-                     "PACKAGE_FLOW", "REMEMBER_CURRENT",
-                     "_MAX_TEXT", "_MAX_DEVICES", "SESSION_TTL",
-                     "KICK_VERIFY_SECONDS", "KICK_VERIFY_INTERVAL"}
+                     "PACKAGE_FLOW", "REMEMBER_CURRENT", "DEFAULT_SERVICES",
+                     "DEFAULT_SERVICE_PACKAGE", "_MAX_TEXT", "_MAX_DEVICES",
+                     "SESSION_TTL", "KICK_VERIFY_SECONDS", "KICK_VERIFY_INTERVAL",
+                     "NOSENSE_RENEW_THRESHOLD"}
         writes = {n for n in dir(selfservice)
                   if n.isupper() and not n.startswith("_") and n not in read_only}
-        self.assertEqual(writes, {"KICK_OFFLINE"})
+        self.assertEqual(writes, {"KICK_OFFLINE", "NOSENSE_REGISTER", "NOSENSE_UNBIND", "DEVICE_MODIFY"})
         # 破坏性更强、本项目未实现的动作必须缺席
-        for forbidden in ("NOSENSE_UNBIND", "UNBIND_BATCH", "BIND_MAC", "PASSWORD", "DEACTIVATE"):
+        for forbidden in ("UNBIND_BATCH", "BIND_MAC", "PASSWORD", "DEACTIVATE"):
             self.assertNotIn(forbidden, writes)
 
 
@@ -355,6 +356,19 @@ class SessionCacheTests(OfflineTestCase):
         self.assertIsNone(selfservice.load_session(self.BASE, "someone-else"))
         self.assertIsNone(selfservice.load_session("https://other.invalid", "u"))
 
+    def test_multiple_accounts_preserve_independent_session_jars(self):
+        selfservice.save_session(self.jar(SESSION="s1", CASTGC="t1"), self.BASE, "u1")
+        selfservice.save_session(self.jar(SESSION="s2", CASTGC="t2"), self.BASE, "u2")
+        s1 = selfservice.load_session(self.BASE, "u1")
+        s2 = selfservice.load_session(self.BASE, "u2")
+        self.assertIsNotNone(s1)
+        self.assertIsNotNone(s2)
+        self.assertEqual(s1.cookies.get("CASTGC"), "t1")
+        self.assertEqual(s2.cookies.get("CASTGC"), "t2")
+        selfservice.clear_session(self.BASE, "u1")
+        self.assertIsNone(selfservice.load_session(self.BASE, "u1"))
+        self.assertIsNotNone(selfservice.load_session(self.BASE, "u2"))
+
     def test_expired_cache_is_refused(self):
         selfservice.save_session(self.jar(SESSION="s"), self.BASE, "u")
         self.assertIsNone(selfservice.load_session(self.BASE, "u", ttl=0))
@@ -419,3 +433,168 @@ class SessionCacheTests(OfflineTestCase):
                 "devices": {"online": 0, "total": 0, "rows": []},
                 "package": {}, "flow": {"items": []}, "remember": {}}
         self.assertIn("本次新登录", selfservice.format_snapshot(snap))
+
+
+class NoSenseTests(OfflineTestCase):
+    SERVICES_PAYLOAD = {
+        "code": 200,
+        "data": [
+            {"uuid": "00_DEFAULT_IN_PACKAGE", "serviceTemplateName": "套餐默认服务"},
+            {"uuid": "8a8b808256b247030156b282869a008f", "serviceTemplateName": "中国移动"},
+            {"uuid": "8a8b808256b247030156b2813f020087", "serviceTemplateName": "中国联通"},
+            {"uuid": "8a8b808256b247030156b2831c150095", "serviceTemplateName": "中国电信"},
+        ],
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.device = {
+            "onlineUserUuid": "u-self",
+            "deviceName": "我的设备",
+            "deviceType": "电脑",
+            "terminalType": 1,
+            "currentDevice": True,
+            "unifiedAuthentication": True,
+            "userMac": "02-00-00-00-00-01",
+            "userIpv4": "10.0.0.1",
+            "onlineDuration": "10分",
+            "authType": "无线标准Portal接入",
+            "bindNoSense": False,
+            "noSenseUuid": None,
+            "noSenseCreateTime": None,
+            "noSenseEndTime": None,
+            "defaultServiceOperaporsConfigUuid": None,
+            "location": "",
+        }
+
+    def devices_payload(self):
+        return {"code": 200, "data": {"onlineDevices": [dict(self.device)], "offlineDevices": []}}
+
+    def test_normalize_and_require_mac(self):
+        for raw in ("02:00:00:00:00:01", "02-00-00-00-00-01", "0200.0000.0001", "020000000001"):
+            self.assertEqual(selfservice.require_mac(raw), "02-00-00-00-00-01")
+        for bad in ("", "02-00-00", "GG-00-00-00-00-01"):
+            with self.assertRaises(QueryError):
+                selfservice.require_mac(bad)
+
+    def test_parse_devices_extracts_nosense_and_default_service(self):
+        self.device.update({
+            "bindNoSense": True,
+            "noSenseUuid": "ns-1",
+            "noSenseEndTime": 1794883200000,
+            "defaultServiceOperaporsConfigUuid": "8a8b808256b247030156b282869a008f",
+        })
+        services = selfservice.parse_default_services(self.SERVICES_PAYLOAD)
+        row = selfservice.parse_devices(self.devices_payload(), services=services)["rows"][0]
+        self.assertEqual(row["无感"], "是")
+        self.assertEqual(row["缺省服务"], "中国移动")
+        self.assertEqual(row["_nosense_uuid"], "ns-1")
+        self.assertEqual(row["_nosense_end_ms"], 1794883200000)
+        self.assertTrue(row["无感到期"].startswith("2026-11-"))
+
+    def test_enable_nosense_unbinds_existing_and_applies_carrier_service(self):
+        self.device.update({
+            "bindNoSense": True,
+            "noSenseUuid": "ns-old",
+            "noSenseEndTime": 1794300000000,
+            "defaultServiceOperaporsConfigUuid": "00_DEFAULT_IN_PACKAGE",
+        })
+        writes = []
+        self.mock("ysu_net.auth.selfservice.open_session", return_value=object())
+        self.mock("ysu_net.auth.selfservice.time.sleep")
+
+        def fake_fetch(_session, _base, path, body=None, timeout=25):
+            if path == selfservice.DEFAULT_SERVICES:
+                return self.SERVICES_PAYLOAD
+            if path == selfservice.DEVICES:
+                return self.devices_payload()
+            writes.append((path, body))
+            if path == selfservice.NOSENSE_UNBIND:
+                self.device.update({"bindNoSense": False, "noSenseUuid": None, "defaultServiceOperaporsConfigUuid": None})
+            elif path == selfservice.NOSENSE_REGISTER:
+                self.device.update({
+                    "bindNoSense": True,
+                    "noSenseUuid": "ns-new",
+                    "noSenseEndTime": 1794883200000,
+                    "defaultServiceOperaporsConfigUuid": "00_DEFAULT_IN_PACKAGE",
+                })
+            elif path == selfservice.DEVICE_MODIFY:
+                self.device["defaultServiceOperaporsConfigUuid"] = body["defaultServiceOperaporsConfigUuid"]
+            return {"code": 200, "message": "OK"}
+
+        self.mock("ysu_net.auth.selfservice.fetch", side_effect=fake_fetch)
+        result = selfservice.enable_nosense(
+            "https://auth1.ysu.edu.cn", "https://cas", "u", "p", "current", service="中国移动"
+        )
+        self.assertEqual([w[0] for w in writes], [
+            selfservice.NOSENSE_UNBIND,
+            selfservice.NOSENSE_REGISTER,
+            selfservice.DEVICE_MODIFY,
+        ])
+        self.assertEqual(writes[1][1], {"userMac": "02-00-00-00-00-01", "expireTime": 7, "expireUnit": "day"})
+        self.assertTrue(result["bind_no_sense"])
+        self.assertEqual(result["service"], "中国移动")
+
+    def test_disable_nosense_unbinds_and_verifies(self):
+        self.device.update({"bindNoSense": True, "noSenseUuid": "ns-1"})
+        writes = []
+        self.mock("ysu_net.auth.selfservice.open_session", return_value=object())
+        self.mock("ysu_net.auth.selfservice.time.sleep")
+
+        def fake_fetch(_session, _base, path, body=None, timeout=25):
+            if path == selfservice.DEVICES:
+                return self.devices_payload()
+            writes.append((path, body))
+            self.device.update({"bindNoSense": False, "noSenseUuid": None})
+            return {"code": 200, "message": "OK"}
+
+        self.mock("ysu_net.auth.selfservice.fetch", side_effect=fake_fetch)
+        result = selfservice.disable_nosense("https://auth1.ysu.edu.cn", "https://cas", "u", "p", "all")
+        self.assertEqual(writes, [(selfservice.NOSENSE_UNBIND, {"noSenseUuids": ["ns-1"]})])
+        self.assertEqual(result["unbound"], ["02-00-00-00-00-01"])
+
+    def test_renew_nosense_skips_when_healthy_and_renews_when_expiring(self):
+        now_s = 1794300000.0
+        self.device.update({
+            "bindNoSense": True,
+            "noSenseUuid": "ns-1",
+            "noSenseEndTime": int((now_s + 5 * 86400) * 1000),
+            "defaultServiceOperaporsConfigUuid": "8a8b808256b247030156b282869a008f",
+        })
+        writes = []
+        self.mock("ysu_net.auth.selfservice.open_session", return_value=object())
+        self.mock("ysu_net.auth.selfservice.time.time", return_value=now_s)
+        self.mock("ysu_net.auth.selfservice.time.sleep")
+
+        def fake_fetch(_session, _base, path, body=None, timeout=25):
+            if path == selfservice.DEFAULT_SERVICES:
+                return self.SERVICES_PAYLOAD
+            if path == selfservice.DEVICES:
+                return self.devices_payload()
+            writes.append((path, body))
+            if path == selfservice.NOSENSE_REGISTER:
+                self.device.update({
+                    "bindNoSense": True,
+                    "noSenseUuid": "ns-2",
+                    "noSenseEndTime": int((now_s + 7 * 86400) * 1000),
+                    "defaultServiceOperaporsConfigUuid": "00_DEFAULT_IN_PACKAGE",
+                })
+            elif path == selfservice.DEVICE_MODIFY:
+                self.device["defaultServiceOperaporsConfigUuid"] = body["defaultServiceOperaporsConfigUuid"]
+            return {"code": 200, "message": "OK"}
+
+        self.mock("ysu_net.auth.selfservice.fetch", side_effect=fake_fetch)
+        skipped = selfservice.renew_nosense("https://auth1.ysu.edu.cn", "https://cas", "u", "p", "current")
+        self.assertFalse(skipped["renewed"])
+        self.assertEqual(writes, [])
+
+        # Expiring within 24 hours triggers automatic renewal and preserves carrier service
+        self.device["noSenseEndTime"] = int((now_s + 3600) * 1000)
+        renewed = selfservice.renew_nosense("https://auth1.ysu.edu.cn", "https://cas", "u", "p", "current")
+        self.assertTrue(renewed["renewed"])
+        self.assertEqual(renewed["service"], "中国移动")
+        self.assertEqual([w[0] for w in writes], [
+            selfservice.NOSENSE_UNBIND,
+            selfservice.NOSENSE_REGISTER,
+            selfservice.DEVICE_MODIFY,
+        ])

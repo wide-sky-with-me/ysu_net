@@ -1,22 +1,17 @@
 # 隐私与反馈
 
-[返回导航](Home.md) · [排障](Troubleshooting.md) · [参与贡献](Contributing.md)
+[返回导航](Home.md) · [常见问题排障](Troubleshooting.md) · [参与贡献](Contributing.md)
 
-公开反馈不需要真实账号、密码、IP/MAC、姓名、联系方式、设备或宿舍位置。完整规则唯一维护在 [公开反馈的脱敏清单](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/security.md#公开反馈的脱敏清单)，本页只提供渠道导航。
+公开提交问题或参与讨论时，无需提供真实学号、密码、IP/MAC 地址、姓名或宿舍位置。完整的本地凭据保护机制与脱敏检查项见 [公开反馈的脱敏清单](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/security.md#公开反馈的脱敏清单)。
 
-## 分享前
+## 提交前脱敏要点
 
-普通账户展示、本地诊断、日志复制或截图仍可能带有识别信息；隐藏密码和固定错误分类不等于匿名。只保留版本与构建来源、系统 / 架构、认证方式、运营商、操作顺序和最少必要错误片段。截图裁剪后用不透明遮盖移除识别信息，再导出新图片；检查地址栏、通知、终端提示符、文件名和图片元数据。
+- **切勿上传敏感文件**：请勿上传 `config.json`、`config.accounts.json`、`config.nosense.json`、`self-session.json`、浏览器 HAR 抓包或包含票据参数的原始 URL。
+- **清理文本与截图**：只保留软件版本号、操作系统、认证方式（API / 浏览器）、运营商、复现步骤与必要的错误提示；截图前请用不透明色块遮盖学号、姓名、IP 与 MAC 地址。
 
-真实配置、环境变量、Cookie、Authorization、Token、`userIndex`、会话、签名下载链接、HAR、原始认证请求 / 响应、页面与验证码均留在本机。`--raw`、底层 `--debug` 和完整日志不直接上传。“关于”页面离线展示随包日志 / 贡献者，操作反馈浮层也不是自动提交报告的渠道；打开公共外链须主动操作。表单确认框不自动清洗正文或附件。
+## 反馈渠道
 
-项目文档中的界面图片使用云端验收的合成数据，[截图说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/screenshots/README.md)记录来源；真实用户反馈截图仍须人工脱敏。
-
-## 选择渠道
-
-- 安装与用法：[Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a)。
-- 可复现程序故障：[Issue 问题反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=bug_report.yml)。
-- 明确功能需求：[功能建议表单](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=feature_request.yml)；开放方案先到 [Ideas](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/ideas)。
-- 凭据泄漏或安全缺陷：[私密漏洞报告](https://github.com/wide-sky-with-me/ysu_net/security/advisories/new)，按 [SECURITY.md](https://github.com/wide-sky-with-me/ysu_net/blob/main/SECURITY.md) 只提交非敏感说明、定位链接和虚构样例。
-
-如果秘密已经公开，先轮换或撤销凭据、终止相关会话，再联系维护者处理公开内容；不要在新帖子重新引用。删除正文或文件不等于删除历史、通知或缓存。
+- **使用咨询与问答**：[GitHub Discussions / Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a)
+- **程序故障报告**：[提交 Bug Issue](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=bug_report.yml)
+- **功能建议与讨论**：[提交 Feature Issue](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=feature_request.yml) 或 [Discussions / Ideas](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/ideas)
+- **安全与凭据漏洞**：请通过 [GitHub 私密漏洞报告](https://github.com/wide-sky-with-me/ysu_net/security/advisories/new) 联系维护者（详见 [SECURITY.md](https://github.com/wide-sky-with-me/ysu_net/blob/main/SECURITY.md)），不要在公开 Issue 中披露。

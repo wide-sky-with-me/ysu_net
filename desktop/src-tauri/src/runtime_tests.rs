@@ -1433,3 +1433,118 @@ async fn self_service_and_kick_errors_use_self_copy_and_preserve_connection_stat
         .unwrap();
     assert_eq!(last_log, kick_error);
 }
+
+#[tokio::test]
+async fn nosense_actions_and_auto_renew_config_persist_and_update_snapshot() {
+    let (runtime, receiver) = fixture();
+    seed_online(&runtime);
+    runtime
+        .request("save_config", json!({"password": "20260001"}))
+        .await
+        .unwrap();
+    demo(&runtime).lock().unwrap().online = true;
+    let mut worker = Worker::new(runtime.clone(), receiver);
+
+    runtime
+        .request(
+            "nosense",
+            json!({
+                "auto_renew": true,
+                "target_mac": "02:00:00:00:00:01",
+                "service": "中国移动",
+            }),
+        )
+        .await
+        .unwrap();
+    let configured = runtime.snapshot();
+    assert_eq!(configured["nosense"]["auto_renew"], true);
+    assert_eq!(configured["nosense"]["target_mac"], "02-00-00-00-00-01");
+    assert_eq!(configured["nosense"]["service"], "中国移动");
+
+    worker
+        .execute(Action::SelfNoSenseEnable {
+            target: "current".into(),
+            service: Some("中国移动".into()),
+        })
+        .await
+        .unwrap();
+    let enabled = runtime.snapshot();
+    assert_eq!(
+        enabled["self_service"]["devices"][0]["bindNoSense"],
+        json!(true)
+    );
+    assert_eq!(
+        enabled["self_service"]["devices"][0]["defaultService"],
+        json!("中国移动")
+    );
+    assert!(enabled["self_notice"]
+        .as_str()
+        .unwrap()
+        .contains("已开启无感认证"));
+
+    worker
+        .execute(Action::SelfDeviceService {
+            target: "1".into(),
+            service: "中国联通".into(),
+        })
+        .await
+        .unwrap();
+    let modified = runtime.snapshot();
+    assert_eq!(
+        modified["self_service"]["devices"][0]["defaultService"],
+        json!("中国联通")
+    );
+
+    worker
+        .execute(Action::SelfNoSenseDisable("all".into()))
+        .await
+        .unwrap();
+    let disabled = runtime.snapshot();
+    assert_eq!(
+        disabled["self_service"]["devices"][0]["bindNoSense"],
+        json!(false)
+    );
+
+    runtime
+        .request(
+            "save_account",
+            json!({
+                "label": "备用号",
+                "username": "20260002",
+                "password": "secret-2",
+                "service": "中国联通",
+                "backend": "api",
+                "enabled": true,
+            }),
+        )
+        .await
+        .unwrap();
+    runtime
+        .request(
+            "nosense",
+            json!({
+                "account": "20260002",
+                "auto_renew": true,
+                "target_mac": "02:00:00:00:00:02",
+                "service": "中国联通",
+            }),
+        )
+        .await
+        .unwrap();
+    let pooled = runtime.snapshot();
+    assert_eq!(
+        pooled["nosense"]["accounts"]["20260002"]["target_mac"],
+        json!("02-00-00-00-00-02")
+    );
+    let active_cfg = runtime.config().await.unwrap();
+    worker.renew_nosense_if_needed(&active_cfg).await;
+    assert_eq!(
+        demo(&runtime)
+            .lock()
+            .unwrap()
+            .nosense_by_user
+            .get("20260002")
+            .map(|(m, s, _)| (m.as_str(), s.as_str())),
+        Some(("02-00-00-00-00-02", "中国联通"))
+    );
+}

@@ -61,6 +61,25 @@ class ConfigTests(OfflineTestCase):
         self.assertEqual(list(self.tmp.iterdir()), [path])
         self.assertNotIn("old", path.read_text())
 
+    def test_nosense_config_roundtrip_and_validation(self):
+        path = self.tmp / "config.json"
+        self.assertEqual(config.load_nosense(path), {
+            "version": 1, "auto_renew": False, "target_mac": "", "service": "", "accounts": {},
+        })
+        saved = config.save_nosense(path, auto_renew=True, target_mac="02:00:00:00:00:01", service="中国移动")
+        self.assertEqual(saved, {
+            "version": 1, "auto_renew": True, "target_mac": "02-00-00-00-00-01", "service": "中国移动", "accounts": {},
+        })
+        self.assertEqual(config.load_nosense(path), saved)
+        pooled = config.save_nosense(path, auto_renew=True, target_mac="02:00:00:00:00:02", service="中国联通", account="u2")
+        self.assertEqual(pooled["accounts"]["u2"], {
+            "auto_renew": True, "target_mac": "02-00-00-00-00-02", "service": "中国联通",
+        })
+        with self.assertRaises(ValueError):
+            config.save_nosense(path, target_mac="bad-mac")
+        with self.assertRaises(ValueError):
+            config.save_nosense(path, service="未知服务")
+
 
 class ReconnectTests(OfflineTestCase):
     def setUp(self):
@@ -200,6 +219,16 @@ class BackendTests(OfflineTestCase):
         self.assertIn("self", command)
         self.assertIn("--raw", command)
 
+    def test_self_nosense_passes_service_and_classifies_reasons(self):
+        import types
+        args = types.SimpleNamespace(action="nosense", target="current", service="中国移动", yes=False, fresh=False)
+        backend.run_backend(self.config, "self", args=args)
+        command = self.popen.call_args.args[0]
+        self.assertEqual(command[-4:], ["nosense", "current", "--service", "中国移动"])
+        self.assertEqual(backend.failure_reason(2, "请先为该设备开启无感认证"), "self_nosense_unbound")
+        self.assertEqual(backend.failure_reason(2, "缺省服务无效"), "self_service_invalid")
+        self.assertEqual(backend.failure_reason(2, "无感认证请求已提交"), "self_nosense_unverified")
+
 
 class CliTests(OfflineTestCase):
     def setUp(self):
@@ -249,6 +278,77 @@ class CliTests(OfflineTestCase):
         self.runner.return_value = Result(0, "ok")
         self.assertEqual(cli.main(["self"]), 0)
         self.assertEqual(self.runner.call_args.kwargs["args"].action, "list")
+
+    def test_self_renew_on_off_status_updates_nosense_config(self):
+        self.assertEqual(cli.main(["self", "renew", "on", "--mac", "02:00:00:00:00:01", "--service", "中国移动", "--raw"]), 0)
+        self.assertEqual(config.load_nosense(self.path), {
+            "version": 1, "auto_renew": True, "target_mac": "02-00-00-00-00-01", "service": "中国移动", "accounts": {},
+        })
+        self.assertEqual(cli.main(["self", "renew", "on", "--account", "u2", "--mac", "02:00:00:00:00:02", "--service", "中国联通", "--raw"]), 0)
+        self.assertEqual(config.load_nosense(self.path)["accounts"]["u2"], {
+            "auto_renew": True, "target_mac": "02-00-00-00-00-02", "service": "中国联通",
+        })
+        self.assertEqual(cli.main(["self", "renew", "off", "--raw"]), 0)
+        self.assertFalse(config.load_nosense(self.path)["auto_renew"])
+        self.runner.assert_not_called()
+
+    def test_nosense_account_pool_parallel_renewal_and_switch_handover(self):
+        from ysu_net.manager.accounts import save_account
+        from ysu_net.manager.account_switching import switch_account
+
+        save_account(self.path, username="u", password="p", service="中国移动")
+        saved_u2 = save_account(self.path, username="u2", password="p2", service="中国联通")
+        config.save_nosense(self.path, auto_renew=True, target_mac="", service="")
+        config.save_nosense(self.path, auto_renew=True, target_mac="02:00:00:00:00:02", service="中国联通", account="u2")
+
+        calls = []
+
+        def fake_runner(cfg, action, **kwargs):
+            args = kwargs.get("args")
+            calls.append((cfg.username, action, getattr(args, "action", None), getattr(args, "target", None), getattr(args, "service", None)))
+            return Result(0, '{"renewed": true, "expires": "2026-11-18 10:00:00"}')
+
+        renewer = daemon.NoSenseRenewer(self.path, runner=fake_runner, clock=lambda: 100.0)
+        msg = renewer.step(config.load_config(self.path, environ={}))
+        self.assertIn("无感认证已自动续约", msg)
+        self.assertEqual(calls, [
+            ("u", "self", "renew", "current", None),
+            ("u2", "self", "renew", "02-00-00-00-00-02", "中国联通"),
+        ])
+
+        # Verify switch_account unbinds u on current before logout and binds u2 after commit.
+        from tests.test_multi_accounts_switching import status as switch_status
+        config.save_nosense(self.path, auto_renew=False, account="u2")
+        switch_events = []
+        current_online = {"user": "u", "service": "中国移动"}
+        config.save_config(self.path, config.Config(username="u", password="p", service="中国移动"))
+
+        def switch_runner(cfg, action, **kwargs):
+            args = kwargs.get("args")
+            if action == "status":
+                return switch_status(current_online["user"], current_online["service"])
+            if action == "logout":
+                switch_events.append((cfg.username, "logout"))
+                current_online["user"] = None
+                return Result(0)
+            if action == "login":
+                switch_events.append((cfg.username, "login", cfg.service))
+                current_online["user"] = cfg.username
+                current_online["service"] = cfg.service
+                return Result(0)
+            if action == "self":
+                switch_events.append((cfg.username, "self", args.action, args.target, args.service))
+                return Result(0, '{"action": "%s"}' % args.action)
+            return Result(0)
+
+        outcome = switch_account(self.path, saved_u2["id"], runner=switch_runner, environ={})
+        self.assertEqual(outcome.code, 0)
+        self.assertEqual(switch_events, [
+            ("u", "self", "unbind", "current", None),
+            ("u", "logout"),
+            ("u2", "login", "中国联通"),
+            ("u2", "self", "nosense", "current", "中国联通"),
+        ])
 
     def test_stop_without_service_does_not_claim_to_stop_foreground_daemon(self):
         self.unit.unlink()

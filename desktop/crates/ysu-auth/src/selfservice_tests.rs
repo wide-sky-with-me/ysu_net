@@ -1,5 +1,9 @@
 //! Selection and coercion rules for the self-service device list.
-use crate::selfservice::{is_self_page, parse_flow, parse_package, seed_service, select, text_of};
+use crate::selfservice::{
+    format_epoch_ms, is_self_page, normalize_mac, parse_flow, parse_package,
+    resolve_default_service, seed_service, select, select_nosense_target,
+    select_nosense_unbind_targets, text_of,
+};
 use crate::SelfDevice;
 use serde_json::json;
 use url::Url;
@@ -16,6 +20,7 @@ fn device(index: u32, online: bool, current: bool, unified: bool) -> SelfDevice 
         unified_authentication: unified,
         online_user_uuid: format!("uuid-{index}"),
         online,
+        ..SelfDevice::default()
     }
 }
 
@@ -140,4 +145,42 @@ fn is_self_page_distinguishes_self_routes_from_cas_bounces() {
     assert!(!is_self_page(
         &Url::parse("https://auth1.ysu.edu.cn/portal/portal-main").unwrap()
     ));
+}
+
+#[test]
+fn nosense_mac_service_and_target_resolution() {
+    for raw in [
+        "02:00:00:00:00:01",
+        "02-00-00-00-00-01",
+        "0200.0000.0001",
+        "020000000001",
+    ] {
+        assert_eq!(normalize_mac(raw).as_deref(), Some("02-00-00-00-00-01"));
+    }
+    assert_eq!(normalize_mac("invalid"), None);
+    assert_eq!(
+        format_epoch_ms(Some(1_794_883_200_000)),
+        "2026-11-17 10:40:00"
+    );
+    assert_eq!(
+        resolve_default_service("中国移动").unwrap(),
+        ("中国移动", "8a8b808256b247030156b282869a008f")
+    );
+    assert!(resolve_default_service("未知服务").is_err());
+
+    let mut devices = rows();
+    devices[1].bind_no_sense = true;
+    devices[1].no_sense_uuid = Some("ns-2".into());
+
+    let (mac, target) = select_nosense_target(&devices, "current").unwrap();
+    assert_eq!(mac, "02-00-00-00-00-01");
+    assert!(target.unwrap().current_device);
+
+    let (mac, target) = select_nosense_target(&devices, "02:00:00:00:00:99").unwrap();
+    assert_eq!(mac, "02-00-00-00-00-99");
+    assert!(target.is_none());
+
+    let unbound = select_nosense_unbind_targets(&devices, "all").unwrap();
+    assert_eq!(unbound.len(), 1);
+    assert_eq!(unbound[0].user_mac, "02-00-00-00-00-02");
 }

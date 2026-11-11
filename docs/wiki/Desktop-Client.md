@@ -1,50 +1,46 @@
-# 桌面客户端（Windows / Linux / macOS）
+# 桌面客户端指南
 
-[返回导航](Home.md) · [排障](Troubleshooting.md) · [隐私与反馈](Privacy-and-Reporting.md)
+[返回导航](Home.md) · [快速开始](Quick-Start.md) · [命令行速查](CLI-Reference.md) · [常见问题排障](Troubleshooting.md)
 
-## 安装与版本选择
+桌面客户端基于 Tauri 2 + Rust 原生构建，在 Windows、Linux 与 macOS 上提供一致的界面与后台守护体验，支持快捷键 `Ctrl+1` 至 `Ctrl+6` 快速切换页面。
 
-桌面采用 Tauri 2 + Svelte + Rust，三平台共用界面和认证后台，不需要 Python、Node 或 Playwright 认证运行时；Linux Python CLI 是独立产品。正式附件从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 选择对应系统、架构的安装包并核对 `SHA256SUMS`。
+![桌面客户端连接页浅色界面](https://raw.githubusercontent.com/wide-sky-with-me/ysu_net/main/docs/screenshots/desktop-connection-light.png)
 
-当前正式版本、源码与候选的区别只在[发行状态](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)维护，本页不另标 Latest；同版本不等于同构建，合入主分支也不是发布新版。实际成绩见[桌面验收导航](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/desktop-acceptance.md)。开发版编译、打包与产品测试只在[独立构建分支的 GitHub Actions](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)进行，不回退本机编译。
+---
 
-| 系统 | 选择与限制 |
-| --- | --- |
-| Windows 10 / 11 x64 | 当前用户 NSIS 安装，使用系统 WebView2；旧 Qt Inno 版不会被自动替换，先关闭旧自启、退出并卸载旧版。 |
-| Ubuntu 22.04 及更新，x86_64 | 使用 `.deb`，包名 `ysu-net`；按系统包方式升级，不使用软件内原位安装或差分。 |
-| macOS 13.5 及更新 | Apple 芯片与 Intel 分别选择 arm64 / x64 `.dmg`，不是通用二进制；先退出程序再替换应用。浏览器下载后若提示“已损坏，无法打开”，执行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"` 清除隔离属性。 |
+## 页面功能说明
 
-更新包签名不等于 Windows Authenticode 发布者签名或 Apple 签名 / 公证；当前系统发布者签名限制见[迁移说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md)。0.2.0 和旧 0.2.1 候选需[手动安装正式版](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md#桌面-v021-及旧候选包)，不要等待同版本自动升级或关闭验签。旧 Qt 标签与附件只保留历史。
+### 1. 连接页（`Ctrl+1`）
 
-## 连接与日常使用
+- **状态与快捷控制**：展示当前在线状态、运营商、学号与本机校园网 IP；提供 **立即连接**、**断开连接**、**刷新状态** 与运营商一键切换。
+- **自动化开关**：
+  - **自动重连**：断网后按指数退避自动重连；即使关闭窗口隐藏到系统托盘，后台仍会持续守护。
+  - **零流量自动换号**：当检测到当前账号剩余流量归零时，自动按优先级切换到账号池中的下一个可用账号。
+- **多账号快速切换**：存在多个已保存账号时，可直接从下拉列表选择目标账号并点击 **切换账号**。若旧账号为本机开启了 7 天无感认证，切换时会自动解绑旧账号并为新账号重新绑定。
 
-![浅色主题的连接页](https://raw.githubusercontent.com/wide-sky-with-me/ysu_net/main/docs/screenshots/desktop-connection-light.png)
+### 2. 账户页（`Ctrl+2`）
 
-截图来自 v0.2.3 云端浏览器验收，使用合成数据；来源与摘要见[截图说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/screenshots/README.md)，不作为真实登录证据。
+- 展示当前在线账号的计费周期、套餐名称、剩余流量与门户在线详情。
+- 点击右上角 **刷新账户** 可重新拉取最新套餐用量。
 
-1. 在“设置 → 校园网账号”保存账号密码和对应服务，默认使用 API 认证。
-2. 回到“连接”页发起连接，待操作结束后查看独立查询的状态与实际服务。
-3. 需要后台重连时再开启“自动重连”；仅查询状态或账户信息无需先断开连接。
+### 3. 设备页 · 在线设备与 7 天无感认证（`Ctrl+6`）
 
-统一认证要求验证码时，可在“设置 → 认证 → 验证码识别”按需下载模型（约 52 MB）：下载前显示当前状态，未下载时遇到验证码仍要求人工处理，模型不随安装包分发。
-未知不等于离线；缺失流量不是零或不限量，也不补造余额。多账号、热切换与可选零流量换号见[账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)，不要同时运行桌面和 CLI 两套重连器。
+连接校园网自助服务（`/self`），集中管理设备与无感认证：
 
-托盘可打开窗口、查询、连接 / 断开和停止自动化；无可用托盘时关闭窗口会退出。退出停止本客户端重连，不主动下线已建立连接。平台托盘差异与完整行为见[运行语义](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#运行语义)。桌面可选浏览器模式使用本机 Edge / Chrome，不需要 CLI 的 Python 浏览器依赖。
+- **切换查看账号**：若配置了多账号池，可在页面顶部「查看账号」下拉框中选择任意已保存账号，独立查看并管理该账号下的设备与无感设置。
+- **在线设备管理**：展示当前账号下所有在线设备的名称、类型（电脑/手机/其他）、MAC、IP、在线时长与接入方式；支持单台设备 **下线** 或多设备一键 **全部下线**。
+- **无感认证（7天）与自动续约**：
+  - **开启 / 关闭无感认证**：支持一键为本机或在线设备开启 7 天 MAC 无感认证，或随时取消单台/全部设备的无感绑定。
+  - **默认上网服务**：直接修改无感认证放行时使用的运营商服务（校园网 / 中国移动 / 中国联通 / 中国电信）。
+  - **到期前自动续约**：开启「自动续约」开关后，客户端后台会在无感认证到期前 24 小时内（或已过期时）自动解绑并重新绑定 7 天，也会对账号池中开启了自动续约的其他账号独立巡检续期；点击 **立即续约** 可手动立即刷新 7 天有效期。
 
-连接光环呈现核心已确认的在线状态，不表示网速、认证成功回执或正在查询；减少动效会暂停相关装饰。反馈浮层不改变业务结果与忙碌准入，具体交互见[设计说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/rust-desktop-design.md)。
+### 4. 设置页（`Ctrl+3`）
 
-## 设备自助服务
+- **账号**：设置主账号凭据，或新增、编辑、排序、启停和删除多账号池条目（详见 [多账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)）。
+- **认证与重试**：调整状态检查间隔、重试间隔、操作超时、门户地址及认证方式（默认 `API`，可选本机 Edge/Chrome `浏览器` 模式），并可在「验证码识别」区域一键下载离线验证码模型。
+- **外观与启动**：切换浅色/深色/跟随系统主题与 6 种强调色，配置 **开机自启**、**自启后进入托盘** 与 **关闭窗口最小化到托盘**。
 
-侧栏“设备”页读取校园网自助服务（`auth1.ysu.edu.cn/self`）的只读数据：在线设备、套餐与剩余流量、是否记住本设备的上网选择。它和门户共用统一身份认证，但走独立的 OAuth2 客户端，因此会自己完成一次登录；这次登录不写入配置，也不改变当前连接。
+### 5. 日志页（`Ctrl+4`）与关于页（`Ctrl+5`）
 
-点某台在线设备的“下线”会要求确认，确认后断开该设备当前的网络连接，核心随即重新读取设备列表核对结果，仍在线就报失败而不是报告成功。下线**本机**时保留统一身份认证登录（可重新上网），下线**其他设备**时连同它的统一认证会话一起登出——与门户网页行为一致。
-
-设备页按需读取，不在打开页面时自动登录。同一次运行里 30 分钟内的重复读取复用已建立的会话，不会每次重新登录；退出登录会丢弃该会话。应用重启后首次读取需要完整登录一次。连续登录失败会触发门户的 IP 冻结（约 1 小时）。
-
-## 检查更新
-
-自 0.2.2 起，更新入口在侧栏“关于”，该页还离线展示随包日志与公开项目资料；0.2.1 的入口在“设置 → 外观与启动”底部。打开页面本身不检查或下载更新，须主动点击并确认；Demo / 普通网页不执行真实更新。
-
-0.2.1 正式客户端只支持签名整包；自 0.2.2 起具备条件差分能力，仍须发布清单有合适补丁且本机缓存精确匹配，无基线首更下载整包。0.2.3 当次没有差分附件，下载整包是正常行为。旧 0.2.1 客户端不会因新清单有补丁就获得差分能力。差分只还原完整安装包，后续仍走原安装器覆盖流程；补丁与还原整包均按原公钥和受签名版本验证，失败仅下载阶段最多回退一次整包，不因安装失败再装一遍。缓存、信任和失败处理只在[软件更新说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)维护。
-
-共用 Rust 认证库已在 21 完成真实登录 / 退出，Windows 原生探针完成无凭据查询；它们不覆盖 Windows GUI 新登录、Worker 账号池或跨版本原位升级。实际范围见[验收导航](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/desktop-acceptance.md)，遇到问题先看[排障](Troubleshooting.md)，公开反馈前人工脱敏。
+- **日志**：按级别筛选或搜索运行日志；遇到复杂网络故障时可开启 **开始调试记录**，将脱敏诊断信息写入本地目录以便排障（详见 [链路调试说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/debug-recording.md)）。
+- **关于**：查看当前版本更新日志、项目仓库与贡献者名单；Windows 与 macOS 用户可在此点击 **检查更新**，验证签名后直接完成软件内升级（详见 [软件更新说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)）。

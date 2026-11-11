@@ -1,6 +1,9 @@
 //! In-process desktop state. Authentication is serialized independently of settings and snapshots.
 //! Decision: .agents/notes/proposals/desktop/2026-10-14-rust-desktop.md
-use crate::storage::{valid_accent, Prefs, RunGuard, Store, CONFIG_ERROR, EXTERNAL};
+use crate::storage::{
+    valid_accent, valid_nosense_service, NoSenseConfig, Prefs, RunGuard, Store, CONFIG_ERROR,
+    EXTERNAL,
+};
 #[path = "account_runtime.rs"]
 mod account_runtime;
 use account_runtime::{account_state, Rotation};
@@ -24,7 +27,7 @@ use tokio::{
 };
 use ysu_auth::{
     AuthClient, AuthDiagnostic, AuthError, Config, DiagnosticOperation, DiagnosticReason,
-    DiagnosticStage, InfoObservation, SelfDevice, SelfKick, SelfPackage, SelfRemember,
+    DiagnosticStage, InfoObservation, SelfDevice, SelfKick, SelfNoSense, SelfPackage, SelfRemember,
     SelfSnapshot, Status, SERVICES,
 };
 
@@ -57,6 +60,20 @@ pub(crate) enum Action {
     SetService(String),
     SelfService,
     SelfKick(String),
+    SelfNoSenseEnable {
+        target: String,
+        service: Option<String>,
+    },
+    SelfNoSenseDisable(String),
+    SelfDeviceService {
+        target: String,
+        service: String,
+    },
+    SelfNoSenseRenew {
+        target: String,
+        service: Option<String>,
+        force: bool,
+    },
 }
 
 impl Action {
@@ -71,6 +88,10 @@ impl Action {
             Self::SetService(_) => "set_service",
             Self::SelfService => "self_service",
             Self::SelfKick(_) => "self_kick",
+            Self::SelfNoSenseEnable { .. } => "self_nosense_enable",
+            Self::SelfNoSenseDisable(_) => "self_nosense_disable",
+            Self::SelfDeviceService { .. } => "self_device_service",
+            Self::SelfNoSenseRenew { .. } => "self_nosense_renew",
         }
     }
 }
@@ -97,10 +118,30 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
                 Some("status" | "info" | "login" | "logout" | "self_service") => {
                     !object.contains_key("value")
                 }
-                Some("self_kick") => object
+                Some("self_kick" | "self_nosense_disable") => object
                     .get("value")
                     .and_then(Value::as_str)
-                    .is_some_and(|v| !v.is_empty() && v.len() <= 32),
+                    .is_some_and(|v| !v.trim().is_empty() && v.len() <= 32),
+                Some("self_nosense_enable" | "self_nosense_renew") => object
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .is_some_and(|v| {
+                        let (target, service) = v.split_once('|').unwrap_or((v, ""));
+                        !target.trim().is_empty()
+                            && target.len() <= 32
+                            && valid_nosense_service(service)
+                    }),
+                Some("self_device_service") => object
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .is_some_and(|v| {
+                        v.split_once('|').is_some_and(|(target, service)| {
+                            !target.trim().is_empty()
+                                && target.len() <= 32
+                                && !service.trim().is_empty()
+                                && valid_nosense_service(service)
+                        })
+                    }),
                 Some("switch" | "set_service") => object
                     .get("value")
                     .and_then(Value::as_str)
@@ -144,6 +185,23 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
                     .is_some_and(crate::accounts::valid_id)
         }
         "rotation" => object.len() == 1 && object.get("enabled").is_some_and(Value::is_boolean),
+        "nosense" => {
+            !object.is_empty()
+                && object.iter().all(|(k, v)| match k.as_str() {
+                    "auto_renew" | "remove" => v.is_boolean(),
+                    "account" => v
+                        .as_str()
+                        .is_some_and(|s| s.trim().len() <= 256 && !s.chars().any(char::is_control)),
+                    "target_mac" => v.as_str().is_some_and(|s| {
+                        let t = s.trim();
+                        t.is_empty()
+                            || t.eq_ignore_ascii_case("current")
+                            || ysu_auth::normalize_mac(t).is_some()
+                    }),
+                    "service" => v.as_str().is_some_and(valid_nosense_service),
+                    _ => false,
+                })
+        }
         "save_config" => {
             !object.is_empty()
                 && object.iter().all(|(k, v)| {
@@ -235,6 +293,7 @@ struct State {
     self_service: Value,
     self_error: String,
     self_notice: String,
+    nosense: Value,
     info_error: String,
     logs: VecDeque<Value>,
     environment: Value,
@@ -281,6 +340,7 @@ impl State {
             "self_service": self.self_service,
             "self_error": self.text(&self.self_error),
             "self_notice": self.text(&self.self_notice),
+            "nosense": self.nosense,
             "environment": self.environment, "accounts": self.accounts,
         });
         // Public identities must round-trip even when they happen to equal a password.
@@ -314,6 +374,7 @@ impl State {
         self.scrub(&mut value["self_service"]);
         self.scrub(&mut value["self_error"]);
         self.scrub(&mut value["self_notice"]);
+        self.scrub(&mut value["nosense"]["message"]);
         self.scrub(&mut value["auto"]["message"]);
         if let Some(logs) = value["logs"].as_array_mut() {
             for log in logs {
@@ -379,6 +440,7 @@ impl Runtime {
     ) -> Result<(Arc<Self>, mpsc::Receiver<Action>), String> {
         let config = store.load_config(true)?;
         let prefs = store.load_prefs();
+        let nosense_cfg = store.load_nosense();
         let (accounts, passwords) = account_state(&store, &config);
         let rotation_enabled = accounts["auto_switch"].as_bool().unwrap_or(false);
         let recording = Arc::new(crate::debug_recording::Recording::new(&store.path));
@@ -392,6 +454,14 @@ impl Runtime {
         let (control, _) = watch::channel(0);
         let (observations, _) = watch::channel(0);
         let desired = prefs.auto_reconnect;
+        let nosense = nosense_value(
+            &nosense_cfg,
+            if nosense_cfg.auto_renew {
+                "无感自动续约已开启"
+            } else {
+                "无感自动续约已关闭"
+            },
+        );
         let mut state = State {
             sequence: 1,
             config,
@@ -405,6 +475,7 @@ impl Runtime {
             self_service: Value::Null,
             self_error: String::new(),
             self_notice: String::new(),
+            nosense,
             info_error: String::new(),
             accounts,
             rotation_intent: None,
@@ -677,6 +748,39 @@ impl Runtime {
             }
             "save_account" | "delete_account" => self.change_accounts(command, args).await,
             "rotation" => self.set_rotation(args["enabled"].as_bool().unwrap()).await,
+            "nosense" => {
+                let _settings = self.setting_guard().await?;
+                let store = self.store.clone();
+                let acct = args
+                    .get("account")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("current"))
+                    .map(str::to_string);
+                let removed = args.get("remove").and_then(Value::as_bool).unwrap_or(false);
+                let updated = self
+                    .blocking(move || store.update_nosense(args.as_object().unwrap().clone()))
+                    .await?;
+                let msg = if let Some(user) = &acct {
+                    if removed {
+                        format!("已移除账号 {user} 的无感续约设置")
+                    } else if updated.accounts.get(user).is_some_and(|a| a.auto_renew) {
+                        format!("账号 {user} 的无感自动续约已开启")
+                    } else {
+                        format!("账号 {user} 的无感自动续约已关闭")
+                    }
+                } else if updated.auto_renew {
+                    "无感自动续约已开启".to_string()
+                } else {
+                    "无感自动续约已关闭".to_string()
+                };
+                self.update(|state| {
+                    state.nosense = nosense_value(&updated, &msg);
+                    state.log("success", &msg);
+                });
+                self.wake();
+                Ok(self.snapshot())
+            }
             "save_config" => self.save_config(args.as_object().unwrap().clone()).await,
             "save_prefs" => {
                 let _settings = self.setting_guard().await?;
@@ -713,6 +817,43 @@ impl Runtime {
                     }
                     "self_service" => Action::SelfService,
                     "self_kick" => Action::SelfKick(args["value"].as_str().unwrap().into()),
+                    "self_nosense_enable" => {
+                        let raw = args["value"].as_str().unwrap();
+                        let (target, service) = match raw.split_once('|') {
+                            Some((t, s)) => (
+                                t.trim().to_string(),
+                                Some(s.trim().to_string()).filter(|v| !v.is_empty()),
+                            ),
+                            None => (raw.trim().to_string(), None),
+                        };
+                        Action::SelfNoSenseEnable { target, service }
+                    }
+                    "self_nosense_disable" => {
+                        Action::SelfNoSenseDisable(args["value"].as_str().unwrap().trim().into())
+                    }
+                    "self_device_service" => {
+                        let raw = args["value"].as_str().unwrap();
+                        let (target, service) = raw.split_once('|').unwrap();
+                        Action::SelfDeviceService {
+                            target: target.trim().into(),
+                            service: service.trim().into(),
+                        }
+                    }
+                    "self_nosense_renew" => {
+                        let raw = args["value"].as_str().unwrap();
+                        let (target, service) = match raw.split_once('|') {
+                            Some((t, s)) => (
+                                t.trim().to_string(),
+                                Some(s.trim().to_string()).filter(|v| !v.is_empty()),
+                            ),
+                            None => (raw.trim().to_string(), None),
+                        };
+                        Action::SelfNoSenseRenew {
+                            target,
+                            service,
+                            force: true,
+                        }
+                    }
                     "switch" => Action::Switch(args["value"].as_str().unwrap().into()),
                     "set_service" => Action::SetService(args["value"].as_str().unwrap().into()),
                     _ => unreachable!(),
@@ -761,6 +902,16 @@ impl Runtime {
         self.recording.shutdown();
         self.stopped.store(true, Ordering::Release);
     }
+}
+
+fn nosense_value(config: &NoSenseConfig, message: &str) -> Value {
+    json!({
+        "auto_renew": config.auto_renew,
+        "target_mac": config.target_mac,
+        "service": config.service,
+        "accounts": config.accounts,
+        "message": message,
+    })
 }
 
 fn environment(demo: bool) -> Value {
@@ -816,6 +967,7 @@ struct Worker {
     next_check: Instant,
     reconnect: Reconnect,
     rotation: Rotation,
+    nosense_schedule: std::collections::HashMap<String, (String, Instant)>,
     action: &'static str,
     phase: DiagnosticStage,
 }
@@ -838,6 +990,7 @@ impl Worker {
             next_check: Instant::now(),
             reconnect: Reconnect::default(),
             rotation: Rotation::default(),
+            nosense_schedule: std::collections::HashMap::new(),
             action: "status",
             phase: DiagnosticStage::Unknown,
         }
@@ -996,11 +1149,27 @@ impl Worker {
             "login" => DiagnosticOperation::Login,
             "logout" => DiagnosticOperation::Logout,
             "switch_service" => DiagnosticOperation::SwitchService,
-            "self_service" => DiagnosticOperation::SelfService,
+            "self_service"
+            | "self_nosense_enable"
+            | "self_nosense_disable"
+            | "self_device_service"
+            | "self_nosense_renew" => DiagnosticOperation::SelfService,
             "self_kick" => DiagnosticOperation::SelfKick,
             _ => DiagnosticOperation::Unknown,
         };
         local_auth_error(code, operation, stage, reason)
+    }
+
+    fn is_self_action(&self) -> bool {
+        matches!(
+            self.action,
+            "self_service"
+                | "self_kick"
+                | "self_nosense_enable"
+                | "self_nosense_disable"
+                | "self_device_service"
+                | "self_nosense_renew"
+        )
     }
 
     fn config_failed(&self, account_only: bool) {
@@ -1012,7 +1181,7 @@ impl Worker {
             "{CONFIG_ERROR} [{}]",
             diagnostic_detail(self.action, DiagnosticStage::Config, &error)
         );
-        let self_only = matches!(self.action, "self_service" | "self_kick");
+        let self_only = self.is_self_action();
         self.runtime.update(|state| {
             state.log("error", &message);
             if self_only {
@@ -1049,7 +1218,7 @@ impl Worker {
             "操作超过时限，请重新查询实际状态 [{}]",
             diagnostic_detail(self.action, self.phase, &error)
         );
-        let self_only = matches!(self.action, "self_service" | "self_kick");
+        let self_only = self.is_self_action();
         self.runtime.update(|state| {
             if self_only {
                 let message = format!(
@@ -1201,6 +1370,126 @@ impl Worker {
                             .task(self.action, self.phase, Some(&error));
                         let message = format!(
                             "下线未完成 [{}]",
+                            diagnostic_detail(self.action, self.phase, &error)
+                        );
+                        self.runtime.update(|state| {
+                            state.self_error = message.clone();
+                            state.log("error", &message);
+                        });
+                    }
+                }
+            }
+            Action::SelfNoSenseEnable { .. }
+            | Action::SelfNoSenseDisable(_)
+            | Action::SelfDeviceService { .. }
+            | Action::SelfNoSenseRenew { .. } => {
+                self.phase = DiagnosticStage::UserOnline;
+                let (busy_text, fail_prefix, result) = match &action {
+                    Action::SelfNoSenseEnable { target, service } => (
+                        "正在开启无感认证并核验结果",
+                        "开启无感认证未完成",
+                        self.runtime
+                            .backend
+                            .self_nosense_enable(&config, target, service.as_deref())
+                            .await,
+                    ),
+                    Action::SelfNoSenseDisable(target) => (
+                        "正在关闭无感认证并核验结果",
+                        "关闭无感认证未完成",
+                        self.runtime
+                            .backend
+                            .self_nosense_disable(&config, target)
+                            .await,
+                    ),
+                    Action::SelfDeviceService { target, service } => (
+                        "正在修改设备缺省服务并核验结果",
+                        "修改缺省服务未完成",
+                        self.runtime
+                            .backend
+                            .self_device_service(&config, target, service)
+                            .await,
+                    ),
+                    Action::SelfNoSenseRenew {
+                        target,
+                        service,
+                        force,
+                    } => (
+                        "正在检查并续约无感认证",
+                        "续约无感认证未完成",
+                        self.runtime
+                            .backend
+                            .self_nosense_renew(&config, target, service.as_deref(), *force)
+                            .await,
+                    ),
+                    _ => unreachable!(),
+                };
+                self.busy(busy_text);
+                match result {
+                    Ok(outcome) => {
+                        let notice = match outcome["action"].as_str().unwrap_or("") {
+                            "unbind" => format!(
+                                "已关闭无感认证：{}",
+                                outcome["mac"].as_str().unwrap_or("已选设备")
+                            ),
+                            "service" => format!(
+                                "已更新无感缺省服务：{} → {}",
+                                outcome["mac"].as_str().unwrap_or(""),
+                                outcome["service"].as_str().unwrap_or("套餐默认服务")
+                            ),
+                            "renew" => {
+                                if outcome["renewed"].as_bool().unwrap_or(false) {
+                                    format!(
+                                        "已续约无感认证：{}（到期 {}）",
+                                        outcome["mac"].as_str().unwrap_or(""),
+                                        outcome["expires"].as_str().unwrap_or("—")
+                                    )
+                                } else {
+                                    format!(
+                                        "无感认证仍在有效期内：{}（到期 {}）",
+                                        outcome["mac"].as_str().unwrap_or(""),
+                                        outcome["expires"].as_str().unwrap_or("—")
+                                    )
+                                }
+                            }
+                            _ => format!(
+                                "已开启无感认证：{}（到期 {}，缺省服务 {}）",
+                                outcome["mac"].as_str().unwrap_or(""),
+                                outcome["expires"].as_str().unwrap_or("—"),
+                                outcome["service"].as_str().unwrap_or("套餐默认服务")
+                            ),
+                        };
+                        let refreshed = self.runtime.backend.self_service(&config).await;
+                        if let Err(error) = &refreshed {
+                            self.runtime
+                                .recording
+                                .task(self.action, self.phase, Some(error));
+                        }
+                        self.runtime.update(|state| {
+                            state.self_notice = notice.clone();
+                            state.log("success", &notice);
+                            match refreshed {
+                                Ok(snapshot) => {
+                                    state.self_service = snapshot;
+                                    state.self_error.clear();
+                                }
+                                Err(error) => {
+                                    let message = format!(
+                                        "变更已提交，但重新读取失败 [{}]",
+                                        diagnostic_detail(self.action, self.phase, &error)
+                                    );
+                                    state.self_service = Value::Null;
+                                    state.self_error = message.clone();
+                                    state.log("error", &message);
+                                }
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        self.runtime
+                            .recording
+                            .task(self.action, self.phase, Some(&error));
+                        let message = format!(
+                            "{fail_prefix} [{}]",
                             diagnostic_detail(self.action, self.phase, &error)
                         );
                         self.runtime.update(|state| {
@@ -1478,6 +1767,9 @@ impl Worker {
                     );
                     return;
                 }
+                if !paused && self.guard.is_some() {
+                    self.renew_nosense_if_needed(&config).await;
+                }
                 (
                     config.check_interval as f64,
                     if paused {
@@ -1548,6 +1840,144 @@ impl Worker {
             }
         });
     }
+
+    pub(super) async fn renew_nosense_if_needed(&mut self, config: &Config) {
+        let store = self.runtime.store.clone();
+        let cfg_copy = config.clone();
+        let Ok((nosense, book)) = self
+            .runtime
+            .blocking(move || Ok((store.load_nosense(), store.load_accounts(&cfg_copy))))
+            .await
+        else {
+            return;
+        };
+        let mut targets: Vec<(Config, String, Option<String>)> = Vec::new();
+        let mut used_macs = std::collections::HashSet::new();
+        if !config.username.is_empty() && !config.password.is_empty() {
+            if let Some(rule) = nosense.accounts.get(&config.username) {
+                if rule.auto_renew {
+                    let mac = if rule.target_mac.is_empty() {
+                        "current".to_string()
+                    } else {
+                        rule.target_mac.clone()
+                    };
+                    let svc = (!rule.service.is_empty()).then(|| rule.service.clone());
+                    used_macs.insert(mac.clone());
+                    targets.push((config.clone(), mac, svc));
+                }
+            } else if nosense.auto_renew {
+                let mac = if nosense.target_mac.is_empty() {
+                    "current".to_string()
+                } else {
+                    nosense.target_mac.clone()
+                };
+                let svc = (!nosense.service.is_empty()).then(|| nosense.service.clone());
+                used_macs.insert(mac.clone());
+                targets.push((config.clone(), mac, svc));
+            }
+        }
+        if let Ok(book) = book {
+            for account in book.accounts {
+                if !account.enabled
+                    || account.username.is_empty()
+                    || account.password.is_empty()
+                    || account.username == config.username
+                {
+                    continue;
+                }
+                let Some(rule) = nosense.accounts.get(&account.username) else {
+                    continue;
+                };
+                if !rule.auto_renew
+                    || rule.target_mac.is_empty()
+                    || used_macs.contains(&rule.target_mac)
+                {
+                    continue;
+                }
+                used_macs.insert(rule.target_mac.clone());
+                let svc = if rule.service.is_empty() {
+                    Some(account.service.clone())
+                } else {
+                    Some(rule.service.clone())
+                };
+                targets.push((account.config(config), rule.target_mac.clone(), svc));
+            }
+        }
+        let active_users: std::collections::HashSet<&str> = targets
+            .iter()
+            .map(|(c, _, _)| c.username.as_str())
+            .collect();
+        self.nosense_schedule
+            .retain(|k, _| active_users.contains(k.as_str()));
+        if targets.is_empty() {
+            return;
+        }
+        let mut messages = Vec::new();
+        let mut any_renewed = false;
+        let mut any_failed = false;
+        for (acct_cfg, target_mac, service) in targets {
+            let key = format!(
+                "{}|{}|{}",
+                Reconnect::identity(&acct_cfg),
+                target_mac,
+                service.as_deref().unwrap_or("")
+            );
+            if self
+                .nosense_schedule
+                .get(&acct_cfg.username)
+                .is_some_and(|(k, next)| k == &key && Instant::now() < *next)
+            {
+                continue;
+            }
+            match self
+                .runtime
+                .backend
+                .self_nosense_renew(&acct_cfg, &target_mac, service.as_deref(), false)
+                .await
+            {
+                Ok(outcome) => {
+                    self.nosense_schedule.insert(
+                        acct_cfg.username.clone(),
+                        (key, Instant::now() + Duration::from_secs(21_600)),
+                    );
+                    let expires = outcome["expires"].as_str().unwrap_or("");
+                    let renewed = outcome["renewed"].as_bool().unwrap_or(false);
+                    any_renewed |= renewed;
+                    let msg = if renewed {
+                        if expires.is_empty() {
+                            "无感认证已自动续约".to_string()
+                        } else {
+                            format!("无感认证已自动续约（到期 {expires}）")
+                        }
+                    } else if expires.is_empty() {
+                        "无感认证有效".to_string()
+                    } else {
+                        format!("无感认证有效（到期 {expires}）")
+                    };
+                    messages.push(msg);
+                }
+                Err(_) => {
+                    any_failed = true;
+                    self.nosense_schedule.insert(
+                        acct_cfg.username.clone(),
+                        (key, Instant::now() + Duration::from_secs(1_800)),
+                    );
+                    messages.push("无感自动续约待重试".to_string());
+                }
+            }
+        }
+        if !messages.is_empty() {
+            let joined = messages.join("；");
+            self.runtime.update(|state| {
+                state.nosense = nosense_value(&nosense, &joined);
+                if any_renewed {
+                    state.log("success", &joined);
+                } else if any_failed {
+                    state.log("error", &joined);
+                }
+            });
+        }
+    }
 }
 
 fn normalize_info(value: &Value) -> Option<Value> {
@@ -1596,6 +2026,10 @@ struct Demo {
     online: bool,
     service: Option<String>,
     user: String,
+    nosense_mac: Option<String>,
+    nosense_service: String,
+    nosense_expires: String,
+    nosense_by_user: std::collections::HashMap<String, (String, String, String)>,
     #[cfg(test)]
     ip: Option<String>,
     #[cfg(test)]
@@ -1809,6 +2243,7 @@ impl Backend {
                     return Err(error);
                 }
                 let online = demo.online;
+                let bound = demo.nosense_mac.as_deref() == Some("02-00-00-00-00-01");
                 let snapshot = SelfSnapshot {
                     devices: if online {
                         vec![SelfDevice {
@@ -1822,6 +2257,22 @@ impl Backend {
                             unified_authentication: true,
                             online_user_uuid: "fixture-device-1".into(),
                             online: true,
+                            bind_no_sense: bound,
+                            no_sense_expires: if bound {
+                                demo.nosense_expires.clone()
+                            } else {
+                                String::new()
+                            },
+                            default_service: if bound {
+                                if demo.nosense_service.is_empty() {
+                                    "套餐默认服务".into()
+                                } else {
+                                    demo.nosense_service.clone()
+                                }
+                            } else {
+                                String::new()
+                            },
+                            ..SelfDevice::default()
                         }]
                     } else {
                         Vec::new()
@@ -1874,6 +2325,165 @@ impl Backend {
                     devices: Vec::new(),
                 };
                 Ok(serde_json::to_value(kick).unwrap_or(Value::Null))
+            }
+        }
+    }
+
+    async fn self_nosense_enable(
+        &self,
+        config: &Config,
+        selector: &str,
+        service: Option<&str>,
+    ) -> Result<Value, AuthError> {
+        match self {
+            Self::Native(recording) => {
+                let client = AuthClient::new(config.clone())?.with_trace(recording.trace());
+                let out: SelfNoSense = client.self_nosense_enable(selector, service).await?;
+                Ok(serde_json::to_value(out).unwrap_or(Value::Null))
+            }
+            Self::Demo(demo) => {
+                config.require_credentials()?;
+                let mut demo = demo.lock().unwrap();
+                let mac = if selector.trim().is_empty()
+                    || selector.eq_ignore_ascii_case("current")
+                    || selector == "1"
+                {
+                    "02-00-00-00-00-01".to_string()
+                } else {
+                    ysu_auth::normalize_mac(selector)
+                        .ok_or_else(|| AuthError::new(2, "MAC 地址格式无效"))?
+                };
+                let svc = match service.map(str::trim).filter(|s| !s.is_empty()) {
+                    Some("校园网" | "套餐默认服务") => "套餐默认服务".to_string(),
+                    Some(other) => other.to_string(),
+                    None if !demo.nosense_service.is_empty() => demo.nosense_service.clone(),
+                    None => "套餐默认服务".to_string(),
+                };
+                let renewed = demo.nosense_mac.is_some();
+                demo.nosense_mac = Some(mac.clone());
+                demo.nosense_service = svc.clone();
+                let exp = "2026-11-17 22:00:00".to_string();
+                demo.nosense_expires = exp.clone();
+                demo.nosense_by_user.insert(
+                    config.username.clone(),
+                    (mac.clone(), svc.clone(), exp.clone()),
+                );
+                let out = SelfNoSense {
+                    action: "nosense".into(),
+                    mac,
+                    bind_no_sense: true,
+                    expires: exp,
+                    service: svc,
+                    renewed,
+                    unbound: Vec::new(),
+                    devices: Vec::new(),
+                };
+                Ok(serde_json::to_value(out).unwrap_or(Value::Null))
+            }
+        }
+    }
+
+    async fn self_nosense_disable(
+        &self,
+        config: &Config,
+        selector: &str,
+    ) -> Result<Value, AuthError> {
+        match self {
+            Self::Native(recording) => {
+                let client = AuthClient::new(config.clone())?.with_trace(recording.trace());
+                let out: SelfNoSense = client.self_nosense_disable(selector).await?;
+                Ok(serde_json::to_value(out).unwrap_or(Value::Null))
+            }
+            Self::Demo(demo) => {
+                config.require_credentials()?;
+                let mut demo = demo.lock().unwrap();
+                let removed_user = demo
+                    .nosense_by_user
+                    .remove(&config.username)
+                    .map(|(m, _, _)| m);
+                let Some(mac) = demo.nosense_mac.take().or(removed_user) else {
+                    return Err(AuthError::new(2, "当前没有已开启无感认证的设备"));
+                };
+                demo.nosense_service.clear();
+                demo.nosense_expires.clear();
+                let out = SelfNoSense {
+                    action: "unbind".into(),
+                    mac: mac.clone(),
+                    bind_no_sense: false,
+                    expires: String::new(),
+                    service: String::new(),
+                    renewed: false,
+                    unbound: vec![mac],
+                    devices: Vec::new(),
+                };
+                Ok(serde_json::to_value(out).unwrap_or(Value::Null))
+            }
+        }
+    }
+
+    async fn self_device_service(
+        &self,
+        config: &Config,
+        selector: &str,
+        service: &str,
+    ) -> Result<Value, AuthError> {
+        match self {
+            Self::Native(recording) => {
+                let client = AuthClient::new(config.clone())?.with_trace(recording.trace());
+                let out: SelfNoSense = client.self_device_service(selector, service).await?;
+                Ok(serde_json::to_value(out).unwrap_or(Value::Null))
+            }
+            Self::Demo(demo) => {
+                config.require_credentials()?;
+                let mut demo = demo.lock().unwrap();
+                let Some(mac) = demo.nosense_mac.clone() else {
+                    return Err(AuthError::new(2, "请先为该设备开启无感认证"));
+                };
+                let svc = if service.trim() == "校园网" {
+                    "套餐默认服务".to_string()
+                } else {
+                    service.trim().to_string()
+                };
+                demo.nosense_service = svc.clone();
+                let exp = demo.nosense_expires.clone();
+                demo.nosense_by_user.insert(
+                    config.username.clone(),
+                    (mac.clone(), svc.clone(), exp.clone()),
+                );
+                let out = SelfNoSense {
+                    action: "service".into(),
+                    mac,
+                    bind_no_sense: true,
+                    expires: demo.nosense_expires.clone(),
+                    service: svc,
+                    renewed: false,
+                    unbound: Vec::new(),
+                    devices: Vec::new(),
+                };
+                Ok(serde_json::to_value(out).unwrap_or(Value::Null))
+            }
+        }
+    }
+
+    async fn self_nosense_renew(
+        &self,
+        config: &Config,
+        selector: &str,
+        service: Option<&str>,
+        force: bool,
+    ) -> Result<Value, AuthError> {
+        match self {
+            Self::Native(recording) => {
+                let client = AuthClient::new(config.clone())?.with_trace(recording.trace());
+                let out: SelfNoSense = client.self_nosense_renew(selector, service, force).await?;
+                Ok(serde_json::to_value(out).unwrap_or(Value::Null))
+            }
+            Self::Demo(demo) => {
+                let mut out = self.self_nosense_enable(config, selector, service).await?;
+                out["action"] = "renew".into();
+                out["renewed"] = true.into();
+                let _ = demo;
+                Ok(out)
             }
         }
     }

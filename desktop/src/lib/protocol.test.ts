@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { accountItems, advanceLogFloor, formatDiagnostics, formatLogTime, parseSnapshot, snapshotEvent, SnapshotSequence, synchronizeSnapshots, validateConfig } from './protocol';
+import { accountItems, advanceLogFloor, formatDiagnostics, formatLogTime, normalizeMac, parseSnapshot, snapshotEvent, SnapshotSequence, synchronizeSnapshots, validateConfig } from './protocol';
 import type { Snapshot, Transport } from './protocol';
 import { createDemoTransport, demoSnapshot } from './demo';
 
@@ -41,6 +41,55 @@ describe('snapshot contract', () => {
     expect(() => parseSnapshot({ ...base, self_service: { devices: 'bad' } })).toThrow('自助服务数据格式异常');
     expect(() => parseSnapshot({ ...base, self_error: 123 })).toThrow('自助服务错误格式异常');
     expect(() => parseSnapshot({ ...base, self_notice: false })).toThrow('自助服务通知格式异常');
+    expect(() => parseSnapshot({ ...base, nosense: { auto_renew: 'bad' } })).toThrow('无感配置格式异常');
+  });
+  it('supports seamless authentication enable, service update, renew, disable, and auto-renew config', async () => {
+    expect(normalizeMac('aa:bb:cc:dd:ee:ff')).toBe('AA-BB-CC-DD-EE-FF');
+    expect(normalizeMac('invalid-mac')).toBeNull();
+
+    const transport = createDemoTransport();
+    await transport.request('action', { name: 'self_nosense_enable', value: 'current|中国移动' });
+    const enabled = parseSnapshot(await transport.request('snapshot', {}));
+    expect(enabled.self_service?.devices[0]?.bindNoSense).toBe(true);
+    expect(enabled.self_service?.devices[0]?.defaultService).toBe('中国移动');
+    expect(enabled.self_service?.devices[0]?.noSenseExpires).toBe('2026-11-17 20:00:00');
+    expect(enabled.self_notice).toContain('已开启无感认证');
+
+    await transport.request('action', { name: 'self_device_service', value: '1|中国联通' });
+    const modified = parseSnapshot(await transport.request('snapshot', {}));
+    expect(modified.self_service?.devices[0]?.defaultService).toBe('中国联通');
+    expect(modified.self_notice).toContain('已更新设备缺省服务');
+
+    await transport.request('nosense', { auto_renew: true, target_mac: 'aa:bb:cc:dd:ee:ff', service: '中国移动' });
+    const configured = parseSnapshot(await transport.request('snapshot', {}));
+    expect(configured.nosense).toEqual({
+      auto_renew: true,
+      target_mac: 'AA-BB-CC-DD-EE-FF',
+      service: '中国移动',
+      accounts: {},
+      message: '自动续约已开启（目标 AA-BB-CC-DD-EE-FF · 服务 中国移动）',
+    });
+
+    await transport.request('nosense', { account: 'fixture-student-b', auto_renew: true, target_mac: '11:22:33:44:55:66', service: '中国联通' });
+    const poolConfigured = parseSnapshot(await transport.request('snapshot', {}));
+    expect(poolConfigured.nosense?.accounts).toEqual({
+      'fixture-student-b': {
+        auto_renew: true,
+        target_mac: '11-22-33-44-55-66',
+        service: '中国联通',
+      },
+    });
+    expect(poolConfigured.nosense?.message).toBe('账号 fixture-student-b 的无感自动续约已开启');
+
+    await transport.request('action', { name: 'self_nosense_renew', value: 'aa:bb:cc:dd:ee:ff|中国移动' });
+    const renewed = parseSnapshot(await transport.request('snapshot', {}));
+    expect(renewed.self_service?.devices.some((d) => d.userMac === 'AA-BB-CC-DD-EE-FF' && d.bindNoSense)).toBe(true);
+    expect(renewed.self_notice).toContain('已续约无感认证');
+
+    await transport.request('action', { name: 'self_nosense_disable', value: 'all' });
+    const disabled = parseSnapshot(await transport.request('snapshot', {}));
+    expect(disabled.self_service?.devices.every((d) => !d.bindNoSense)).toBe(true);
+    expect(disabled.self_notice).toContain('已关闭无感认证');
   });
   it('defaults legacy startup mode to tray but rejects malformed native mode values', () => {
     const data = demoSnapshot();

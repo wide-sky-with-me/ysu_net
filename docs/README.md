@@ -1,49 +1,40 @@
 # 文档导航
 
-[项目首页](../README.md) · [新用户 Wiki](wiki/Home.md) · [支持与反馈](../SUPPORT.md)
+[返回首页](../README.md) · [快速开始](wiki/Quick-Start.md) · [桌面客户端](wiki/Desktop-Client.md) · [命令与配置](usage.md) · [排障指南](wiki/Troubleshooting.md)
 
-## 安装与使用
+本目录汇总 **YSU Net** 的使用指南、功能说明与开发文档。
 
-| 目标 | 入口 |
+## 用户指南
+
+| 文档 | 内容概览 |
 | --- | --- |
-| 选择桌面版或命令行版、下载安装 | [首页快速开始](../README.md#快速开始)、[Wiki 入门](wiki/Quick-Start.md) |
-| 桌面连接、账户查询与托盘 | [桌面使用指南](wiki/Desktop-Client.md) |
-| 命令、配置、systemd 与退出码 | [CLI 使用说明](usage.md) |
-| 保存账号、手动切换与自动换号 | [多账号管理](accounts.md) |
-| 软件内更新、完整包与差分条件 | [签名更新](updates.md) |
-| 升级、旧 Qt / 候选包迁移及卸载 | [迁移指南](migration.md) |
-| DNS、门户跳转、状态或认证异常 | [排障](wiki/Troubleshooting.md) |
-| 断网前开启链路记录、离线保存调试证据 | [桌面调试记录](debug-recording.md)（自 0.2.4 起） |
-| 我的设备、套餐与自助服务查询 / 下线 | [CLI 自助服务](usage.md#自助服务ysu-self)、[桌面设备页](wiki/Desktop-Client.md#设备自助服务)、[协议探测记录](self-service-probe-2026-11-09.md) |
-| 反复遇到验证码、按需启用自动识别 | [CLI 验证码识别](usage.md#验证码识别)、[桌面验证码识别](tauri-desktop.md#验证码识别) |
-| 界面预览及截图来源 | [截图说明](screenshots/README.md)、[界面设计](rust-desktop-design.md) |
+| [Wiki 首页](wiki/Home.md) | 首次安装选择、核心流程与常用文档入口 |
+| [快速开始](wiki/Quick-Start.md) | 桌面客户端与 Linux 命令行的三步安装与连接教程 |
+| [桌面客户端指南](wiki/Desktop-Client.md) | 连接、账户、设备管理、7 天无感认证、自动续约、设置与托盘操作说明 |
+| [命令与配置完整手册](usage.md) | `ysu` 全部子命令、无感认证与自助服务命令、配置文件字段、环境变量与 systemd 服务管理 |
+| [CLI 速查表](wiki/CLI-Reference.md) | 终端高频命令、退出码与常用排障指令速查 |
+| [多账号池、流量换号与无感联动](accounts.md) | 多账号管理、手动热切换、零剩余流量自动轮换，以及多账号下的无感认证交接与独立续约 |
+| [常见问题排障](wiki/Troubleshooting.md) | 登录失败、假在线、无感认证冲突、DNS 异常、浏览器模式与 systemd 守护排查步骤 |
+| [桌面链路调试记录](debug-recording.md) | 在桌面端「日志」页开启本地脱敏诊断记录并导出排查文件的方法 |
+| [软件内签名更新](updates.md) | Windows / macOS 软件内更新检查、Minisign 签名校验与差分更新说明 |
+| [更新、卸载与旧版迁移](migration.md) | 桌面版与命令行版升级步骤、卸载方法及早期版本迁移指南 |
 
-当前正式版本与开发源码的区别统一见[首页发行状态](../README.md#发行与候选状态)。使用旧版本时，以对应标签文档为准；本目录中的带日期记录保留当时结论，不作为当前能力清单。
+## 架构与开发
 
-## 实现与维护
-
-| 主题 | 入口 |
+| 文档 | 内容概览 |
 | --- | --- |
-| 产品、代码与配置边界 | [架构](architecture.md) |
-| Rust 认证、状态观察、DNS 与云端构建 | [桌面运行语义](tauri-desktop.md) |
-| Python 模块、回归与 CI 门禁 | [开发验证](development.md) |
-| 共用 Rust 认证库的无界面验证 | [认证探针](rust-auth-probe.md) |
-| 贡献流程、文档与 Wiki 同步 | [贡献指南](../CONTRIBUTING.md)、[社区维护](community-maintenance.md) |
-| 脱敏、公开反馈与安全报告 | [资料规则](security.md)、[安全报告入口](../SECURITY.md) |
+| [产品形态与系统架构](architecture.md) | Rust 桌面端与 Python CLI 的模块划分、配置共享、认证流程与安全边界 |
+| [Tauri 原生桌面版说明](tauri-desktop.md) | 桌面后台运行器、门户与自助服务协议、无感认证续约调度、构建环境与验证方法 |
+| [桌面界面设计规范](rust-desktop-design.md) | 视觉层级、色彩主题、响应式布局、交互动效与无障碍设计规则 |
+| [无界面认证验证探针](rust-auth-probe.md) | 使用 `ysu-auth-probe` 独立验证 Rust 认证核心的输入输出约定 |
+| [开发与测试说明](development.md) | 代码目录结构、单元测试、代码规范与 GitHub Actions 持续集成流程 |
+| [界面截图说明](screenshots/README.md) | 文档演示截图的生成来源与校验摘要 |
 
-编译、打包和产品测试只在 GitHub Actions 执行；本机文档维护使用静态检查，具体要求见[贡献指南](../CONTRIBUTING.md#开发验证)。
+## 社区与隐私
 
-## 验证记录
-
-[桌面验收导航](desktop-acceptance.md)按阶段串联正式发布、界面、安装和更新证据；每份记录注明源码、环境与未覆盖范围。
-
-- [0.2.9 发布记录](desktop-release-0.2.9.md)：修复自助服务 `/self/index` OAuth2 会话预热与 `redirect_blocked` 回调问题，完善设备页批量下线与错误诊断展示。
-- [0.2.8 发布记录](desktop-release-0.2.8.md)：修复桌面“设备”页快照解析与自助服务跳转链，优化双端设备展示。
-- [0.2.7 发布记录](desktop-release-0.2.7.md)：设备自助服务（桌面“设备”页与 `ysu self`）首次随版本发行。
-- [0.2.6 发布记录](desktop-release-0.2.6.md)与[0.2.5 发布记录](desktop-release-0.2.5.md)：各自标签的四平台门禁、独立浏览器验收、Python 分发与 13 个公开附件。
-- [验证码识别核验](captcha-recognition-2026-11-07.md)：三张真实样本、四平台云端门禁与未覆盖项；已随 0.2.6 正式发布。
-- [0.2.3 发布与真实认证验证](desktop-release-0.2.3.md)：四平台产物、签名及公开下载，21 的 Rust 登录 / 退出与 Windows 原生只读查询。
-- [21 Shell 链路对照](portal-21-review-2026-10-28.md)与[账号池实测](account-pool-21-review-2026-10-28.md)：保留当次 Python CLI 和守护切换证据。
-- [DNS / TLS 只读核验](portal-ip-fallback-2026-10-28.md)与[123 服务登录对照](portal-123-review-2026-10-27.md)：分别记录连接地址验证及 CAS 后服务拒绝。
-
-认证库通过不代表 GUI、Worker 账号池或软件内升级全部通过；剩余场景见[验收边界](desktop-acceptance.md#尚未证明的范围)。
+| 文档 | 内容概览 |
+| --- | --- |
+| [隐私与脱敏规则](security.md) | 本地凭据保护方式与公开提交 Issue / Discussion 前的脱敏检查清单 |
+| [隐私与反馈渠道](wiki/Privacy-and-Reporting.md) | 问题反馈、功能建议、问答与私密安全报告的渠道选择 |
+| [参与贡献](wiki/Contributing.md) | 提交 Issue、PR 与改进文档的协作指引（完整约定见 [CONTRIBUTING.md](../CONTRIBUTING.md)） |
+| [社区入口与 Wiki 维护](community-maintenance.md) | Issue 表单静态检查与 `docs/wiki/` 同步至 GitHub Wiki 的维护步骤 |

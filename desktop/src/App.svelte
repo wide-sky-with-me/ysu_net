@@ -19,8 +19,8 @@
   import { createTransport } from './lib/bridge';
   import { beginStateObservation } from './lib/observation';
   import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice, splitDiagnosticError } from './lib/presentation';
-  import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
-  import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
+  import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, normalizeMac, NOSENSE_SERVICES, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
+  import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, NoSenseService, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
   import type { SelfDevice, SelfService } from './lib/protocol';
   import { CAPTCHA_STATUS_FAILED, captchaProblem, captchaSummary } from './lib/captcha';
 
@@ -65,6 +65,11 @@
   let logSearch = $state('');
   let logFloor = $state(0);
   let previousConfig = '';
+  let previousNosense = '';
+  let nosenseAccount = $state('');
+  let nosenseTargetMac = $state('');
+  let nosenseService = $state<NoSenseService>('套餐默认服务');
+  let nosenseDirty = $state(false);
   let selectedAccount = $state('');
   let accountSelect = $state<HTMLSelectElement>();
 
@@ -79,6 +84,7 @@
   const reconnectMessage = $derived(reconnectNotice(snapshot?.auto));
   const switchMessage = $derived(accountSwitchNotice(snapshot?.accounts.message));
   const targetAccount = $derived(snapshot?.accounts.items.find((item) => item.id === selectedAccount));
+  const selectedNoSenseAutoRenew = $derived(nosenseAccount ? Boolean(snapshot?.nosense?.accounts?.[nosenseAccount]?.auto_renew) : Boolean(snapshot?.nosense?.auto_renew));
   const quotaTitle = $derived(snapshot ? { unknown: '额度未知', available: '门户已提供额度', zero_reported: '门户报告剩余流量为零', unlimited: '门户报告不限量' }[snapshot.accounts.quota.state] : '额度待确认');
   const theme = $derived(snapshot?.prefs.theme || 'system');
   const accent = $derived(snapshot?.prefs.accent || DEFAULT_ACCENT);
@@ -123,6 +129,21 @@
     document.documentElement.style.colorScheme = actualTheme;
   });
 
+  function syncNoSenseForm(next: Snapshot | null, selectedAcct = nosenseAccount) {
+    if (!next) return;
+    if (selectedAcct) {
+      const rule = next.nosense?.accounts?.[selectedAcct];
+      const acctItem = next.accounts.items.find((item) => item.username === selectedAcct);
+      nosenseTargetMac = rule?.target_mac || '';
+      const rawSvc = rule?.service || acctItem?.service || next.config.service || '套餐默认服务';
+      nosenseService = (rawSvc === '校园网' ? '套餐默认服务' : NOSENSE_SERVICES.includes(rawSvc as NoSenseService) ? rawSvc : '套餐默认服务') as NoSenseService;
+    } else {
+      nosenseTargetMac = next.nosense?.target_mac || '';
+      const rawSvc = next.nosense?.service || next.config.service || '套餐默认服务';
+      nosenseService = (rawSvc === '校园网' ? '套餐默认服务' : NOSENSE_SERVICES.includes(rawSvc as NoSenseService) ? rawSvc : '套餐默认服务') as NoSenseService;
+    }
+  }
+
   function receive(next: Snapshot) {
     if (!mounted) return;
     if (snapshot) logFloor = advanceLogFloor(snapshot.logs, next.logs, logFloor);
@@ -133,6 +154,16 @@
       if (!accountDirty) accountUsername = next.config.username;
       if (!parametersDirty) parameters = { ...next.config };
       previousConfig = configKey;
+    }
+    const nosenseKey = JSON.stringify(next.nosense);
+    if (nosenseKey !== previousNosense) {
+      if (nosenseAccount && !next.accounts.items.some((item) => item.username === nosenseAccount) && !next.nosense?.accounts?.[nosenseAccount]) {
+        nosenseAccount = '';
+      }
+      if (!nosenseDirty) {
+        syncNoSenseForm(next, nosenseAccount);
+      }
+      previousNosense = nosenseKey;
     }
     if (logFloor > next.logs.length) logFloor = 0;
   }
@@ -256,6 +287,79 @@
       confirm: '全部下线', danger: true, icon: 'shield',
       run: () => { void action('self_kick', 'all'); },
     };
+  }
+
+  function deviceLabel(device: SelfDevice): string {
+    const name = device.deviceName && device.deviceName !== device.deviceType ? `${device.deviceName} · ${device.deviceType || '设备'}` : (device.deviceType || device.deviceName || '设备');
+    return `${name}（${device.userMac || '无 MAC'}）`;
+  }
+
+  function confirmEnableNoSense(index: number, device: SelfDevice) {
+    const label = deviceLabel(device);
+    const service = nosenseService || '套餐默认服务';
+    confirmation = {
+      title: '开启无感认证',
+      message: `将为 ${label} 开启 7 天无感认证（缺省服务：${service}）。若账号已绑定其他无感设备，将自动切换为该设备。`,
+      confirm: '开启无感', icon: 'shield',
+      run: () => { void action('self_nosense_enable', `${index}|${service}`); },
+    };
+  }
+
+  function confirmDisableNoSense(index: number, device: SelfDevice) {
+    const label = deviceLabel(device);
+    confirmation = {
+      title: '关闭无感认证',
+      message: `将解除 ${label} 的无感认证绑定，下次连接需重新登录。`,
+      confirm: '关闭无感', danger: true, icon: 'shield',
+      run: () => { void action('self_nosense_disable', String(index)); },
+    };
+  }
+
+  function resolveNoSenseMacInput(): string | null {
+    const raw = nosenseTargetMac.trim();
+    if (!raw) return '';
+    const parsed = normalizeMac(raw);
+    if (!parsed) {
+      notice = { message: '请输入有效的设备 MAC 地址（如 AA-BB-CC-DD-EE-FF）', error: true };
+      return null;
+    }
+    return parsed;
+  }
+
+  function chooseNoSenseAccount(username: string) {
+    nosenseAccount = username;
+    nosenseDirty = false;
+    syncNoSenseForm(snapshot, username);
+  }
+
+  function setNoSenseAutoRenew(enabled: boolean) {
+    const mac = resolveNoSenseMacInput();
+    if (mac === null) return;
+    const acct = nosenseAccount.trim();
+    void execute(async () => {
+      await transport.request('nosense', { ...(acct ? { account: acct } : {}), auto_renew: enabled, target_mac: mac, service: nosenseService });
+      nosenseDirty = false;
+      nosenseTargetMac = mac;
+    }, undefined, !enabled);
+  }
+
+  function saveNoSenseConfig() {
+    const mac = resolveNoSenseMacInput();
+    if (mac === null) return;
+    const acct = nosenseAccount.trim();
+    void execute(async () => {
+      await transport.request('nosense', { ...(acct ? { account: acct } : {}), target_mac: mac, service: nosenseService });
+      nosenseDirty = false;
+      nosenseTargetMac = mac;
+    }, '无感续约设置已保存。');
+  }
+
+  function applyNoSenseTarget() {
+    const mac = resolveNoSenseMacInput();
+    if (mac === null) return;
+    nosenseTargetMac = mac;
+    const target = mac || 'current';
+    void action('self_nosense_renew', `${target}|${nosenseService}`);
   }
 
   function connect() {
@@ -513,21 +617,81 @@
                         <strong>{device.deviceType || device.deviceName || '设备'}</strong>
                         {#if device.deviceName && device.deviceName !== device.deviceType}<span class="device-name">{device.deviceName}</span>{/if}
                         {#if device.currentDevice}<span class="badge">本机</span>{/if}
+                        {#if device.bindNoSense}<span class="badge">无感</span>{/if}
                         {#if !device.online}<span class="badge muted">离线</span>{/if}
+                      </div>
+                      <div class="device-row-actions">
+                        {#if device.bindNoSense}
+                          <select class="device-service-select" aria-label={`设备 ${index + 1} 缺省服务`} value={device.defaultService || '套餐默认服务'} disabled={locked || external} onchange={(event) => { void action('self_device_service', `${index + 1}|${event.currentTarget.value}`); }}>
+                            {#each NOSENSE_SERVICES as svc}<option value={svc}>{svc}</option>{/each}
+                          </select>
+                          <button type="button" class="quiet-button" disabled={locked || external} onclick={() => { void action('self_nosense_renew', `${index + 1}|${device.defaultService || nosenseService || '套餐默认服务'}`); }}>续约无感</button>
+                          <button type="button" class="quiet-button danger-text" disabled={locked || external} onclick={() => confirmDisableNoSense(index + 1, device)}>关闭无感</button>
+                        {:else}
+                          <button type="button" class="quiet-button" disabled={locked || external} onclick={() => confirmEnableNoSense(index + 1, device)}>开启无感</button>
+                        {/if}
+                        {#if device.online}
+                          <button type="button" class="quiet-button danger-text" disabled={locked} onclick={() => confirmKick(index + 1, device)}>下线</button>
+                        {/if}
                       </div>
                       <dl class="device-meta">
                         <div><dt>MAC</dt><dd class="numeric">{device.userMac || '—'}</dd></div>
                         <div><dt>IP</dt><dd class="numeric">{device.userIpv4 || '—'}</dd></div>
                         <div><dt>在线时长</dt><dd class="numeric">{device.onlineDuration || '—'}</dd></div>
                         <div><dt>接入</dt><dd>{device.authType || '—'}</dd></div>
+                        {#if device.bindNoSense}
+                          <div><dt>缺省服务</dt><dd>{device.defaultService || '套餐默认服务'}</dd></div>
+                          <div><dt>无感到期</dt><dd class="numeric">{device.noSenseExpires || '—'}</dd></div>
+                        {/if}
                       </dl>
-                      {#if device.online}
-                        <button type="button" class="quiet-button danger-text" disabled={locked} onclick={() => confirmKick(index + 1, device)}>下线</button>
-                      {/if}
                     </li>
                   {/each}
                 </ul>
               {/if}
+            </section>
+            <section class="settings-section" aria-labelledby="nosense-heading">
+              <div class="section-heading">
+                <div class="device-heading-title">
+                  <h2 id="nosense-heading">无感认证</h2>
+                  <span class="inline-label idle">限 1 台 · 7 天有效</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div>
+                  <span>自动续约</span>
+                  {#if snapshot?.nosense?.message}<p>{snapshot.nosense.message}</p>{/if}
+                </div>
+                <Toggle checked={selectedNoSenseAutoRenew} disabled={localLocked || external || (busy && !selectedNoSenseAutoRenew)} label="无感自动续约" onchange={setNoSenseAutoRenew} />
+              </div>
+              <form class="nosense-form" onsubmit={(event) => { event.preventDefault(); saveNoSenseConfig(); }}>
+                <fieldset class="nosense-fields" disabled={locked || external}>
+                  {#if (snapshot?.accounts.items.length ?? 0) > 0}
+                    <label class="form-row">
+                      <span>续约账号</span>
+                      <select aria-label="无感续约账号" value={nosenseAccount} onchange={(event) => chooseNoSenseAccount(event.currentTarget.value)}>
+                        <option value="">跟随当前活动账号</option>
+                        {#each snapshot?.accounts.items ?? [] as item}
+                          <option value={item.username}>{item.label ? `${item.label}（${item.username}）` : item.username}{item.current ? ' · 当前' : ''}{snapshot?.nosense?.accounts?.[item.username]?.auto_renew ? ' · 自动续约' : ''}</option>
+                        {/each}
+                      </select>
+                    </label>
+                  {/if}
+                  <label class="form-row">
+                    <span>目标 MAC</span>
+                    <input name="nosense-mac" autocomplete="off" placeholder="留空默认本机，或输入 XX-XX-XX-XX-XX-XX" bind:value={nosenseTargetMac} oninput={() => { nosenseDirty = true; }} />
+                  </label>
+                  <label class="form-row">
+                    <span>缺省服务</span>
+                    <select aria-label="无感缺省服务" bind:value={nosenseService} onchange={() => { nosenseDirty = true; }}>
+                      {#each NOSENSE_SERVICES as svc}<option value={svc}>{svc}</option>{/each}
+                    </select>
+                  </label>
+                  <div class="form-actions nosense-actions">
+                    <button type="button" disabled={locked || external} onclick={applyNoSenseTarget}>按目标开启 / 续约</button>
+                    <button type="submit" class="primary-button" disabled={locked || external}>保存续约设置</button>
+                  </div>
+                </fieldset>
+              </form>
             </section>
             {#if selfData.package.package || selfData.package.balance || selfData.flow.length || selfData.remember.remembered !== null}
               <section class="settings-section" aria-labelledby="self-summary-heading">

@@ -1,7 +1,7 @@
-import { SERVICES, rotationControl, validateAccount } from './protocol';
+import { NOSENSE_SERVICES, normalizeMac, SERVICES, rotationControl, validateAccount } from './protocol';
 import { normalizeAccent } from './accents';
 import packageInfo from '../../package.json';
-import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, PublicAccount, SaveAccount, Snapshot, Transport } from './protocol';
+import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, NoSenseService, PublicAccount, SaveAccount, Snapshot, Transport } from './protocol';
 
 const DEMO_VERSION = `${packageInfo.version}-demo`;
 
@@ -35,6 +35,7 @@ export function demoSnapshot(search = ''): Snapshot {
       fields: scenario === 'online-details' ? [['账号', '20260001'], ['用户', '演示用户'], ['IP 地址', '2001:db8::42'], ['SSID', 'Campus Demo'], ['当前服务', '中国移动']] : [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']],
       items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB']] } : null,
     info_error: scenario === 'info-error' ? '账户信息获取失败，请稍后重试' : '',
+    nosense: { auto_renew: false, target_mac: '', service: '', accounts: {}, message: '无感自动续约已关闭' },
     logs: [
       { timestamp: '08:42:03', level: 'info', message: '离线模拟已启动；所有数据和操作均为演示' },
       { timestamp: '08:42:04', level: 'success', message: '模拟：校园网状态查询完成' },
@@ -53,6 +54,32 @@ export function createDemoTransport(search = ''): Transport {
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
   let infoTimer: ReturnType<typeof setTimeout> | undefined;
   let nextId = 1;
+  let nosenseMac = '';
+  let nosenseService = '套餐默认服务';
+  let nosenseExpires = '';
+  const buildSelfService = () => {
+    const baseDevices = state.status?.online ? [{
+      deviceName: '我的设备', deviceType: '电脑', userMac: '02-00-00-00-00-01', userIpv4: state.status.ip,
+      onlineDuration: '0时12分', authType: nosenseMac === '02-00-00-00-00-01' ? '无线无感知认证' : '无线标准Portal接入',
+      currentDevice: true, unifiedAuthentication: true, online: true,
+      bindNoSense: nosenseMac === '02-00-00-00-00-01',
+      noSenseExpires: nosenseMac === '02-00-00-00-00-01' ? nosenseExpires : '',
+      defaultService: nosenseMac === '02-00-00-00-00-01' ? nosenseService : '套餐默认服务',
+    }] : [];
+    const extraDevices = nosenseMac && nosenseMac !== '02-00-00-00-00-01' ? [{
+      deviceName: '', deviceType: '手机', userMac: nosenseMac, userIpv4: null,
+      onlineDuration: '', authType: '无线无感知认证',
+      currentDevice: false, unifiedAuthentication: false, online: false,
+      bindNoSense: true, noSenseExpires: nosenseExpires, defaultService: nosenseService,
+    }] : [];
+    return {
+      devices: [...baseDevices, ...extraDevices],
+      online: state.status?.online ? 1 : 0,
+      package: { package: '硕士研究生60G', rule: '0.00—60.00GB内免费', period: '2026-11-01 至 2026-11-30', used: '国内下行流量:10 GB 46.53 MB /60 GB 0.00 MB', percent: 16.74, balance: '0.00' },
+      flow: [{ name: '国内下行流量', total: '60 GB 0.00 MB', left: '49 GB 977.47 MB', percent: 16.7 }],
+      remember: { remembered: false, service: '', expires: '' },
+    };
+  };
   const snapshot = () => structuredClone(state);
   const publish = () => {
     state.sequence += 1;
@@ -132,13 +159,7 @@ export function createDemoTransport(search = ''): Transport {
         }
         if (name === 'self_service') {
           if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
-          state.self_service = {
-            devices: state.status?.online ? [{ deviceName: '我的设备', deviceType: '电脑', userMac: '02-00-00-00-00-01', userIpv4: state.status.ip, onlineDuration: '0时12分', authType: '无线标准Portal接入', currentDevice: true, unifiedAuthentication: true, online: true }] : [],
-            online: state.status?.online ? 1 : 0,
-            package: { package: '硕士研究生60G', rule: '0.00—60.00GB内免费', period: '2026-11-01 至 2026-11-30', used: '国内下行流量:10 GB 46.53 MB /60 GB 0.00 MB', percent: 16.74, balance: '0.00' },
-            flow: [{ name: '国内下行流量', total: '60 GB 0.00 MB', left: '49 GB 977.47 MB', percent: 16.7 }],
-            remember: { remembered: false, service: '', expires: '' },
-          };
+          state.self_service = buildSelfService();
           state.self_error = '';
           state.self_notice = '';
         }
@@ -155,11 +176,113 @@ export function createDemoTransport(search = ''): Transport {
           };
           state.self_error = '';
         }
+        if (name === 'self_nosense_enable' || name === 'self_nosense_renew') {
+          if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
+          const [rawTarget = 'current', rawService = ''] = String(value ?? 'current').split('|');
+          const target = rawTarget.trim() || 'current';
+          let mac = '02-00-00-00-00-01';
+          if (target !== 'current' && target !== '1') {
+            const parsed = normalizeMac(target);
+            if (!parsed) throw new Error('请输入有效的设备 MAC 地址');
+            mac = parsed;
+          }
+          const svc = rawService.trim() || (name === 'self_nosense_renew' ? (state.nosense?.service || nosenseService || state.config.service) : '套餐默认服务');
+          if (!NOSENSE_SERVICES.includes(svc as NoSenseService) && svc !== '校园网') throw new Error('请选择有效的缺省服务');
+          nosenseMac = mac;
+          nosenseService = svc === '校园网' ? '套餐默认服务' : svc;
+          nosenseExpires = '2026-11-17 20:00:00';
+          state.self_service = buildSelfService();
+          state.self_error = '';
+          state.self_notice = `${name === 'self_nosense_renew' ? '已续约' : '已开启'}无感认证：${nosenseMac} · 缺省服务 ${nosenseService} · 到期 ${nosenseExpires}`;
+        }
+        if (name === 'self_nosense_disable') {
+          if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
+          if (!nosenseMac) throw new Error('模拟：当前没有已开启无感认证的设备');
+          const oldMac = nosenseMac;
+          nosenseMac = '';
+          nosenseExpires = '';
+          nosenseService = '套餐默认服务';
+          state.self_service = buildSelfService();
+          state.self_error = '';
+          state.self_notice = `已关闭无感认证：${oldMac}`;
+        }
+        if (name === 'self_device_service') {
+          if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
+          const [, rawService = ''] = String(value ?? '').split('|');
+          const svc = rawService.trim();
+          if (!NOSENSE_SERVICES.includes(svc as NoSenseService) && svc !== '校园网') throw new Error('请选择有效的缺省服务');
+          if (!nosenseMac) throw new Error('门户仅保留无感认证设备的缺省服务，请先开启无感认证');
+          nosenseService = svc === '校园网' ? '套餐默认服务' : svc;
+          state.self_service = buildSelfService();
+          state.self_error = '';
+          state.self_notice = `已更新设备缺省服务：${nosenseMac} → ${nosenseService}`;
+        }
         if (name === 'set_auto') {
           state.auto = { state: value ? 'on' : 'off', message: value ? '正在监测连接，断线后自动登录' : '自动重连已关闭' }; state.prefs.auto_reconnect = !!value;
           if (!value) state.accounts.auto_switch = false;
         }
-        log({ login: '连接并独立查询状态完成', logout: '下线完成', switch: `已切换到${value}`, set_service: `下次连接使用${value}`, set_auto: value ? '自动重连已开启' : '自动重连已关闭', info: '账户查询完成', status: '状态查询完成', self_service: '自助服务读取完成', self_kick: '设备下线完成' }[name]);
+        log({ login: '连接并独立查询状态完成', logout: '下线完成', switch: `已切换到${value}`, set_service: `下次连接使用${value}`, set_auto: value ? '自动重连已开启' : '自动重连已关闭', info: '账户查询完成', status: '状态查询完成', self_service: '自助服务读取完成', self_kick: '设备下线完成', self_nosense_enable: '无感认证已开启', self_nosense_disable: '无感认证已关闭', self_device_service: '设备缺省服务已更新', self_nosense_renew: '无感认证已续约' }[name]);
+      } else if (command === 'nosense') {
+        const changes = args as CoreCommands['nosense'];
+        const currentNosense = state.nosense || { auto_renew: false, target_mac: '', service: '', accounts: {}, message: '无感自动续约已关闭' };
+        const accounts = { ...(currentNosense.accounts || {}) };
+        const acct = changes.account?.trim();
+        if (acct && acct !== 'current') {
+          if (changes.remove) {
+            delete accounts[acct];
+            const message = `已移除账号 ${acct} 的无感续约设置`;
+            state.nosense = { ...currentNosense, accounts, message };
+            log(message);
+          } else {
+            const prev = accounts[acct] || { auto_renew: false, target_mac: '', service: '' };
+            let target_mac = prev.target_mac;
+            if (changes.target_mac !== undefined) {
+              const raw = changes.target_mac.trim();
+              if (!raw) target_mac = '';
+              else {
+                const parsed = normalizeMac(raw);
+                if (!parsed) throw new Error('请输入有效的设备 MAC 地址');
+                target_mac = parsed;
+              }
+            }
+            let service = prev.service;
+            if (changes.service !== undefined) {
+              const raw = changes.service.trim();
+              if (raw && !NOSENSE_SERVICES.includes(raw as NoSenseService) && raw !== '校园网') throw new Error('请选择有效的缺省服务');
+              service = raw;
+            }
+            const auto_renew = changes.auto_renew !== undefined ? changes.auto_renew : prev.auto_renew;
+            accounts[acct] = { auto_renew, target_mac, service };
+            const message = auto_renew
+              ? `账号 ${acct} 的无感自动续约已开启`
+              : `账号 ${acct} 的无感自动续约已关闭`;
+            state.nosense = { ...currentNosense, accounts, message };
+            log(message);
+          }
+        } else {
+          let target_mac = currentNosense.target_mac;
+          if (changes.target_mac !== undefined) {
+            const raw = changes.target_mac.trim();
+            if (!raw) target_mac = '';
+            else {
+              const parsed = normalizeMac(raw);
+              if (!parsed) throw new Error('请输入有效的设备 MAC 地址');
+              target_mac = parsed;
+            }
+          }
+          let service = currentNosense.service;
+          if (changes.service !== undefined) {
+            const raw = changes.service.trim();
+            if (raw && !NOSENSE_SERVICES.includes(raw as NoSenseService) && raw !== '校园网') throw new Error('请选择有效的缺省服务');
+            service = raw;
+          }
+          const auto_renew = changes.auto_renew !== undefined ? changes.auto_renew : currentNosense.auto_renew;
+          const message = auto_renew
+            ? `自动续约已开启（目标 ${target_mac || '当前设备'} · 服务 ${service || '跟随当前配置'}）`
+            : '无感自动续约已关闭';
+          state.nosense = { auto_renew, target_mac, service, accounts, message };
+          log(message);
+        }
       } else if (command === 'save_account') {
         guardAccounts();
         const changes = args as SaveAccount;

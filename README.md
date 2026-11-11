@@ -1,165 +1,126 @@
-# ysu-net · 燕山大学校园网管理工具
+# YSU Net · 燕山大学校园网客户端
 
-校园网登录、运营商切换、账户查询、设备管理与自动重连，提供跨平台桌面版和 Linux 命令行版。
+[![Test](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/test.yml/badge.svg)](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/test.yml)
+[![Native Rust desktop builds](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml/badge.svg)](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml)
+[![Community files](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/community.yml/badge.svg)](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/community.yml)
+[![GitHub release](https://img.shields.io/github/v/release/wide-sky-with-me/ysu_net?include_prereleases&label=release)](https://github.com/wide-sky-with-me/ysu_net/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0f766e)](docs/tauri-desktop.md)
+[![Runtime](https://img.shields.io/badge/desktop-Tauri%20%2B%20Rust-f97316)](docs/tauri-desktop.md)
+[![Python](https://img.shields.io/badge/CLI-Python%203.12%2B-2563eb)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-16a34a)](LICENSE)
 
-[下载桌面版](https://github.com/wide-sky-with-me/ysu_net/releases/latest) · [命令行安装](#命令行版) · [使用说明](docs/usage.md) · [更新日志](packaging/release-notes.md)
+[快速开始](#快速开始) · [核心功能](#核心功能) · [桌面客户端](#桌面客户端) · [Linux 命令行](#linux-命令行) · [文档导航](docs/README.md) · [问题排障](docs/wiki/Troubleshooting.md)
 
-![桌面连接页：连接状态、运营商选择、自动重连与账号切换](docs/screenshots/desktop-connection-light.png)
+**YSU Net** 是面向燕山大学校园网（`auth1.ysu.edu.cn` / `cer.ysu.edu.cn`）的跨平台网络连接与管理工具，提供 **Windows / Linux / macOS 原生桌面客户端** 和 **Linux 命令行与后台守护工具（`ysu`）**。
 
-截图来自 v0.2.3 云端界面演示，账号、地址与额度均为合成数据。[截图来源](docs/screenshots/README.md)
+支持一键登录与下线、运营商切换、断线自动重连、多账号池与零流量自动换号、在线设备管理，以及 **7 天无感认证与后台自动续约**。
 
-## 选择版本
-
-| 版本 | 适用场景 | 运行方式 |
+| 连接页 · 浅色 | 账户页 · 深色 | 多账号池 · 深色 |
 | --- | --- | --- |
-| **桌面版** | Windows、Linux、macOS 日常使用 | Tauri + Svelte + Rust，支持托盘和用户登录自启，无需 Python / Node 认证运行时 |
-| **命令行版** | Linux 服务器、终端与 systemd 后台 | Python 3.12，统一使用 `ysu`；无 systemd 时可前台守护 |
+| ![桌面客户端连接页浅色界面](docs/screenshots/desktop-connection-light.png) | ![桌面客户端账户页深色界面](docs/screenshots/desktop-account-dark.png) | ![桌面客户端多账号编辑深色界面](docs/screenshots/desktop-accounts-dark.png) |
 
-两端保持配置和认证语义兼容，各自运行认证逻辑；同一配置只运行一套自动重连。模块职责见[项目架构](docs/architecture.md)。
+---
 
-## 桌面版
+## 核心功能
 
-### 发行与候选状态
+- **一键认证与断线重连**：默认采用轻量 HTTP API 完成 Portal + CAS 统一身份认证，支持校园网、中国移动、中国联通、中国电信四类出口切换，断网后按指数退避策略自动重连。
+- **7 天无感认证与自动续约**：支持直接开启、关闭门户 7 天 MAC 无感认证并修改默认上网服务；开启「自动续约」后，后台会在 7 天有效期届满前 24 小时内自动解绑并重新绑定，彻底告别每周掉线重登。
+- **多账号池与无缝换号**：支持保存多个校园网账号并配置启用状态与优先级，支持手动热切换或剩余流量归零时自动轮换；切换账号时可自动解绑旧账号的本机无感认证并为新账号重新绑定。
+- **在线设备与套餐管理**：直连校园网自助服务（`/self`），查看当前账号下的所有在线设备（名称、类型、MAC、IP、在线时长、接入方式）、计费套餐与剩余流量，支持远程下线单台或全部设备。
+- **验证码自动识别与 DNS 容错**：内置可选离线验证码识别（`ddddocr` / ONNX）应对 CAS 验证码挑战；内置门户与认证域名备用 IP，在校园网 DNS 异常时自动回退连接并保持完整 HTTPS 证书校验。
 
-**正式 v0.2.9 已发布并成为 Latest**。安装包来自 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)，云端与真实环境验证范围见[发布记录](docs/desktop-release-0.2.9.md)。主分支源码、开发产物与正式安装包按各自提交区分。
+---
 
-0.2.9 修复真实校园网下读取“设备”页时因缺少 `/self/index` OAuth2 会话预热触发 `redirect_blocked` 的问题，并优化“设备”页批量下线、错误诊断展示与日志文案；设备自助服务（读取 `auth1.ysu.edu.cn/self` 在线设备、套餐与剩余流量及下线指定设备）与 0.2.6 引入的按需[验证码自动识别](docs/captcha-recognition-2026-11-07.md)（“设置 → 认证”，默认不启用）保持兼容。
+## 快速开始
 
-| 系统 | 安装包（国内加速镜像 · GitHub 原链） |
-| --- | --- |
-| Windows 10 / 11 x64 | [国内镜像下载 EXE](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_windows-x64-setup.exe) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_windows-x64-setup.exe) |
-| Ubuntu 22.04 及更新，x86_64 | [国内镜像下载 DEB](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_linux-x64.deb) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_linux-x64.deb) |
-| macOS 13.5+，Apple 芯片 | [国内镜像下载 arm64 DMG](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_macos-arm64.dmg) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_macos-arm64.dmg) |
-| macOS 13.5+，Intel | [国内镜像下载 x64 DMG](https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_macos-x64.dmg) · [GitHub](https://github.com/wide-sky-with-me/ysu_net/releases/download/v0.2.9/YSU-Net_0.2.9_macos-x64.dmg) |
+根据你的使用环境选择对应形态（同一台设备上请只开启其中一种自动管理）：
 
-Windows / macOS 可主动检查更新；本次仅提供完整包，没有差分附件。Linux 通过系统包手动升级。macOS 安装包未经过 Apple 公证，Safari 等浏览器下载并拖入“应用程序”后若提示“已损坏，无法打开”，在终端执行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"` 后再打开。旧 Qt / Inno 版和旧候选包先看[迁移说明](docs/migration.md#桌面-v024-升级)，更新与签名规则见[软件更新](docs/updates.md)。
+| 形态 | 适用系统 | 特点 | 获取与安装 |
+| --- | --- | --- | --- |
+| **桌面客户端** | Windows 10/11 x64<br>Ubuntu 22.04+ x64<br>macOS 13.5+ (Apple Silicon / Intel) | 图形界面、系统托盘驻留、开机自启、软件内检查更新（Windows / macOS），无需安装 Python | 前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应安装包 |
+| **Linux 命令行 (`ysu`)** | Linux 桌面、服务器、WSL、SSH 终端 | 极低资源占用、systemd 后台守护、支持交互菜单与脚本自动化 | 克隆仓库后运行 `bash install.sh` |
 
-### 主要功能
+### 发行版本说明
 
-- **连接管理**：登录、下线、独立状态查询，支持校园网及中国移动 / 联通 / 电信服务。
-- **账号池**：[多账号热切换与可选零流量自动换号](docs/accounts.md)，切换后核验实际账号与服务。
-- **账户信息**：查看套餐、剩余流量与门户原始字段；缺失数据保持未知，不补造余额。
-- **设备自助服务**：读取门户自助服务的在线设备与套餐，核对后下线指定设备；下线前后各读一次列表，设备仍在在线就报失败。**只读查询会复用会话**，30 分钟内重复打开不会重新登录。
-- **后台与外观**：托盘、用户登录自启、浅色 / 深色及多种主题色。
-- **验证码识别**：桌面端在“设置 → 认证”按需下载约 52 MB 的识别模型，之后 CAS 验证码在本机识别；CLI 用可选依赖 `ddddocr`（`bash install.sh --captcha`）。模型不随安装包分发，未启用时仍按人工处理，见[验证码核验](docs/captcha-recognition-2026-11-07.md)。
-- **诊断与更新**：固定分类日志、本地环境诊断、随包更新日志与主动检查更新。
+当前版本为 **v0.3.0**。桌面安装包与更新清单统一由 GitHub Actions 在四平台构建并通过自检后发布至 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)。
 
-| 账户与剩余流量 | 账号管理 |
-| --- | --- |
-| ![深色账户页：套餐、剩余流量与演示在线信息](docs/screenshots/desktop-account-dark.png) | ![深色账号管理页：编辑备用账号、运营商和认证方式](docs/screenshots/desktop-accounts-dark.png) |
+| 平台 | Release 安装包 | 安装与升级方式 |
+| --- | --- | --- |
+| Windows 10 / 11 x64 | `YSU-Net_0.3.0_windows-x64-setup.exe` | 双击运行安装器（当前用户安装，免管理员权限）；支持在「关于」页检查更新 |
+| Ubuntu 22.04+ x64 | `YSU-Net_0.3.0_linux-x64.deb` | 执行 `sudo apt install ./YSU-Net_0.3.0_linux-x64.deb` |
+| macOS 13.5+ Apple 芯片 | `YSU-Net_0.3.0_macos-arm64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
+| macOS 13.5+ Intel | `YSU-Net_0.3.0_macos-x64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
 
-认证及状态语义见[Tauri 桌面说明](docs/tauri-desktop.md#运行语义)，自助服务的设备页行为见[桌面使用指南](docs/wiki/Desktop-Client.md#设备自助服务)，完整界面规则见[设计说明](docs/rust-desktop-design.md)。
+> **macOS 首次打开提示**：由于安装包未使用付费 Apple Developer ID 公证，若首次启动提示“已损坏，无法打开”，请在终端执行：
+> `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"`
 
-## 命令行版
+---
 
-提供交互式终端菜单（`ysu` / `ysu accounts`）、非交互子命令与 systemd 用户级 / 系统级后台重连，无 systemd 环境支持 `ysu daemon` 前台守护。
+## 桌面客户端
 
-### 快速开始
+安装并打开 **YSU Net** 后，即可按侧栏分区完成全部操作：
 
-在 **Linux 终端** 选择一个**持久目录**（普通用户如 `~/ysu_net`，系统级安装如 `/opt/ysu_net`；**切勿放在 `/tmp` 等临时目录**）克隆仓库。先准备 Git、Python 3.12+ 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)，再执行安装：
+1. **连接**：查看当前在线状态、运营商、学号与 IP；一键连接、断开、切换运营商，或开启「自动重连」与「零流量自动换号」。
+2. **账户**：查看当前在线账号的套餐周期、剩余流量与门户连接详情。
+3. **设备**：
+   - 查看所有在线设备，支持远程下线本机或其他设备（或一键全部下线）。
+   - 在「无感认证（7天）」区域一键为本机或在线设备**开启 7 天无感认证**、**关闭无感**、**切换默认上网服务**，并开启**到期自动续约**。
+4. **设置**：管理主账号与多账号池、切换浅色/深色主题与强调色、配置开机自启与托盘驻留、管理离线验证码识别模型。
+5. **日志 / 关于**：查看运行日志、开启本地故障调试记录，或在「关于」页检查软件更新与查看版本记录。
+
+详细说明请参阅 [桌面客户端指南](docs/wiki/Desktop-Client.md) 与 [Tauri 桌面版说明](docs/tauri-desktop.md)。
+
+---
+
+## Linux 命令行
+
+### 1. 安装与初始化
 
 ```bash
-git clone https://gh-proxy.com/https://github.com/wide-sky-with-me/ysu_net.git ~/ysu_net
-cd ~/ysu_net
-bash install.sh
+git clone https://github.com/wide-sky-with-me/ysu_net.git
+cd ysu_net
+bash install.sh                  # 默认安装用户级命令与 systemd 服务
 export PATH="$HOME/.local/bin:$PATH"
+
+ysu config account               # 交互输入学号/工号与密码
+ysu service                      # 选择运营商（校园网 / 中国移动 / 中国联通 / 中国电信）
+ysu on                           # 立即登录并启动后台自动重连
 ```
 
-生成的命令与 systemd 服务直接引用 `<项目目录>/.venv/bin/python`，安装后**不能删除或移动项目目录**（若移动目录，需在新位置重新执行 `bash install.sh`）；上面的 `PATH` 仅作用于当前终端，长期使用请写入 `~/.bashrc` 或 `~/.zshrc`。
+可选安装参数：
+- `bash install.sh --captcha`：一并安装离线验证码识别依赖（`ddddocr`）。
+- `bash install.sh --browser`：一并安装 Playwright 浏览器认证支持及 Chromium。
+- `sudo env PATH="$PATH" bash install.sh --system`：安装为系统级服务（`/etc/ysu-net/config.json`，开机无需登录桌面即可联网）。
 
-| 安装范围 | 安装命令 | 命令入口 | 配置与账号簿 | systemd 单元 |
-| --- | --- | --- | --- | --- |
-| **当前用户（默认）** | `bash install.sh` | `~/.local/bin/{ysu,ysuon,ysuoff}` | `~/.config/ysu-net/config.json` | `~/.config/systemd/user/ysu-net.service` |
-| **系统级（root）** | `sudo env PATH="$PATH" bash install.sh --system` | `/usr/local/bin/{ysu,ysuon,ysuoff}` | `/etc/ysu-net/config.json` | `/etc/systemd/system/ysu-net.service` |
+### 2. 常用命令速查
 
-安装不会自动登录或启动重连，按顺序完成首次配置与验证：
+| 场景 | 命令 | 说明 |
+| --- | --- | --- |
+| **日常连接** | `ysu on` / `ysu off` | 登录并启动后台守护 / 停止守护并下线 |
+| | `ysu status` / `ysu info` | 查看连接与守护状态 / 查看套餐与剩余流量 |
+| | `ysu service 中国联通` | 切换到指定运营商并更新配置 |
+| | `ysu start` / `ysu stop` | 仅启动或停止后台自动重连（不下线当前连接） |
+| **无感认证与续约** | `ysu self` | 查看在线设备、套餐流量、7 天无感认证与自动续约状态 |
+| | `ysu self nosense current --service 中国联通` | 为本机开启 7 天无感认证并设置默认上网服务 |
+| | `ysu self renew on` | 开启本机无感认证到期前 24 小时自动续约 |
+| | `ysu self unbind current` | 取消本机（或指定序号/MAC、`all`）的无感认证 |
+| | `ysu self kick 2` / `ysu self kick all` | 下线指定设备或全部在线设备 |
+| **多账号池** | `ysu account add` / `ysu account list` | 添加备用账号 / 查看账号池与流量状态 |
+| | `ysu account use <标识>` | 热切换到指定账号（自动同步解绑/重绑本机无感认证） |
+| | `ysu account auto on` | 开启剩余流量归零时自动切换到下一可用账号 |
+| **排障与维护** | `ysu doctor` / `ysu logs -f` | 检查本地配置与运行环境 / 实时查看守护日志 |
 
-```bash
-ysu config account    # 交互录入账号密码，密码不回显（系统级加 sudo）
-ysu service           # 选择校园网 / 移动 / 联通 / 电信
-ysu doctor            # 检查本地环境
-ysu login             # 接入校园网后验证登录
-ysu on                # 开启后台自动重连
-ysu boot on           # 可选：启用服务自启
-```
+完整参数、配置文件路径与高级用法请参阅 [命令与配置手册](docs/usage.md) 和 [多账号与无感联动说明](docs/accounts.md)。
 
-### 终端交互与常用命令
+---
 
-在交互终端直接运行 `ysu` 打开主菜单（输入 `15` / `h` / `?` 查看各项操作是否联网、是否中断当前连接），非交互终端显示帮助：
+## 文档导航
 
-```text
-YSU · 燕山大学校园网
-────────────────────────────────────────────────────
-  当前服务：中国移动 · API 认证
-  账号：已配置
-  管理范围：当前用户
-  网络状态：按 1 查询
-  → 首次使用或不确定操作影响？输入 15（或 h / ?）查看选项说明。
+- **入门与使用**：[文档总览](docs/README.md) · [快速上手](docs/wiki/Quick-Start.md) · [桌面客户端指南](docs/wiki/Desktop-Client.md) · [命令行完整手册](docs/usage.md) · [多账号与自动换号](docs/accounts.md)
+- **维护与排障**：[常见问题排障](docs/wiki/Troubleshooting.md) · [版本更新与卸载迁移](docs/migration.md) · [软件内签名更新](docs/updates.md) · [链路调试记录](docs/debug-recording.md)
+- **架构与开发**：[产品与架构概览](docs/architecture.md) · [Tauri 桌面实现](docs/tauri-desktop.md) · [桌面界面设计](docs/rust-desktop-design.md) · [开发与测试指南](docs/development.md)
+- **社区与安全**：[支持与反馈](SUPPORT.md) · [隐私与脱敏规则](docs/security.md) · [参与贡献](CONTRIBUTING.md) · [安全问题报告](SECURITY.md)
 
-  连接管理
-   1  查看状态                  2  登录一次
-   3  开启自动重连              4  停止重连并下线
-   9  仅停止重连               13  账户与剩余流量
-  17  我的设备与自助服务
+## 反馈与隐私
 
-  配置与维护
-   5  配置账号                  6  配置下次登录服务
-   7  本地诊断 doctor          14  联网诊断 doctor
-   8  查看日志                 12  查看配置
-  10  开启自启                 11  关闭自启
-  16  多账号与自动换号         15  选项说明（用途与影响）
-
-   0  退出
-```
-
-| 常用命令 | 用途 |
-| --- | --- |
-| `ysu` / `ysu accounts` | 打开主交互菜单 / 多账号管理与热切换菜单 |
-| `ysu status [--raw]` / `ysu info [--raw]` | 查询在线状态 / 查看套餐与剩余流量（支持 JSON） |
-| `ysu self [--raw]` | 自助服务：在线设备、套餐、剩余流量与记住的上网选择 |
-| `ysu self kick <编号\|all> [--yes]` | 下线指定设备（会中断该设备的连接，需确认） |
-| `ysu switch <服务名>` | 立即切换运营商并独立核验，失败时尝试恢复原连接 |
-| `ysu accounts switch <ID>` / `rotation on\|off` | 热切换已保存账号 / 开启或关闭零流量自动换号 |
-| `ysu on`（`ysuon`） / `ysu stop` | 开启后台自动重连 / 仅停止重连并保留当前网络连接 |
-| `ysu off`（`ysuoff` / `ysu logout`） | 停止自动重连并退出当前校园网连接 |
-| `ysu logs -f` / `ysu doctor [--network]` | 持续跟随 systemd 日志 / 本地或联网诊断 |
-| `ysu daemon` | 无 systemd 时的前台守护（Ctrl+C 停止） |
-
-`ysu self` 登录自助服务读取只读数据，首次运行完整登录一次，之后 **30 分钟**内复用已保存的登录状态；`--fresh` 强制重新登录。频繁重试会触发统一认证的 IP 冻结，失败后不要循环重试。
-
-登录和真实状态查询需要接入校园网；未接入时可先安装、配置和运行 `ysu doctor`。也可在项目目录内运行 `uv run python -m ysu_net`。完整子命令、配置项与退出码见[使用说明](docs/usage.md)。
-
-<details>
-<summary>可选安装方式与服务设置</summary>
-
-```bash
-bash install.sh --captcha       # 额外安装验证码自动识别依赖（ddddocr）
-bash install.sh --browser       # 额外安装浏览器认证运行时
-bash install.sh --no-service    # 不注册服务
-bash install.sh --offline       # 使用已有解释器、依赖和缓存
-sudo env PATH="$PATH" bash install.sh --system  # 系统级安装
-```
-
-无 systemd 或用户总线时使用 `--no-service`，按[使用说明](docs/usage.md)运行前台守护。需要退出登录后继续运行的用户服务，可由管理员配置 `loginctl enable-linger`；安装器不自动启用。系统级安装、升级和卸载见[迁移指南](docs/migration.md)。
-
-</details>
-
-## 文档与交流
-
-| 主题 | 文档 |
-| --- | --- |
-| 文档总览与入门 | [文档导航](docs/README.md) · [Wiki](docs/wiki/Home.md) · [GitHub Wiki](https://github.com/wide-sky-with-me/ysu_net/wiki) |
-| 安装与日常使用 | [使用说明](docs/usage.md) · [多账号管理](docs/accounts.md) · [设备自助服务](docs/wiki/Desktop-Client.md#设备自助服务) |
-| 升级与版本验证 | [迁移指南](docs/migration.md) · [软件更新](docs/updates.md) · [验收记录](docs/desktop-acceptance.md) |
-| 项目结构与开发 | [项目架构](docs/architecture.md) · [开发与验证](docs/development.md) |
-| 参与项目 | [贡献指南](CONTRIBUTING.md) · [故障反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new/choose) · [Discussions](https://github.com/wide-sky-with-me/ysu_net/discussions) |
-
-分享日志或截图前移除真实账号、密码、会话及设备信息，参考[脱敏说明](docs/security.md#公开反馈的脱敏清单)。安全问题通过[私密报告入口](SECURITY.md)反馈。
-
-终端交互参考 [clash-for-linux](https://github.com/wnlen/clash-for-linux)。
-
-## 云端验证
-
-编译、打包和产品测试仅在 GitHub Actions 执行。开发构建使用独立分支，不打正式标签或发布 Release；云端失败继续修复云端流程。本机只下载、校验产物并做安装与运行验收。
-
-[原生桌面 CI](https://github.com/wide-sky-with-me/ysu_net/actions/workflows/tauri.yml) · [认证探针](docs/rust-auth-probe.md) · [构建前提](docs/tauri-desktop.md#构建前提) · [实际验证范围](docs/desktop-acceptance.md)
+遇到问题请先查看 [常见问题排障](docs/wiki/Troubleshooting.md) 或运行 `ysu doctor`。公开提交 Issue 或 Discussion 前，请务必阅读 [公开反馈的脱敏清单](docs/security.md#公开反馈的脱敏清单)，切勿上传包含真实学号、密码、Cookie、会话票据、完整配置文件或未打码 IP/MAC 的内容。

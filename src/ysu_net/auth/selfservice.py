@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
@@ -27,12 +29,36 @@ from .common import QueryError
 SELF_PATH = "/self/index"
 
 DEVICES = "/sam/api/userself/devices"
+DEFAULT_SERVICES = "/sam/api/userself/devices/defaultServicesList"
 PACKAGE_OVERVIEW = "/sam/api/userself/package/overview"
 PACKAGE_FLOW = "/sam/api/userself/package/flow"
 REMEMBER_CURRENT = "/sam/api/userself/rememberService/current"
 KICK_OFFLINE = "/sam/api/userself/devices/kick-offline/batch"
+NOSENSE_REGISTER = "/sam/api/userself/nosense/register"
+NOSENSE_UNBIND = "/sam/api/userself/nosense/unbind/batch"
+DEVICE_MODIFY = "/sam/api/userself/devices/modify"
+DEFAULT_SERVICE_PACKAGE = "00_DEFAULT_IN_PACKAGE"
+NOSENSE_RENEW_THRESHOLD = 86400
 KICK_VERIFY_SECONDS = 12.0
 KICK_VERIFY_INTERVAL = 3.0
+
+_DEFAULT_SERVICE_UUIDS = {
+    "套餐默认服务": DEFAULT_SERVICE_PACKAGE,
+    "校园网": DEFAULT_SERVICE_PACKAGE,
+    "默认": DEFAULT_SERVICE_PACKAGE,
+    "中国移动": "8a8b808256b247030156b282869a008f",
+    "中国电信": "8a8b808256b247030156b2831c150095",
+    "中国联通": "8a8b808256b247030156b2813f020087",
+}
+_UUID_TO_DEFAULT_SERVICE = {
+    DEFAULT_SERVICE_PACKAGE: "套餐默认服务",
+    "8a8b808256b247030156b282869a008f": "中国移动",
+    "8a8b808256b247030156b2831c150095": "中国电信",
+    "8a8b808256b247030156b2813f020087": "中国联通",
+}
+_BEIJING_TZ = timezone(timedelta(hours=8))
+_MAC_HEX_RE = re.compile(r"^[0-9A-F]{12}$")
+_MAC_DASH_RE = re.compile(r"^(?:[0-9A-F]{2}-){5}[0-9A-F]{2}$")
 
 _DEVICE_FIELDS = (
     ("deviceName", "设备名称"),
@@ -44,6 +70,75 @@ _DEVICE_FIELDS = (
 )
 _MAX_TEXT = 4096
 _MAX_DEVICES = 64
+
+
+def normalize_mac(value: str | None) -> str | None:
+    """Normalize a MAC address to uppercase XX-XX-XX-XX-XX-XX, or None if invalid."""
+    if not isinstance(value, str):
+        return None
+    raw = value.strip().upper().replace(":", "-")
+    if "." in raw:
+        parts = raw.split(".")
+        if len(parts) == 3 and all(len(p) == 4 for p in parts):
+            raw = "".join(parts)
+    if _MAC_HEX_RE.fullmatch(raw):
+        raw = "-".join(raw[i:i + 2] for i in range(0, 12, 2))
+    if not _MAC_DASH_RE.fullmatch(raw):
+        return None
+    if raw in ("00-00-00-00-00-00", "FF-FF-FF-FF-FF-FF"):
+        return None
+    return raw
+
+
+def require_mac(value: str | None) -> str:
+    mac = normalize_mac(value)
+    if not mac:
+        raise QueryError("MAC 地址格式无效，应为 XX-XX-XX-XX-XX-XX")
+    return mac
+
+
+def format_epoch_ms(value) -> str:
+    """Format epoch milliseconds in UTC+8 (matching portal timestamps)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return ""
+    try:
+        return datetime.fromtimestamp(value / 1000.0, tz=_BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def parse_default_services(payload) -> list[dict]:
+    if isinstance(payload, dict) and "data" in payload and payload["data"] is None:
+        return []
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        raise QueryError("自助服务缺省服务列表响应结构异常")
+    items = []
+    for item in data[:16]:
+        if not isinstance(item, dict):
+            continue
+        label, value = _text(item.get("label")), _text(item.get("value"))
+        if label and value:
+            items.append({"label": label, "value": value})
+    return items
+
+
+def resolve_default_service(name: str | None, services: list[dict] | None = None) -> tuple[str, str]:
+    """Resolve user service label/alias to (canonical_label, uuid)."""
+    wanted = (name or "").strip()
+    if wanted in ("校园网", "默认"):
+        wanted = "套餐默认服务"
+    for item in services or ():
+        if item.get("label") == wanted and item.get("value"):
+            return item["label"], item["value"]
+        if item.get("value") == wanted and item.get("label"):
+            return item["label"], item["value"]
+    if wanted in _DEFAULT_SERVICE_UUIDS:
+        uuid = _DEFAULT_SERVICE_UUIDS[wanted]
+        return _UUID_TO_DEFAULT_SERVICE.get(uuid, wanted), uuid
+    if wanted in _UUID_TO_DEFAULT_SERVICE:
+        return _UUID_TO_DEFAULT_SERVICE[wanted], wanted
+    raise QueryError("缺省服务无效，可选：套餐默认服务（或校园网）、中国移动、中国联通、中国电信")
 
 
 def self_service_url(base: str) -> str:
@@ -88,11 +183,15 @@ def _text(value) -> str:
     return out[:_MAX_TEXT]
 
 
-def parse_devices(payload) -> dict:
+def parse_devices(payload, services: list[dict] | None = None) -> dict:
     """Split online/offline devices into display rows; never invent values."""
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
         raise QueryError("自助服务设备响应结构异常")
+    uuid_map = dict(_UUID_TO_DEFAULT_SERVICE)
+    for item in services or ():
+        if isinstance(item, dict) and item.get("value") and item.get("label"):
+            uuid_map[item["value"]] = item["label"]
     rows = []
     for group in ("onlineDevices", "offlineDevices"):
         items = data.get(group)
@@ -104,9 +203,29 @@ def parse_devices(payload) -> dict:
             row = {label: _text(item.get(key)) for key, label in _DEVICE_FIELDS}
             row["在线"] = "是" if group == "onlineDevices" else "否"
             row["本机"] = "是" if item.get("currentDevice") is True else "否"
+            bind_nosense = item.get("bindNoSense") is True
+            create_ms = item.get("noSenseCreateTime")
+            if isinstance(create_ms, bool) or not isinstance(create_ms, int):
+                create_ms = None
+            end_ms = item.get("noSenseEndTime")
+            if isinstance(end_ms, bool) or not isinstance(end_ms, int):
+                end_ms = None
+            service_uuid = _text(item.get("defaultServiceOperaporsConfigUuid"))
+            terminal_type = item.get("terminalType")
+            if isinstance(terminal_type, bool) or not isinstance(terminal_type, int):
+                terminal_type = 1
+            row["无感"] = "是" if bind_nosense else "否"
+            row["无感到期"] = format_epoch_ms(end_ms) if bind_nosense else ""
+            row["缺省服务"] = uuid_map.get(service_uuid, service_uuid) if service_uuid else ""
             # 核验用的原始标识，渲染时不显示
             row["_uuid"] = _text(item.get("onlineUserUuid"))
             row["_unified"] = item.get("unifiedAuthentication") is True
+            row["_nosense_uuid"] = _text(item.get("noSenseUuid"))
+            row["_nosense_create_ms"] = create_ms
+            row["_nosense_end_ms"] = end_ms
+            row["_service_uuid"] = service_uuid
+            row["_terminal_type"] = terminal_type
+            row["_location"] = _text(item.get("location"))
             rows.append(row)
     return {"online": sum(1 for r in rows if r["在线"] == "是"),
             "total": len(rows), "rows": rows}
@@ -214,19 +333,77 @@ def _jar(session: requests.Session) -> list[dict]:
             for c in session.cookies]
 
 
+def _session_cache_key(base: str, username: str) -> str:
+    return f"{base.rstrip('/')}|{username}"
+
+
+def _read_session_store(path: Path) -> dict | None:
+    try:
+        if not path.is_file() or path.stat().st_size > _CACHE_MAX_BYTES:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != 1:
+        return None
+    return data
+
+
+def _extract_sessions(data: dict | None, now: int) -> dict[str, dict]:
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict] = {}
+    raw_sessions = data.get("sessions")
+    if isinstance(raw_sessions, dict):
+        for k, item in raw_sessions.items():
+            if (isinstance(k, str) and isinstance(item, dict)
+                    and isinstance(item.get("base"), str)
+                    and isinstance(item.get("username"), str)
+                    and isinstance(item.get("saved_at"), int)
+                    and now - item["saved_at"] <= SESSION_TTL
+                    and isinstance(item.get("cookies"), list) and item["cookies"]):
+                out[k] = item
+    if (isinstance(data.get("base"), str) and isinstance(data.get("username"), str)
+            and isinstance(data.get("saved_at"), int)
+            and now - data["saved_at"] <= SESSION_TTL
+            and isinstance(data.get("cookies"), list) and data["cookies"]):
+        top_key = _session_cache_key(data["base"], data["username"])
+        out.setdefault(top_key, {
+            "base": data["base"],
+            "username": data["username"],
+            "saved_at": data["saved_at"],
+            "cookies": data["cookies"],
+        })
+    return out
+
+
+def _write_session_store(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    tmp = path.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+    os.replace(tmp, path)
+
+
 def save_session(session: requests.Session, base: str, username: str) -> None:
     """Persist the cookie jar for this origin+account; best effort."""
-    data = {"version": 1, "base": base.rstrip("/"), "username": username,
-            "saved_at": int(time.time()), "cookies": _jar(session)}
+    now = int(time.time())
+    norm_base = base.rstrip("/")
+    entry = {"base": norm_base, "username": username,
+             "saved_at": now, "cookies": _jar(session)}
+    session._ysu_self_saved_at = now  # noqa: SLF001 - internal marker
     try:
         path = cache_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        os.chmod(path.parent, 0o700)
-        tmp = path.with_suffix(".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(data, handle)
-        os.replace(tmp, path)
+        sessions = _extract_sessions(_read_session_store(path), now)
+        sessions[_session_cache_key(norm_base, username)] = entry
+        if len(sessions) > 32:
+            oldest = sorted(sessions.items(), key=lambda kv: kv[1].get("saved_at", 0))
+            for k, _ in oldest[:len(sessions) - 32]:
+                sessions.pop(k, None)
+        data = {"version": 1, **entry, "sessions": sessions}
+        _write_session_store(path, data)
     except OSError:
         pass   # a cache miss only costs one extra login
 
@@ -239,21 +416,26 @@ def _portal_session() -> requests.Session:
 
 def load_session(base: str, username: str, ttl: int = SESSION_TTL):
     """Return a session restored from cache, or None when unusable."""
-    try:
-        path = cache_path()
-        if not path.is_file() or path.stat().st_size > _CACHE_MAX_BYTES:
-            return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    path = cache_path()
+    data = _read_session_store(path)
+    if data is None:
         return None
-    if not isinstance(data, dict) or data.get("version") != 1:
+    norm_base = base.rstrip("/")
+    key = _session_cache_key(norm_base, username)
+    entry = None
+    raw_sessions = data.get("sessions")
+    if isinstance(raw_sessions, dict) and isinstance(raw_sessions.get(key), dict):
+        entry = raw_sessions[key]
+    elif data.get("base") == norm_base and data.get("username") == username:
+        entry = data
+    if not isinstance(entry, dict):
         return None
-    if data.get("base") != base.rstrip("/") or data.get("username") != username:
+    if entry.get("base") != norm_base or entry.get("username") != username:
         return None
-    saved_at = data.get("saved_at")
+    saved_at = entry.get("saved_at")
     if not isinstance(saved_at, int) or time.time() - saved_at > ttl:
         return None
-    cookies = data.get("cookies")
+    cookies = entry.get("cookies")
     if not isinstance(cookies, list) or not cookies:
         return None
     # Rebuild with the same headers a fresh login would use; a bare
@@ -266,23 +448,49 @@ def load_session(base: str, username: str, ttl: int = SESSION_TTL):
         if isinstance(name, str) and isinstance(value, str):
             session.cookies.set(name, value, domain=item.get("domain"),
                                 path=item.get("path"))
+    session._ysu_self_saved_at = saved_at  # noqa: SLF001 - internal marker
     return session
 
 
-def clear_session() -> None:
+def clear_session(base: str | None = None, username: str | None = None) -> None:
     try:
-        cache_path().unlink()
+        path = cache_path()
+        if not base or not username:
+            path.unlink()
+            return
+        now = int(time.time())
+        sessions = _extract_sessions(_read_session_store(path), now)
+        sessions.pop(_session_cache_key(base.rstrip("/"), username), None)
+        if not sessions:
+            path.unlink()
+            return
+        latest = max(sessions.values(), key=lambda item: item.get("saved_at", 0))
+        _write_session_store(path, {"version": 1, **latest, "sessions": sessions})
     except OSError:
         pass
 
 
 def _still_authorised(session: requests.Session, base: str, timeout: int = 15) -> bool:
-    """One lightweight GET decides whether the cached jar still works."""
+    """One lightweight GET decides whether the cached jar still works.
+
+    When /self's local SESSION cookie has expired (~30 min) but the unified-auth
+    CASTGC cookie is still valid, following /cas-sso/clientredirect re-mints
+    SESSION without submitting a password login.
+    """
     try:
         r = session.get(self_service_url(base), timeout=timeout, allow_redirects=True)
+        if r.status_code == 200 and _is_self_url(r.url):
+            return True
+        if r.status_code == 200 and any(c.name == "CASTGC" for c in session.cookies):
+            svc = seed_service(r.url, base)
+            redirect = (f"{base.rstrip('/')}/cas-sso/clientredirect"
+                        f"?client_name=sidadapter&service={quote(svc, safe='')}&accept-language=zh-CN")
+            r2 = session.get(redirect, timeout=timeout, allow_redirects=True)
+            if r2.status_code == 200 and _is_self_url(r2.url):
+                return True
     except requests.RequestException:
         return False
-    return r.status_code == 200 and _is_self_url(r.url)
+    return False
 
 
 def open_session(base: str, cas_host: str, username: str, password: str,
@@ -304,7 +512,7 @@ def open_session(base: str, cas_host: str, username: str, password: str,
             if _still_authorised(cached, base):
                 cached._ysu_self_cached = True     # noqa: SLF001 - internal marker
                 return cached
-            clear_session()   # stale: drop it so the next run does not retry it
+            clear_session(base, username)   # stale: drop only this account's entry
 
     session = _new_portal_session()
     try:
@@ -325,11 +533,15 @@ def session_state(session: requests.Session) -> dict:
     cached = getattr(session, "_ysu_self_cached", None)
     left = None
     if cached:
-        try:
-            data = json.loads(cache_path().read_text(encoding="utf-8"))
-            left = max(0, SESSION_TTL - (int(time.time()) - int(data["saved_at"])))
-        except (OSError, ValueError, KeyError, TypeError):
-            left = None
+        saved_at = getattr(session, "_ysu_self_saved_at", None)
+        if isinstance(saved_at, int):
+            left = max(0, SESSION_TTL - (int(time.time()) - saved_at))
+        else:
+            try:
+                data = json.loads(cache_path().read_text(encoding="utf-8"))
+                left = max(0, SESSION_TTL - (int(time.time()) - int(data["saved_at"])))
+            except (OSError, ValueError, KeyError, TypeError):
+                left = None
     return {"cached": cached is True, "expires_in": left}
 
 
@@ -365,6 +577,12 @@ def format_snapshot(snap: dict) -> str:
     for index, row in enumerate(dev.get("rows") or [], 1):
         bits = [f"{k}={row[k]}" for k in ("类型", "MAC", "IP", "在线时长", "接入方式")
                 if row.get(k)]
+        if row.get("无感") == "是":
+            bits.append("无感=已开启")
+            if row.get("无感到期"):
+                bits.append(f"无感到期={row['无感到期']}")
+            if row.get("缺省服务"):
+                bits.append(f"缺省服务={row['缺省服务']}")
         tags = []
         if row.get("在线") == "是":
             tags.append("在线")
@@ -415,19 +633,23 @@ def cmd_self(username: str, password: str, base: str, cas_host: str,
 
 
 # ---------------------------------------------------------------------------
-# Writes.  The portal's device page is a control console; kick-offline is the
-# only state-changing endpoint this module touches.
+# Writes.  The portal's device page is a control console; only allowlisted
+# kick-offline, seamless-auth (nosense), and device default-service endpoints
+# are touched.
 #
-# Contract, read from /self/assets/myDevices-*.js (2026-11-09):
+# Contract, read from /self/assets/myDevices-*.js:
 #   kick-offline/batch  {onlineUserUuids: [...], kickUnifiedAuthOffline: bool}
-# The SPA derives `kickUnifiedAuthOffline` as `!au || tu`, where `au` becomes
-# true when the target is the current device that logged in through unified
-# auth.  So kicking yourself keeps your SSO session (you can log back in),
-# while kicking another device also ends that device's SSO session.
+#   nosense/register    {userMac: "XX-XX-XX-XX-XX-XX", expireTime: 7, expireUnit: "day"}
+#   nosense/unbind/batch {noSenseUuids: [...]}
+#   devices/modify      {userMac, name, location, defaultServiceOperaporsConfigUuid, terminalType}
 # ---------------------------------------------------------------------------
 
 class KickVerifyError(QueryError):
     """The write returned OK but the device is still online."""
+
+
+class NoSenseVerifyError(QueryError):
+    """The seamless-auth or default-service write returned OK but was not confirmed."""
 
 
 def kick_offline(session: requests.Session, base: str, uuids, *,
@@ -496,12 +718,7 @@ def kick(base: str, cas_host: str, username: str, password: str, selector: str,
 def _await_offline(session: requests.Session, base: str, uuids,
                    wait: float = KICK_VERIFY_SECONDS,
                    interval: float = KICK_VERIFY_INTERVAL):
-    """Re-read the device list until the targets are gone or the budget runs out.
-
-    The portal updates the online list asynchronously: an immediate re-read can
-    still show the device the write has just removed, so a single check reports
-    a false failure.
-    """
+    """Re-read the device list until the targets are gone or the budget runs out."""
     deadline = time.monotonic() + wait
     while True:
         after = parse_devices(fetch(session, base, DEVICES))
@@ -530,3 +747,275 @@ def format_kick(result: dict) -> str:
     if not any(r.get("在线") == "是" for r in rows):
         lines.append("当前没有在线设备。")
     return "\n".join(lines)
+
+
+def select_nosense_target(rows: list[dict], selector: str | None = "current") -> tuple[str, dict | None]:
+    """Resolve `current`, a 1-based device index, or an explicit MAC address."""
+    wanted = (selector or "current").strip()
+    if not wanted or wanted.lower() in ("current", "本机"):
+        row = next((r for r in rows if r.get("本机") == "是"), None)
+        if row is None:
+            row = next((r for r in rows if r.get("无感") == "是"), None)
+        if row is None:
+            raise QueryError("未找到本机或已绑定无感的设备，请指定设备编号或 MAC 地址")
+        return require_mac(row.get("MAC")), row
+    if wanted.isdigit() and len(wanted) <= 4:
+        index = int(wanted)
+        if index < 1 or index > len(rows):
+            raise QueryError("设备编号超出范围")
+        row = rows[index - 1]
+        return require_mac(row.get("MAC")), row
+    mac = normalize_mac(wanted)
+    if mac:
+        row = next((r for r in rows if normalize_mac(r.get("MAC")) == mac), None)
+        return mac, row
+    raise QueryError("设备编号或 MAC 地址无法识别")
+
+
+def select_nosense_unbind_targets(rows: list[dict], selector: str | None = "all") -> list[dict]:
+    """Resolve devices to unbind from seamless auth."""
+    wanted = (selector or "all").strip()
+    if not wanted or wanted.lower() in ("all", "全部"):
+        picked = [r for r in rows if r.get("无感") == "是" and r.get("_nosense_uuid")]
+        if not picked:
+            raise QueryError("当前没有已开启无感认证的设备")
+        return picked
+    if wanted.lower() in ("current", "本机"):
+        row = next((r for r in rows if r.get("本机") == "是"), None)
+        if row is None or row.get("无感") != "是" or not row.get("_nosense_uuid"):
+            raise QueryError("本机当前未开启无感认证")
+        return [row]
+    if wanted.isdigit() and len(wanted) <= 4:
+        index = int(wanted)
+        if index < 1 or index > len(rows):
+            raise QueryError("设备编号超出范围")
+        row = rows[index - 1]
+        if row.get("无感") != "是" or not row.get("_nosense_uuid"):
+            raise QueryError("该设备未开启无感认证")
+        return [row]
+    mac = normalize_mac(wanted)
+    if mac:
+        row = next((r for r in rows if normalize_mac(r.get("MAC")) == mac), None)
+        if row is None or row.get("无感") != "是" or not row.get("_nosense_uuid"):
+            raise QueryError("该设备未开启无感认证")
+        return [row]
+    raise QueryError("设备编号或 MAC 地址无法识别")
+
+
+def _enable_nosense_session(session: requests.Session, base: str, before: dict,
+                            selector: str | None = "current",
+                            service: str | None = None,
+                            wait: float = KICK_VERIFY_SECONDS,
+                            interval: float = KICK_VERIFY_INTERVAL) -> dict:
+    rows = before.get("rows") or []
+    mac, target_row = select_nosense_target(rows, selector)
+    if service and service.strip():
+        desired_label, desired_uuid = resolve_default_service(service)
+    elif target_row and target_row.get("_service_uuid"):
+        desired_uuid = target_row["_service_uuid"]
+        desired_label = target_row.get("缺省服务") or _UUID_TO_DEFAULT_SERVICE.get(desired_uuid, "套餐默认服务")
+    else:
+        desired_label, desired_uuid = "套餐默认服务", DEFAULT_SERVICE_PACKAGE
+
+    bound_uuids = [r["_nosense_uuid"] for r in rows
+                   if r.get("无感") == "是" and r.get("_nosense_uuid")]
+    if bound_uuids:
+        fetch(session, base, NOSENSE_UNBIND, {"noSenseUuids": bound_uuids})
+
+    fetch(session, base, NOSENSE_REGISTER,
+          {"userMac": mac, "expireTime": 7, "expireUnit": "day"})
+
+    if desired_uuid != DEFAULT_SERVICE_PACKAGE:
+        fetch(session, base, DEVICE_MODIFY, {
+            "userMac": mac,
+            "name": (target_row.get("设备名称") if target_row else "") or "我的设备",
+            "location": (target_row.get("_location") if target_row else "") or "",
+            "defaultServiceOperaporsConfigUuid": desired_uuid,
+            "terminalType": target_row.get("_terminal_type", 1) if target_row else 1,
+        })
+
+    deadline = time.monotonic() + wait
+    verified_row = None
+    after = before
+    while True:
+        after = parse_devices(fetch(session, base, DEVICES))
+        candidate = next((r for r in after["rows"] if normalize_mac(r.get("MAC")) == mac), None)
+        if candidate and candidate.get("无感") == "是":
+            if desired_uuid == DEFAULT_SERVICE_PACKAGE or candidate.get("_service_uuid") == desired_uuid:
+                verified_row = candidate
+                break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(interval)
+
+    if verified_row is None:
+        raise NoSenseVerifyError(f"无感认证请求已提交，但设备 {mac} 状态未确认生效")
+
+    return {
+        "action": "nosense",
+        "mac": mac,
+        "bind_no_sense": True,
+        "expires": verified_row.get("无感到期") or "",
+        "service": verified_row.get("缺省服务") or desired_label,
+        "renewed": bool(bound_uuids),
+        "rows": after["rows"],
+    }
+
+
+def enable_nosense(base: str, cas_host: str, username: str, password: str,
+                   selector: str | None = "current", *,
+                   service: str | None = None,
+                   debug: bool = False, fresh: bool = False) -> dict:
+    """Enable or renew seamless authentication for a device (replacing any existing binding)."""
+    session = open_session(base, cas_host, username, password, debug=debug, fresh=fresh)
+    try:
+        before = parse_devices(fetch(session, base, DEVICES))
+        return _enable_nosense_session(session, base, before, selector=selector, service=service)
+    except Exception:
+        clear_session()
+        raise
+
+
+def disable_nosense(base: str, cas_host: str, username: str, password: str,
+                    selector: str | None = "all", *,
+                    debug: bool = False, fresh: bool = False) -> dict:
+    """Disable seamless authentication and verify the binding is removed."""
+    session = open_session(base, cas_host, username, password, debug=debug, fresh=fresh)
+    try:
+        before = parse_devices(fetch(session, base, DEVICES))
+        targets = select_nosense_unbind_targets(before["rows"], selector)
+        uuids = [r["_nosense_uuid"] for r in targets]
+        macs = [normalize_mac(r.get("MAC")) or r.get("MAC", "") for r in targets]
+        fetch(session, base, NOSENSE_UNBIND, {"noSenseUuids": uuids})
+
+        deadline = time.monotonic() + KICK_VERIFY_SECONDS
+        while True:
+            after = parse_devices(fetch(session, base, DEVICES))
+            still = [r for r in after["rows"]
+                     if r.get("无感") == "是"
+                     and (r.get("_nosense_uuid") in uuids
+                          or (normalize_mac(r.get("MAC")) or r.get("MAC", "")) in macs)]
+            if not still or time.monotonic() >= deadline:
+                break
+            time.sleep(KICK_VERIFY_INTERVAL)
+        if still:
+            raise NoSenseVerifyError("关闭无感认证请求已提交，但门户仍显示已开启")
+        return {"action": "unbind", "unbound": macs, "rows": after["rows"]}
+    except Exception:
+        clear_session()
+        raise
+
+
+def modify_device_service(base: str, cas_host: str, username: str, password: str,
+                          selector: str | None = "current",
+                          service: str = "套餐默认服务", *,
+                          debug: bool = False, fresh: bool = False) -> dict:
+    """Modify the default carrier service of a seamless-bound device and verify."""
+    desired_label, desired_uuid = resolve_default_service(service)
+    session = open_session(base, cas_host, username, password, debug=debug, fresh=fresh)
+    try:
+        before = parse_devices(fetch(session, base, DEVICES))
+        mac, target_row = select_nosense_target(before["rows"], selector)
+        if target_row is None or target_row.get("无感") != "是":
+            raise QueryError("请先为该设备开启无感认证，再设置缺省服务")
+        fetch(session, base, DEVICE_MODIFY, {
+            "userMac": mac,
+            "name": target_row.get("设备名称") or "我的设备",
+            "location": target_row.get("_location") or "",
+            "defaultServiceOperaporsConfigUuid": desired_uuid,
+            "terminalType": target_row.get("_terminal_type", 1),
+        })
+
+        deadline = time.monotonic() + KICK_VERIFY_SECONDS
+        verified_row = None
+        after = before
+        while True:
+            after = parse_devices(fetch(session, base, DEVICES))
+            candidate = next((r for r in after["rows"] if normalize_mac(r.get("MAC")) == mac), None)
+            if candidate and candidate.get("_service_uuid") == desired_uuid:
+                verified_row = candidate
+                break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(KICK_VERIFY_INTERVAL)
+        if verified_row is None:
+            raise NoSenseVerifyError("缺省服务修改已提交，但门户未确认生效")
+        return {
+            "action": "service",
+            "mac": mac,
+            "service": verified_row.get("缺省服务") or desired_label,
+            "expires": verified_row.get("无感到期") or "",
+            "rows": after["rows"],
+        }
+    except Exception:
+        clear_session()
+        raise
+
+
+def renew_nosense(base: str, cas_host: str, username: str, password: str,
+                  selector: str | None = "current", *,
+                  service: str | None = None,
+                  force: bool = False,
+                  threshold: int = NOSENSE_RENEW_THRESHOLD,
+                  debug: bool = False, fresh: bool = False) -> dict:
+    """Check seamless auth validity and renew when unbound, expiring within threshold, or forced."""
+    session = open_session(base, cas_host, username, password, debug=debug, fresh=fresh)
+    try:
+        before = parse_devices(fetch(session, base, DEVICES))
+        mac, target_row = select_nosense_target(before["rows"], selector)
+        now_ms = int(time.time() * 1000)
+        end_ms = target_row.get("_nosense_end_ms") if target_row else None
+        bound = bool(target_row and target_row.get("无感") == "是")
+        remaining = max(0, int((end_ms - now_ms) // 1000)) if (bound and isinstance(end_ms, int)) else 0
+        desired_uuid = resolve_default_service(service)[1] if (service and service.strip()) else ""
+        service_mismatch = bool(desired_uuid and target_row and target_row.get("_service_uuid") != desired_uuid)
+
+        if not force and bound and isinstance(end_ms, int) and remaining > threshold and not service_mismatch:
+            return {
+                "action": "renew",
+                "renewed": False,
+                "mac": mac,
+                "bind_no_sense": True,
+                "expires": target_row.get("无感到期") or "",
+                "remaining_seconds": remaining,
+                "service": target_row.get("缺省服务") or "套餐默认服务",
+                "rows": before["rows"],
+            }
+
+        enabled = _enable_nosense_session(session, base, before, selector=mac, service=service)
+        row = next((r for r in enabled["rows"] if normalize_mac(r.get("MAC")) == mac), None)
+        new_end_ms = row.get("_nosense_end_ms") if row else None
+        new_remaining = max(0, int((new_end_ms - int(time.time() * 1000)) // 1000)) if isinstance(new_end_ms, int) else 0
+        return {
+            "action": "renew",
+            "renewed": True,
+            "mac": mac,
+            "bind_no_sense": True,
+            "expires": enabled["expires"],
+            "remaining_seconds": new_remaining,
+            "service": enabled["service"],
+            "rows": enabled["rows"],
+        }
+    except Exception:
+        clear_session()
+        raise
+
+
+def format_nosense(result: dict) -> str:
+    """Format seamless auth / default service / renewal result for CLI."""
+    action = result.get("action")
+    if action == "unbind":
+        macs = "、".join(result.get("unbound") or []) or "无"
+        return f"已关闭无感认证：{macs}"
+    if action == "service":
+        return (f"已更新无感缺省服务：{result.get('mac')} → {result.get('service')}"
+                + (f"（到期 {result['expires']}）" if result.get("expires") else ""))
+    if action == "renew" and not result.get("renewed"):
+        hours = (result.get("remaining_seconds") or 0) // 3600
+        return (f"无感认证仍在有效期内，无需续约：{result.get('mac')}"
+                f"（到期 {result.get('expires') or '—'}，剩余约 {hours} 小时，"
+                f"缺省服务：{result.get('service') or '套餐默认服务'}）")
+    verb = "已续约无感认证" if result.get("renewed") else "已开启无感认证"
+    return (f"{verb}：{result.get('mac')}"
+            f"（到期 {result.get('expires') or '—'}，"
+            f"缺省服务：{result.get('service') or '套餐默认服务'}）")

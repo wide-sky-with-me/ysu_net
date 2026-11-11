@@ -32,9 +32,12 @@ REASONS = {
     "self_need_target": "kick 需要目标：设备编号（ysu self 列表里的序号）或 all",
     "self_need_yes": "下线会中断该设备的网络连接；非交互环境请加 --yes 确认",
     "self_cancelled": "已取消下线，未发起任何更改",
-    "self_target_invalid": "设备编号无效：先运行 ysu self 查看当前列表",
+    "self_target_invalid": "设备编号或 MAC 地址无效：先运行 ysu self 查看当前列表",
     "self_target_offline": "该设备当前不在线，无需下线",
     "self_kick_unverified": "下线请求已提交但设备仍显示在线，请用 ysu self 复核",
+    "self_service_invalid": "缺省服务须为套餐默认服务、校园网、中国移动、中国联通或中国电信",
+    "self_nosense_unbound": "目标设备尚未开启无感认证，请先运行 ysu self nosense",
+    "self_nosense_unverified": "无感认证或服务变更已提交，但门户状态尚未同步，请用 ysu self 复核",
 }
 
 
@@ -50,10 +53,21 @@ def failure_reason(code, error):
         (2, "下线需要 --yes 确认", "self_need_yes"),
         (2, "已取消下线", "self_cancelled"),
         (2, "设备编号无法识别", "self_target_invalid"),
+        (2, "设备编号或 MAC 地址无法识别", "self_target_invalid"),
         (2, "设备编号超出范围", "self_target_invalid"),
+        (2, "MAC 地址格式无效", "self_target_invalid"),
+        (2, "该设备缺少 MAC 地址", "self_target_invalid"),
+        (2, "未找到本机或已开启无感认证的设备", "self_target_invalid"),
         (2, "该设备当前不在线", "self_target_offline"),
         (2, "该设备缺少门户标识", "self_target_invalid"),
         (2, "下线请求已提交，但仍有", "self_kick_unverified"),
+        (2, "缺省服务无效", "self_service_invalid"),
+        (2, "service 需要 --service 指定缺省服务", "self_service_invalid"),
+        (2, "请先为该设备开启无感认证", "self_nosense_unbound"),
+        (2, "没有已开启无感认证的设备", "self_nosense_unbound"),
+        (2, "无感认证请求已提交", "self_nosense_unverified"),
+        (2, "关闭无感认证请求已提交", "self_nosense_unverified"),
+        (2, "缺省服务修改已提交", "self_nosense_unverified"),
         (3, "在线服务与请求不一致", "service_mismatch"),
         (2, "在线响应未返回唯一可识别的服务", "unknown_service"),
         (2, "NameResolutionError", "dns"),
@@ -117,6 +131,9 @@ def run_backend(config, action, *, interactive=False, raw=False, stop_event=None
         target = getattr(args, "target", None)
         if target:
             command.append(target)
+        service = getattr(args, "service", None)
+        if service:
+            command += ["--service", service]
         if getattr(args, "yes", False):
             command.append("--yes")
         if getattr(args, "fresh", False):

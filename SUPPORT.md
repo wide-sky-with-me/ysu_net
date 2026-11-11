@@ -1,28 +1,23 @@
 # 支持与反馈
 
-本项目是社区维护的燕山大学校园网工具，不是学校或运营商的官方支持渠道。账号状态、套餐、计费和门户服务异常请向对应服务方查询；工具故障与使用问题可在本仓库反馈。
+本项目是社区维护的燕山大学校园网连接与管理工具，非学校或运营商官方支持渠道。若遇校园网账号欠费、套餐变更或门户机房故障，请联系学校信息化部门或对应运营商处理；工具本身的使用问题与故障欢迎在本仓库反馈。
 
-## 先确认版本
+---
 
-- Linux 命令行版：从 `main` 安装见 [README](README.md) 和 [使用说明](docs/usage.md)。反馈时提供实际版本、安装来源及提交短哈希，不把固定文档里的旧版本号当成当前安装身份。
-- Windows / Linux / macOS 桌面版：自 `v0.2.0` 起采用 Tauri，见 [桌面说明](docs/tauri-desktop.md)。反馈时提供版本、系统架构与正式 Release / 开发构建来源；同版本号不保证同一构建，区别见[发行状态](README.md#发行与候选状态)。原 Qt（`v0.1.0`）仅保留历史；旧问题修复记录不代表当前 Tauri 的现场验证，升级先看[迁移说明](docs/migration.md)。
-- [文档导航](docs/README.md)和 Wiki 的[排障指南](docs/wiki/Troubleshooting.md)提供查询入口；命令与参数以使用版本对应的文档为准。
-
-## 选择反馈渠道
+## 反馈渠道
 
 | 事项 | 入口 |
 | --- | --- |
-| 安装、配置或用法问答 | [Discussions / Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a) |
+| 安装、配置或日常使用问答 | [Discussions / Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a) |
 | 可复现的程序故障 | [Issue 问题反馈](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=bug_report.yml) |
-| 明确的功能需求 | [Issue 功能建议](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=feature_request.yml) |
-| 待讨论的方案 | [Discussions / Ideas](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/ideas) |
-| 版本公告和社区规则 | [Discussions / Announcements](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/announcements) |
-| 凭据泄漏或安全缺陷 | [私密漏洞报告](https://github.com/wide-sky-with-me/ysu_net/security/advisories/new)，见 [SECURITY.md](SECURITY.md) |
+| 功能需求与改进建议 | [Issue 功能建议](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=feature_request.yml) / [Discussions / Ideas](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/ideas) |
+| 版本发布公告 | [Discussions / Announcements](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/announcements) |
+| 凭据泄漏或安全缺陷 | [私密漏洞报告](https://github.com/wide-sky-with-me/ysu_net/security/advisories/new)（见 [SECURITY.md](SECURITY.md)） |
 
-## 一份有效的反馈
+---
 
-说明操作系统版本、工具版本或提交号、命令行/桌面版、API/浏览器认证、运营商、是否接入校园网、复现步骤、预期和实际结果。不要提供账号、密码、IP、MAC、姓名、宿舍/设备位置或联系方式。可附人工脱敏后的最少错误片段；Rust 诊断优先保留 `code / operation / stage / reason / navigation` 固定分类，不附含票据的 URL 或底层响应。不要上传完整配置、原始响应、HAR 或认证截图。
+## 提交反馈前建议
 
-命令行排障先运行 `ysu doctor`，它只检查本地；在校园网内确需查询时再运行 `ysu doctor --network`。两个命令均不登录、不下线、不切换运营商。即使普通展示隐藏了部分字段，完整输出仍须人工复核，见 [脱敏清单](docs/security.md#公开反馈的脱敏清单)。
-
-不要仅以“有网/没网”判断认证成功：操作返回、独立状态查询、界面显示和外网连通性应分别描述。维护者可能先请求补充信息，再确认复现；Issue 关闭原因会按实际验证说明，固定响应期限不作承诺。
+1. **先查排障指南**：阅读 [常见问题排障](docs/wiki/Troubleshooting.md)；命令行用户可先运行 `ysu doctor` 检查本地配置与依赖。
+2. **说明环境与步骤**：附上操作系统版本、软件版本号（如 `v0.3.0`）、使用形态（桌面客户端 / Linux CLI）、认证方式（API / 浏览器）、运营商以及复现步骤。
+3. **注意隐私脱敏**：提交前请对照 [公开反馈的脱敏清单](docs/security.md#公开反馈的脱敏清单)，移除真实学号、密码、Cookie、会话票据、完整配置文件以及未打码的 IP/MAC 地址。

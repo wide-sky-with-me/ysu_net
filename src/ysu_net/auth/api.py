@@ -1002,11 +1002,47 @@ def cmd_self_cmd(args, debug: bool) -> str:
     raw = bool(getattr(args, "raw", False))
 
     fresh = bool(getattr(args, "fresh", False))
-    if action != "kick":
+    target = (getattr(args, "target", None) or "").strip()
+    service = getattr(args, "service", None)
+    if action == "list":
         return selfservice.cmd_self(user, pwd, URLS.base, URLS.cas_host,
                                     raw=raw, debug=debug, fresh=fresh)
+    if action == "nosense":
+        result = selfservice.enable_nosense(
+            URLS.base, URLS.cas_host, user, pwd, target or "current",
+            service=service, debug=debug, fresh=fresh,
+        )
+        if raw:
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        return selfservice.format_nosense(result)
+    if action == "unbind":
+        result = selfservice.disable_nosense(
+            URLS.base, URLS.cas_host, user, pwd, target or "all",
+            debug=debug, fresh=fresh,
+        )
+        if raw:
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        return selfservice.format_nosense(result)
+    if action == "service":
+        if not service:
+            raise QueryError("service 需要 --service 指定缺省服务")
+        result = selfservice.modify_device_service(
+            URLS.base, URLS.cas_host, user, pwd, target or "current",
+            service=service, debug=debug, fresh=fresh,
+        )
+        if raw:
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        return selfservice.format_nosense(result)
+    if action == "renew":
+        result = selfservice.renew_nosense(
+            URLS.base, URLS.cas_host, user, pwd, target or "current",
+            service=service, force=bool(getattr(args, "yes", False)),
+            debug=debug, fresh=fresh,
+        )
+        if raw:
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        return selfservice.format_nosense(result)
 
-    target = (getattr(args, "target", None) or "").strip()
     if not target:
         raise QueryError("kick 需要目标")
     confirmed = bool(getattr(args, "yes", False))
@@ -1451,14 +1487,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_self = sub.add_parser(
         "self",
         parents=[common],
-        help="自助服务：查看我的设备；kick 下线指定设备",
+        help="自助服务：查看设备、下线设备、无感认证、缺省服务与续约",
         formatter_class=NiceFormatter,
     )
-    p_self.add_argument("action", nargs="?", choices=("list", "kick"), default="list",
-                        help="list 查看（默认）；kick 下线设备")
+    p_self.add_argument(
+        "action",
+        nargs="?",
+        choices=("list", "kick", "nosense", "unbind", "service", "renew"),
+        default="list",
+        help="list 查看（默认）；kick 下线；nosense 开启无感；unbind 关闭无感；service 缺省服务；renew 续约无感",
+    )
     p_self.add_argument("target", nargs="?",
-                        help="kick 的目标：设备编号（从 1 开始）或 all")
-    p_self.add_argument("--yes", action="store_true", help="跳过下线确认")
+                        help="目标：设备编号（从 1 开始）、MAC 地址、current 或 all")
+    p_self.add_argument("--service", default=None,
+                        help="无感认证缺省服务（套餐默认服务/校园网/中国移动/中国联通/中国电信）")
+    p_self.add_argument("--yes", action="store_true", help="跳过下线确认或强制立即续约")
     p_self.add_argument("--fresh", action="store_true",
                         help="忽略已保存的登录状态，强制重新登录")
 

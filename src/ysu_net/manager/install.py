@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 from ysu_net.paths import PROJECT_ROOT as ROOT
-from .config import Config, config_path, save_config
+from .config import Config, config_path, nosense_path, save_config
 from .locking import configuration_write, exclusive_config
 from .accounts import accounts_path
 from .service import UNIT, render_unit, systemctl, unit_path
@@ -73,6 +73,7 @@ def main(argv=None):
                 with configuration_write(config):
                     config.unlink(missing_ok=True)
                     accounts_path(config).unlink(missing_ok=True)
+                    nosense_path(config).unlink(missing_ok=True)
         ui.message("管理命令和后台服务已卸载。", "success")
         ui.row("账号配置", "已删除" if args.purge else f"已保留 · {config}")
         ui.row("项目文件", "源码和 .venv 已保留")

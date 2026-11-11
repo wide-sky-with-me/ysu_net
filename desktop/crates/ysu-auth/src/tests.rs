@@ -220,6 +220,9 @@ struct State {
     navigation_loop: bool,
     race_at: Option<(usize, String, String)>,
     poison_sid: bool,
+    nosense_mac: Option<String>,
+    nosense_service_uuid: String,
+    nosense_end_time: i64,
 }
 impl Default for State {
     fn default() -> Self {
@@ -256,6 +259,9 @@ impl Default for State {
             navigation_loop: false,
             race_at: None,
             poison_sid: false,
+            nosense_mac: None,
+            nosense_service_uuid: "00_DEFAULT_IN_PACKAGE".into(),
+            nosense_end_time: 0,
         }
     }
 }
@@ -580,6 +586,7 @@ fn respond(s: &mut State, r: Request) -> Response {
             {
                 return Response::body(400, b"bad self headers".to_vec(), "text/plain");
             }
+            let bound = s.nosense_mac.as_deref() == Some("02-00-00-00-00-01");
             Response::json(json!({
                 "code": 200,
                 "data": {
@@ -589,14 +596,42 @@ fn respond(s: &mut State, r: Request) -> Response {
                         "userMac": "02-00-00-00-00-01",
                         "userIpv4": "10.0.0.1",
                         "onlineDuration": "0时05分",
-                        "authType": "无线标准Portal接入",
+                        "authType": if bound { "无线无感知认证" } else { "无线标准Portal接入" },
                         "currentDevice": true,
                         "unifiedAuthentication": true,
-                        "onlineUserUuid": "u-1"
+                        "onlineUserUuid": "u-1",
+                        "bindNoSense": bound,
+                        "noSenseUuid": if bound { Value::String("ns-1".into()) } else { Value::Null },
+                        "noSenseEndTime": if bound { Value::from(s.nosense_end_time) } else { Value::Null },
+                        "defaultServiceOperaporsConfigUuid": s.nosense_service_uuid,
+                        "terminalType": 1,
+                        "location": ""
                     }],
                     "offlineDevices": []
                 }
             }))
+        }
+        "/sam/api/userself/nosense/register" => {
+            let v: Value = serde_json::from_slice(&r.body).unwrap();
+            s.nosense_mac = v["userMac"].as_str().map(ToOwned::to_owned);
+            s.nosense_service_uuid = "00_DEFAULT_IN_PACKAGE".into();
+            s.nosense_end_time = 4_102_444_800_000;
+            Response::json(json!({"code": 200, "data": true}))
+        }
+        "/sam/api/userself/nosense/unbind/batch" => {
+            s.nosense_mac = None;
+            s.nosense_end_time = 0;
+            s.nosense_service_uuid = "00_DEFAULT_IN_PACKAGE".into();
+            Response::json(json!({"code": 200, "data": true}))
+        }
+        "/sam/api/userself/devices/modify" => {
+            let v: Value = serde_json::from_slice(&r.body).unwrap();
+            if s.nosense_mac.is_some() {
+                if let Some(uuid) = v["defaultServiceOperaporsConfigUuid"].as_str() {
+                    s.nosense_service_uuid = uuid.to_owned();
+                }
+            }
+            Response::json(json!({"code": 200, "data": true}))
         }
         "/sam/api/userself/package/overview" | "/sam/api/userself/package/flow" => {
             Response::json(json!({"code": 200, "data": null}))
@@ -1212,6 +1247,40 @@ async fn self_snapshot_seeds_oauth_service_and_reuses_session() {
             .count(),
         1
     );
+}
+
+#[tokio::test]
+async fn self_nosense_enable_modify_renew_and_disable() {
+    let f = Fixture::new();
+    let client = f.client();
+    let enabled = client
+        .self_nosense_enable("current", Some("中国移动"))
+        .await
+        .unwrap();
+    assert!(enabled.bind_no_sense);
+    assert_eq!(enabled.mac, "02-00-00-00-00-01");
+    assert_eq!(enabled.service, "中国移动");
+
+    let modified = client.self_device_service("1", "中国联通").await.unwrap();
+    assert_eq!(modified.service, "中国联通");
+
+    let skipped = client
+        .self_nosense_renew("current", Some("中国联通"), false)
+        .await
+        .unwrap();
+    assert!(!skipped.renewed);
+    assert_eq!(skipped.service, "中国联通");
+
+    let renewed = client
+        .self_nosense_renew("current", Some("中国联通"), true)
+        .await
+        .unwrap();
+    assert!(renewed.renewed);
+    assert_eq!(renewed.service, "中国联通");
+
+    let disabled = client.self_nosense_disable("all").await.unwrap();
+    assert!(!disabled.bind_no_sense);
+    assert_eq!(disabled.unbound, vec!["02-00-00-00-00-01".to_string()]);
 }
 
 #[tokio::test]

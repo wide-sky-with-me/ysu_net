@@ -56,6 +56,42 @@ pub struct Prefs {
     pub auto_reconnect: bool,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoSenseAccountConfig {
+    pub auto_renew: bool,
+    pub target_mac: String,
+    pub service: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoSenseConfig {
+    pub version: i32,
+    pub auto_renew: bool,
+    pub target_mac: String,
+    pub service: String,
+    #[serde(default)]
+    pub accounts: std::collections::BTreeMap<String, NoSenseAccountConfig>,
+}
+
+impl Default for NoSenseConfig {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            auto_renew: false,
+            target_mac: String::new(),
+            service: String::new(),
+            accounts: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+pub fn valid_nosense_service(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        "" | "套餐默认服务" | "校园网" | "中国移动" | "中国联通" | "中国电信"
+    )
+}
+
 impl Default for Prefs {
     fn default() -> Self {
         Self {
@@ -356,6 +392,158 @@ impl Store {
         Ok(RunGuard {
             _file: lock_file(&self.path.with_extension("lock"), false)?,
         })
+    }
+
+    fn nosense_path(&self) -> PathBuf {
+        self.path.with_extension("nosense.json")
+    }
+
+    pub fn load_nosense(&self) -> NoSenseConfig {
+        let mut nosense = NoSenseConfig::default();
+        if let Ok(Some(Value::Object(data))) = read_json(&self.nosense_path()) {
+            if let Some(value) = data.get("auto_renew").and_then(Value::as_bool) {
+                nosense.auto_renew = value;
+            }
+            if let Some(raw_mac) = data.get("target_mac").and_then(Value::as_str) {
+                let trimmed = raw_mac.trim();
+                if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("current") {
+                    nosense.target_mac.clear();
+                } else if let Some(mac) = ysu_auth::normalize_mac(trimmed) {
+                    nosense.target_mac = mac;
+                }
+            }
+            if let Some(service) = data
+                .get("service")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| valid_nosense_service(v))
+            {
+                nosense.service = service.into();
+            }
+            if let Some(accounts) = data.get("accounts").and_then(Value::as_object) {
+                for (username, raw_entry) in accounts.iter().take(32) {
+                    let trimmed_user = username.trim();
+                    if trimmed_user.is_empty()
+                        || trimmed_user != username
+                        || trimmed_user.len() > 256
+                        || trimmed_user.chars().any(char::is_control)
+                    {
+                        continue;
+                    }
+                    let Some(obj) = raw_entry.as_object() else {
+                        continue;
+                    };
+                    let mut entry = NoSenseAccountConfig::default();
+                    if let Some(v) = obj.get("auto_renew").and_then(Value::as_bool) {
+                        entry.auto_renew = v;
+                    }
+                    if let Some(raw_mac) = obj.get("target_mac").and_then(Value::as_str) {
+                        let t = raw_mac.trim();
+                        if !t.is_empty() && !t.eq_ignore_ascii_case("current") {
+                            if let Some(mac) = ysu_auth::normalize_mac(t) {
+                                entry.target_mac = mac;
+                            }
+                        }
+                    }
+                    if let Some(svc) = obj
+                        .get("service")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|v| valid_nosense_service(v))
+                    {
+                        entry.service = svc.into();
+                    }
+                    nosense.accounts.insert(trimmed_user.to_string(), entry);
+                }
+            }
+        }
+        nosense
+    }
+
+    pub fn update_nosense(&self, changes: Map<String, Value>) -> Result<NoSenseConfig, String> {
+        if changes.is_empty()
+            || !changes.keys().all(|key| {
+                ["auto_renew", "target_mac", "service", "account", "remove"].contains(&key.as_str())
+            })
+        {
+            return Err("无感认证参数无效".into());
+        }
+        let mut next = self.load_nosense();
+        let account = match changes.get("account") {
+            Some(Value::String(s)) => {
+                let trimmed = s.trim();
+                if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("current") {
+                    None
+                } else if trimmed.len() > 256 || trimmed.chars().any(char::is_control) {
+                    return Err("无感认证账号名无效".into());
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }
+            Some(_) => return Err("无感认证账号名无效".into()),
+            None => None,
+        };
+        let remove = changes
+            .get("remove")
+            .map(|v| v.as_bool().ok_or("remove 须为布尔值"))
+            .transpose()?
+            .unwrap_or(false);
+        if let Some(account_user) = account {
+            if remove {
+                next.accounts.remove(&account_user);
+            } else {
+                if !next.accounts.contains_key(&account_user) && next.accounts.len() >= 32 {
+                    return Err("无感认证账号池最多保存 32 个账号".into());
+                }
+                let entry = next.accounts.entry(account_user).or_default();
+                if let Some(value) = changes.get("auto_renew") {
+                    entry.auto_renew = value.as_bool().ok_or("auto_renew 须为布尔值")?;
+                }
+                if let Some(value) = changes.get("target_mac") {
+                    let raw = value.as_str().ok_or("MAC 地址格式无效")?.trim();
+                    if raw.is_empty() || raw.eq_ignore_ascii_case("current") {
+                        entry.target_mac.clear();
+                    } else {
+                        entry.target_mac = ysu_auth::normalize_mac(raw)
+                            .ok_or_else(|| "MAC 地址格式无效".to_owned())?;
+                    }
+                }
+                if let Some(value) = changes.get("service") {
+                    let raw = value.as_str().ok_or("无感认证缺省服务无效")?.trim();
+                    if !valid_nosense_service(raw) {
+                        return Err("无感认证缺省服务无效".into());
+                    }
+                    entry.service = raw.into();
+                }
+            }
+        } else {
+            if let Some(value) = changes.get("auto_renew") {
+                next.auto_renew = value.as_bool().ok_or("auto_renew 须为布尔值")?;
+            }
+            if let Some(value) = changes.get("target_mac") {
+                let raw = value.as_str().ok_or("MAC 地址格式无效")?.trim();
+                if raw.is_empty() || raw.eq_ignore_ascii_case("current") {
+                    next.target_mac.clear();
+                } else {
+                    next.target_mac = ysu_auth::normalize_mac(raw)
+                        .ok_or_else(|| "MAC 地址格式无效".to_owned())?;
+                }
+            }
+            if let Some(value) = changes.get("service") {
+                let raw = value.as_str().ok_or("无感认证缺省服务无效")?.trim();
+                if !valid_nosense_service(raw) {
+                    return Err("无感认证缺省服务无效".into());
+                }
+                next.service = raw.into();
+            }
+        }
+        let lock_path = self.path.with_file_name(format!(
+            "{}.write.lock",
+            self.path.file_name().ok_or(CONFIG_ERROR)?.to_string_lossy()
+        ));
+        let _lock = lock_file(&lock_path, true)?;
+        write_json(&self.nosense_path(), &next)?;
+        Ok(next)
     }
 }
 

@@ -1,28 +1,61 @@
-# Linux 命令行入口
+# 命令行速查
 
-[返回导航](Home.md) · [快速开始](Quick-Start.md) · [排障](Troubleshooting.md)
+[返回导航](Home.md) · [快速开始](Quick-Start.md) · [桌面客户端](Desktop-Client.md) · [常见问题排障](Troubleshooting.md)
 
-Linux Python CLI 与 Tauri 桌面运行时独立；完整命令、参数、退出码和默认值只在[使用与配置](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)维护，本页只解释常用入口。CLI 源码安装沿用[快速开始](Quick-Start.md)，桌面差分更新不管理 CLI 代码或依赖。
+本页汇总 Linux 命令行 `ysu` 的常用指令。完整参数、配置文件与环境变量说明见 [docs/usage.md](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)。
 
-| 目标 | 命令 | 影响 |
-| --- | --- | --- |
-| 一次性登录 | `ysu login` | 访问认证服务；先停止正在运行的守护 |
-| 启用验证码识别 | `bash install.sh --captcha`（或 `uv sync --locked --extra captcha`） | 装可选识别依赖，默认不装；未装时仍按原规则要求人工输入 |
-| 查看状态/账户 | `ysu status` / `ysu info` | 访问校园网查询；输出可能包含识别信息 |
-| 自助服务设备 | `ysu self [--raw]` | 登录自助服务读取设备、套餐与剩余流量；首次完整登录，之后 30 分钟内复用会话 |
-| 下线设备 | `ysu self kick <编号\|all> [--yes]` | **会中断目标设备的网络连接**；先确认，写后复核 |
-| 本地排障 | `ysu doctor` | 默认不联网，不登录或下线 |
-| 校园网排障 | `ysu doctor --network` | 只查询，不登录、下线或切换 |
-| 开启自动重连 | `ysu on` | 启动 systemd 重连服务，认证结果需另查 |
-| 只暂停重连 | `ysu stop` | 停止后台服务，保留当前连接 |
-| 停止并下线 | `ysu off` | 停止自动重连并下线，影响当前网络 |
-| 调整开机自启 | `ysu boot on/off/status` | 与当前服务运行和连接状态分别管理 |
-| 查看菜单帮助 | `ysu` 后输入 `15`、`h` 或 `?` | 仅显示说明 |
+## 日常连接与守护
 
-`ysu service` 保存下次登录选择，不立即切断连接；`ysu switch <服务名>` 才会立即切换并独立核验，失败时尝试恢复原连接。远端使用前阅读 [切换说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#常见使用场景)。
+| 命令 | 说明 |
+| --- | --- |
+| `ysu` | 打开交互式终端菜单（非交互终端输出状态摘要） |
+| `ysu on` | 立即登录校园网，并启动、启用后台自动重连服务 |
+| `ysu off` | 停止、禁用后台自动重连服务，并下线当前连接 |
+| `ysu login` / `ysu logout` | 单次登录 / 单次下线（不更改后台服务启用状态） |
+| `ysu status [--json]` | 查看校园网在线状态、当前运营商与后台服务状态 |
+| `ysu info [--raw] [--json]` | 查看当前账号套餐、计费周期与剩余流量 |
+| `ysu service [运营商]` | 查看或切换运营商（`校园网` / `中国移动` / `中国联通` / `中国电信`） |
+| `ysu start` / `ysu stop` / `ysu restart` | 启动 / 停止 / 重启后台自动重连服务 |
+| `ysu enable` / `ysu disable` | 开启 / 关闭开机自启 |
+| `ysu logs [-n 50] [-f]` | 查看或实时跟随后台守护日志 |
+| `ysu doctor [--network]` | 检查本地配置与运行环境（加 `--network` 测试门户连通性） |
 
-`ysu accounts switch <账号ID>` 表示切换保存的账号：退出旧账号、登录目标并独立核验后才保存活动配置。Python 守护运行时交给其串行执行；它不控制 Rust 桌面的 Worker。多账号从 `ysu accounts` 或主菜单 **16** 进入，热切换与流量换号的前提见[账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)，不另启动第二个守护。没有 systemd 时可用 `bash install.sh --no-service` 和 `ysu daemon` 前台运行；Ctrl+C 停止前台守护，`ysu stop` 不管理它。源码目录和 `.venv` 是包装入口引用的运行位置，请保留。
+## 设备自助服务与 7 天无感认证 (`ysu self`)
 
-`--raw` 供脚本处理原始 JSON，不适合直接粘贴到公开反馈。普通 `info` 与诊断也不保证匿名；分享前按 [隐私规则](Privacy-and-Reporting.md) 检查。
+支持追加 `--account <标识>` 操作账号池中的指定账号：
 
-升级和卸载见 [迁移说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md)，权限、账户配置和浏览器方式见 [使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)。
+| 命令 | 说明 |
+| --- | --- |
+| `ysu self` / `ysu self list [--json]` | 查看在线设备、套餐流量、7 天无感认证记录与自动续约状态 |
+| `ysu self nosense current [--service 运营商] [--auto-renew]` | 为本机开启 7 天无感认证，可选同时设置默认上网服务并开启自动续约 |
+| `ysu self nosense <序号\|MAC> [--name 名称]` | 为指定在线设备或 MAC（如 `AA-BB-CC-DD-EE-FF`）开启 7 天无感认证 |
+| `ysu self unbind <current\|序号\|MAC\|all> [-y]` | 取消本机、指定设备或全部设备的 7 天无感认证 |
+| `ysu self service current --service <运营商>` | 修改本机无感认证的默认上网服务 |
+| `ysu self renew on [--mac MAC] [--service 运营商]` | 开启无感认证到期前 24 小时后台自动续约 |
+| `ysu self renew off` / `ysu self renew status` | 关闭自动续约 / 查看自动续约状态 |
+| `ysu self renew now [--force]` | 立即执行一次续约检查（`--force` 强制立即解绑并重绑刷新 7 天有效期） |
+| `ysu self kick <current\|序号\|MAC\|IP\|all> [-y]` | 下线指定在线设备或全部设备 |
+
+## 多账号池与自动换号 (`ysu account`)
+
+完整说明见 [docs/accounts.md](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)：
+
+| 命令 | 说明 |
+| --- | --- |
+| `ysu account list [--json]` | 查看账号池列表、优先级、活动账号与流量状态 |
+| `ysu account add -u 学号 [-s 运营商] [--name 备注] [--priority 数字]` | 添加账号到账号池（不带 `-p` 时安全交互输入密码） |
+| `ysu account edit <标识> [...]` | 修改已保存账号的名称、学号、密码、运营商或优先级 |
+| `ysu account use <标识>` | 切换到指定账号（自动解绑旧账号本机无感认证并为新账号重绑） |
+| `ysu account enable <标识>` / `disable <标识>` | 启用或停用候选账号参与零流量轮换 |
+| `ysu account remove <标识>` | 删除非活动账号 |
+| `ysu account auto [on\|off\|status]` | 开启、关闭或查看「零剩余流量自动换号」 |
+
+## 配置管理 (`ysu config`)
+
+| 命令 | 说明 |
+| --- | --- |
+| `ysu config show` / `ysu config path` | 查看当前配置（隐藏密码）/ 查看配置文件路径 |
+| `ysu config account` | 交互修改主账号学号与密码 |
+| `ysu config service <运营商>` | 修改默认运营商 |
+| `ysu config backend <api\|browser>` | 切换认证方式（默认 `api`） |
+| `ysu config timer [...]` | 修改检查间隔、重连间隔与操作超时 |

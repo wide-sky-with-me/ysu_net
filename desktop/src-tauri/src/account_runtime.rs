@@ -23,6 +23,54 @@ fn unknown_quota(message: &str) -> Value {
     json!({"state":"unknown","message":message})
 }
 
+fn source_nosense_unbind_target(nosense: &NoSenseConfig, username: &str) -> Option<String> {
+    if let Some(acct) = nosense.accounts.get(username) {
+        if acct.auto_renew {
+            return acct.target_mac.is_empty().then(|| "current".to_string());
+        }
+    }
+    if nosense.auto_renew {
+        return Some(if nosense.target_mac.is_empty() {
+            "current".to_string()
+        } else {
+            nosense.target_mac.clone()
+        });
+    }
+    None
+}
+
+fn target_nosense_bind(nosense: &NoSenseConfig, desired: &Config) -> Option<(String, String)> {
+    if let Some(acct) = nosense.accounts.get(&desired.username) {
+        if acct.auto_renew {
+            let mac = if acct.target_mac.is_empty() {
+                "current".to_string()
+            } else {
+                acct.target_mac.clone()
+            };
+            let svc = if acct.service.is_empty() {
+                desired.service.clone()
+            } else {
+                acct.service.clone()
+            };
+            return Some((mac, svc));
+        }
+    }
+    if nosense.auto_renew {
+        let mac = if nosense.target_mac.is_empty() {
+            "current".to_string()
+        } else {
+            nosense.target_mac.clone()
+        };
+        let svc = if nosense.service.is_empty() {
+            desired.service.clone()
+        } else {
+            nosense.service.clone()
+        };
+        return Some((mac, svc));
+    }
+    None
+}
+
 impl Runtime {
     pub(super) fn apply_accounts(
         &self,
@@ -255,9 +303,13 @@ impl Worker {
         self.busy("正在切换账号并核验实际连接");
         let store = self.runtime.store.clone();
         let id = id.to_owned();
-        let plan = self
+        let (plan, nosense) = self
             .runtime
-            .blocking(move || store.prepare_account_for(&id, expected.as_ref()))
+            .blocking(move || {
+                let plan = store.prepare_account_for(&id, expected.as_ref())?;
+                let nosense = store.load_nosense();
+                Ok((plan, nosense))
+            })
             .await?;
         self.runtime.update(|state| {
             state.remember(&plan.source.password);
@@ -289,6 +341,17 @@ impl Worker {
                 if original.online {
                     let mut leaving = plan.source.clone();
                     leaving.service = original.service.clone().unwrap();
+                    if plan.source.username != plan.target.username {
+                        if let Some(unbind_target) =
+                            source_nosense_unbind_target(&nosense, &plan.source.username)
+                        {
+                            let _ = self
+                                .runtime
+                                .backend
+                                .self_nosense_disable(&leaving, &unbind_target)
+                                .await;
+                        }
+                    }
                     self.phase = DiagnosticStage::OfflineSubmit;
                     let result = self.runtime.backend.mutate(&leaving, &Action::Logout).await;
                     if let Err(error) = &result {
@@ -338,11 +401,20 @@ impl Worker {
             }
             self.phase = DiagnosticStage::Config;
             let store = self.runtime.store.clone();
-            let plan = plan.clone();
+            let plan_for_commit = plan.clone();
             self.runtime
-                .blocking(move || store.commit_account(&plan))
+                .blocking(move || store.commit_account(&plan_for_commit))
                 .await?;
             self.runtime.config().await?;
+            if plan.source.username != plan.target.username {
+                if let Some((mac_target, svc)) = target_nosense_bind(&nosense, &plan.target) {
+                    let _ = self
+                        .runtime
+                        .backend
+                        .self_nosense_enable(&plan.target, &mac_target, Some(&svc))
+                        .await;
+                }
+            }
             Ok(())
         }
         .await;

@@ -314,7 +314,7 @@ def main():
                 summary.focus()
                 page.keyboard.press('Enter')
                 expect(page.locator('.about-release pre').first).to_be_visible()
-                expect(page.locator('.about-release pre').first).to_contain_text('不更换 0.2.1 正式更新信任锚')
+                expect(page.locator('.about-release pre').first).to_contain_text('无感认证')
                 legacy = page.locator('.about-release').filter(has=page.get_by_text('YSU Net v0.2.1', exact=True))
                 expect(legacy.locator('pre')).to_contain_text('签名完整包更新，不是二进制差分更新')
                 layout(page, f'changelog-{theme}-{width}')

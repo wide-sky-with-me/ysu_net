@@ -1,40 +1,46 @@
-# 排障与已知问题
+# 常见问题排障
 
-[返回导航](Home.md) · [命令行入口](CLI-Reference.md) · [隐私与反馈](Privacy-and-Reporting.md)
+[返回导航](Home.md) · [快速开始](Quick-Start.md) · [桌面客户端](Desktop-Client.md) · [命令行速查](CLI-Reference.md)
 
-先记下系统 / 架构、安装来源与版本、认证方式和服务，再一次改变一个条件。版本号相同不代表同一构建；[正式版与当前源码](https://github.com/wide-sky-with-me/ysu_net/blob/main/README.md#发行与候选状态)应分别判断。不要为排障公开真实账号、配置或原始网络材料。
+遇到连接或管理异常时，建议按以下常见场景逐步排查。命令行用户可先运行 `ysu doctor` 检查本地配置，桌面端用户可在「设置 → 认证与重试」点击 **运行本地诊断**。
 
-| 现象 | 最小检查与处理 |
-| --- | --- |
-| macOS 提示“已损坏，无法打开” | 安装包未经过 Apple 公证，Safari 等浏览器下载后会附加隔离属性。核对 `SHA256SUMS` 并拖入“应用程序”后，在终端运行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"` 再打开。 |
-| 找不到“关于”或界面与截图不同 | 自 0.2.2 起更新入口在“关于”；0.2.1 在“设置 → 外观与启动”底部。核对实际安装来源，旧版按[迁移指南](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/migration.md)升级。 |
-| 状态未知、查询失败或超时 | 确认接入校园网后只读刷新，无需先下线；关闭自动重连也可查询。`code=2` 是查询类失败，不能单独定位账号、DNS 或 TLS 根因。 |
-| 域名解析失败 | 0.2.3 的 Rust 传输和 Python 默认 API 支持精确校园域名的地址回退，仍保留域名与 TLS 校验；自定义域名、代理解析及 Python Browser 需单独核对 DNS。不要将配置地址改为 IP，详见[覆盖范围](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#dns-失败时的备用-ip)。 |
-| 门户跳转失败 | 保存固定 `stage / reason / navigation` 分类，区分 HTTP 跳转、HTML 引导和 CAS 回调；0.2.3 已修复已采样链路，仍拒绝越界导航。不要用关闭 TLS 或任意重定向放行绕过，见[导航语义](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#门户导航与诊断)。 |
-| CAS 回调报需人工处理 | 0.2.3 已修复把正常页面脚本中的风险词误判为正文的情况。真实验证码、风控或服务拒绝仍需处理；保留固定分类，HTTP 200、CAS 成功或表单提交都不足以证明服务已上线。已启用[验证码识别](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#验证码识别)时先看识别是否给出结果。 |
-| Python 正常、Rust 失败 | 在同机、同网络、同账号 / 服务和后端下对照独立查询与失败阶段；不要从语言差异直接推定根因。已记录的对照与限制见[发布验证](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/desktop-release-0.2.3.md#修复后的真实验证)。 |
-| 账户信息读取失败 | 使用账户页只读重试；连接状态由独立查询核验，账户缺项不能作为离线证据。 |
-| 自助服务读取失败 / 设备页空白 | 该页需要接校园网并完成一次统一身份认证；确认 `ysu login` 能成功后重试。输出与提示按固定分类给出，不显示门户原始响应。 |
-| 自助服务提示 IP 被冻结 | 短时间内反复完整登录会触发统一认证的风控，约 1 小时。CLI 与桌面端都会复用会话（CLI 落盘 30 分钟、桌面进程内），但**失败后不要循环重试**。冻结期间 `ysu login` 同样会失败。 |
-| 下线设备后它仍显示在线 | 门户更新在线列表有延迟，核验会重试若干次；超时后工具报失败而不是成功。稍后重新读取列表确认，必要时到门户设备页复核。 |
-| 剩余流量显示“门户未提供” | 到门户或运营商查询；缺失不是零或不限量，也不据此自动换号。 |
-| 开启重连却尚未联网 | 启动后台不等于认证成功；单独查询状态。遇验证码或风控时暂停重连，在本机或门户处理；已启用自动识别时先确认模型或可选依赖确实就位。 |
-| 总是要求验证码 | CLI 安装可选组 `captcha`（`uv sync --extra captcha`）后默认自动识别；桌面端在“设置 → 认证 → 验证码识别”按需下载模型（约 52 MB，校验摘要后才落盘）。识别不到时 CLI 会把图片保存在工作目录的 `captcha.png`，可人工输入。详见[验证码识别](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md#验证码识别)。 |
-| 已有后台管理或账号切换被阻止 | 同一配置只运行一个重连器，由当前所有者执行切换，不删除锁文件抢占。Python 守护热切换与 Rust Worker 的边界见[账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)。 |
-| 换号失败或在线设备超限 | 核对实际身份、服务和原连接恢复结果；只有旧账号确认下线、目标登录并独立核验后才提交配置。工具不自动踢其他设备。 |
-| 更新提示“更新源尚未就绪” | 不等于“已经是最新版”；稍后重试或走固定发布页，不修改源或关闭验签。 |
-| 更新仍下载整包 | 无合适补丁、无匹配缓存或差分失败都会使用整包；0.2.3 当次没有差分附件。完整条件见[更新说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)。 |
-| 安装失败或后台恢复失败 | 按提示恢复后台或退出后重开；未恢复时不要假定自动认证已运行，也不要删除账号配置。安装失败不触发差分二次安装。 |
-| `ysu: command not found` | 检查 PATH 是否含 `~/.local/bin`，或运行 `~/.local/bin/ysu --help`。 |
-| `systemctl --user` 无法连接总线 | 登录用户会话，或采用无服务安装与前台守护；这不是账号错误。 |
-| 找不到 `ysu-gui` | 旧 Qt 客户端已移除，使用 [Tauri 桌面版](Desktop-Client.md)；历史 Qt 报告不作为当前版本故障结论。 |
+---
 
-CLI 的命令和退出码见[使用说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)，平台与浏览器限制见[桌面说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md)。需要开发构建时走[云端路线](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/tauri-desktop.md#构建前提)，不为排障在本机编译或跑产品测试。
+## 1. 提示需要人工处理（密码错误或验证码）
 
-需要保留断网前后的链路时，可使用 0.2.4 起提供的[桌面调试记录](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/debug-recording.md)。0.2.3 无该入口；先开启记录，再复现，断网后文件仍保留在本机。
+- **核对账号与密码**：确认学号/工号与统一身份认证（`cer.ysu.edu.cn`）密码正确；若近期在学校门户修改过密码，请在「设置 → 账号」或 `ysu config account` 中同步更新。
+- **开启离线验证码识别**：当多次登录或校园网风控触发四位图形验证码时：
+  - **桌面端**：前往「设置 → 认证与重试 → 验证码识别」，点击 **下载模型**，下载校验完成后即可在登录时自动识别验证码。
+  - **命令行**：在项目目录重新执行 `bash install.sh --captcha` 安装 `ddddocr` 支持。
+- **IP 短暂冻结**：若连续多次输错密码触发统一身份认证冻结（通常约 1 小时），请先停止自动重连，待解封并核对密码后再试。
 
-## 形成可处理的反馈
+## 2. 显示已在线但无法访问外网，或运营商不符
 
-用法疑问到 [Q&A](https://github.com/wide-sky-with-me/ysu_net/discussions/categories/q-a)，可复现故障到 [Issue 表单](https://github.com/wide-sky-with-me/ysu_net/issues/new?template=bug_report.yml)。先阅读已有问题及最新回复，历史报告只对应当时版本与环境。
+- **检查运营商选择**：在桌面端「连接」页或运行 `ysu status` 查看实际在线运营商是否与你开通的运营商套餐一致；不一致时直接点击目标运营商或运行 `ysu service <运营商>` 切换。
+- **检查套餐欠费或零流量**：进入「账户」页或运行 `ysu info` / `ysu self` 查看剩余流量是否已归零；若你有多个账号，可在「连接」页或通过 `ysu account auto on` 开启零流量自动换号。
 
-提供操作顺序、预期 / 实际结果及人工脱敏的最少固定错误片段；不上传账号、IP/MAC、完整日志、配置或 HAR。未经验证的步骤写“未测试”，云端 CI / 离线演示不代替真实校园网或原位升级验收。更多规则见[隐私与反馈](Privacy-and-Reporting.md)。
+## 3. 切换账号后仍然自动登录到旧账号
+
+- **原因**：旧账号在校园网门户为本机开启了 **7 天无感认证**，校园网关根据本机 MAC 地址直接放行到了旧账号。
+- **解决办法**：
+  - 使用 YSU Net v0.3.0 及以上版本的「切换账号」（桌面端或 `ysu account use`）会自动解绑旧账号的本机无感认证并为新账号重绑。
+  - 如需手动清理，可在桌面端「设备」页切换到旧账号点击 **关闭无感**，或在终端执行：
+    ```bash
+    ysu self unbind current --account <旧账号标识>
+    ```
+
+## 4. 无感认证到期后没有自动续约
+
+- **确认后台正在运行**：自动续约由桌面客户端后台（可最小化到系统托盘）或 Linux 后台服务（`ysu-net.service` / `ysu daemon`）定时检查。若完全退出了桌面程序或停止了服务，后台将无法执行续约。
+- **查看续约状态與手动触发**：
+  - 桌面端在「设备 → 无感认证（7天）」查看自动续约状态与最近续约结果，或点击 **立即续约**。
+  - 命令行运行 `ysu self renew status` 查看配置，或运行 `ysu self renew now --force` 立即刷新 7 天有效期。
+
+## 5. 校园网内无法解析门户域名（DNS 异常）
+
+- YSU Net 已内置燕大校园网门户（`auth1.ysu.edu.cn`）与统一身份认证（`cer.ysu.edu.cn`）的备用 IP，当系统 DNS 响应超时或失败时会自动回退连接并保持原域名证书校验，无需手动把配置中的域名改成 IP。
+- 若仍提示网络不可达，请确认网线或校园 Wi-Fi 已连接，且未开启会将校园网内网地址转发到校外的全局系统代理或 VPN。
+
+## 6. 桌面客户端收集调试日志
+
+如果在特定网络环境下偶发连接失败，可在桌面端侧栏 **日志** 页点击 **开始调试记录**，复现一次问题后点击 **停止记录** 并 **打开记录目录**，用法详见 [桌面链路调试记录](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/debug-recording.md)。公开反馈前请按 [隐私与反馈](Privacy-and-Reporting.md) 检查脱敏。

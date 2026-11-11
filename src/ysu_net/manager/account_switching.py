@@ -6,13 +6,14 @@ from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import time
+from types import SimpleNamespace
 
 from ysu_net.auth.common import QueryError, online_service, online_state
 from .accounts import (CREDENTIAL_FIELDS, candidate_signature, commit_switch,
                        environment_override, load_accounts, prepare_switch,
                        source_signature, unchanged_switch)
 from .backend import run_backend
-from .config import load_config
+from .config import load_config, load_nosense
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,24 @@ def _restore(path, source, target, previous, budget):
         return False
 
 
+def _source_nosense_unbind_target(nosense, username):
+    acct = nosense.get("accounts", {}).get(username)
+    if isinstance(acct, dict) and acct.get("auto_renew"):
+        return "current" if not acct.get("target_mac") else None
+    if nosense.get("auto_renew"):
+        return nosense.get("target_mac") or "current"
+    return None
+
+
+def _target_nosense_bind(nosense, desired):
+    acct = nosense.get("accounts", {}).get(desired.username)
+    if isinstance(acct, dict) and acct.get("auto_renew"):
+        return (acct.get("target_mac") or "current", acct.get("service") or desired.service)
+    if nosense.get("auto_renew"):
+        return (nosense.get("target_mac") or "current", nosense.get("service") or desired.service)
+    return None
+
+
 def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=None,
                    timeout=None, environ=None, expected_source=None):
     """Caller owns the lifecycle lock; network work never holds the write lock."""
@@ -151,6 +170,10 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
         if isinstance(exc, _Failure):
             return AccountSwitchResult(exc.code, str(exc))
         return AccountSwitchResult(2, "账号或活动配置不可用，未发起切换")
+    try:
+        nosense = load_nosense(path)
+    except (OSError, ValueError):
+        nosense = {"auto_renew": False, "target_mac": "", "service": "", "accounts": {}}
     previous, changed = None, False
     desired = replace(source, **{key: target[key] for key in CREDENTIAL_FIELDS})
     try:
@@ -162,6 +185,11 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
             return AccountSwitchResult(0, "已独立确认当前账号及服务，无需切换", previous,
                                        committed=True)
         if previous is not None:
+            if source.username != desired.username:
+                unbind_target = _source_nosense_unbind_target(nosense, source.username)
+                if unbind_target:
+                    budget.run(source, "self", raw=True, args=SimpleNamespace(
+                        action="unbind", target=unbind_target, service=None, yes=True, fresh=False))
             changed = True
             _action(source, "logout", budget)
             if _observe(source, budget) is not None:
@@ -173,6 +201,12 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
         _unchanged(path, source, target, budget)
         commit_switch(path, source, target, timeout=budget.check(), stop_event=stop_event)
         budget.check()
+        if source.username != desired.username:
+            bind_spec = _target_nosense_bind(nosense, desired)
+            if bind_spec:
+                mac_target, svc = bind_spec
+                runner(desired, "self", raw=True, args=SimpleNamespace(
+                    action="nosense", target=mac_target, service=svc, yes=True, fresh=False))
         return AccountSwitchResult(0, "已独立核验目标账号和服务并保存活动配置", previous,
                                    committed=True)
     except (_Failure, OSError, ValueError) as exc:

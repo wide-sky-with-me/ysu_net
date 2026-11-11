@@ -1,68 +1,64 @@
-# 产品入口与项目架构
+# 产品形态与系统架构
 
-[返回首页](../README.md) · [命令行使用](usage.md) · [桌面开发](tauri-desktop.md) · [开发验证](development.md)
+[返回首页](../README.md) · [文档导航](README.md) · [桌面端说明](tauri-desktop.md) · [开发说明](development.md)
 
-## 两个产品
+**YSU Net** 采用“一套配置规范、双端独立实现”的架构设计：
 
-项目分为 **Shell 命令行版** 与 **Tauri 图形版**。Windows、Linux、macOS 是图形版的发行目标，不是三套产品。自 `v0.2.0` 起，桌面由 Qt 迁移为 Tauri，独立 Python CLI 同步版本；旧 `v0.1.0` Qt 标签与附件保留历史，不覆盖。
+1. **跨平台桌面客户端（Windows / Linux / macOS）**：采用 Tauri 2 + Svelte 5 + Rust 原生实现，面向图形界面用户，开箱即用，不依赖 Python 或 Node 运行时。
+2. **Linux 命令行与守护服务（`ysu`）**：采用 Python 3.12 + `systemd` 实现，面向 Linux 终端、服务器、WSL 与自动化脚本场景。
 
-| 产品 | 入口 | 认证实现与运行时 |
-| --- | --- | --- |
-| Shell 命令行版 | `ysu`、`python -m ysu_net` | Python；Shell 负责安装和命令包装，不复制 Bash 认证 |
-| Tauri 图形版 | `ysu-net` / 系统应用图标 | Svelte 界面 + Rust 原生后台 + Rust 认证库；无 Python/Node 认证旁车 |
+两端共用相同的配置文件格式（`config.json`、`config.accounts.json`、`config.nosense.json`）与一致的门户认证语义。
 
-`ysuon`、`ysuoff` 是 CLI 快捷方式。原 Qt 客户端（`ysu-gui`）与 Python JSONL 桌面原型已移除。Vite、浏览器演示和原生演示属于 GitHub Actions runner 的开发验收链路，不另行分发为 Web 产品；本机不启动开发或预览服务。
+---
 
-新的桌面认证实现替代此前 Python 旁车方案，原因见 [Rust 桌面决策](../.agents/notes/proposals/desktop/2026-10-14-rust-desktop.md)。
-
-## 代码边界
+## 模块划分
 
 ```text
 ysu_net/
-├── install.sh / uninstall.sh        CLI 安装、卸载
-├── src/ysu_net/
-│   ├── auth/                       Python CLI 认证、账户解析、自助服务
-│   └── manager/                    CLI、配置、锁、守护与 systemd
-├── desktop/
-│   ├── src/                        三平台共用 Svelte 界面与 IPC 类型
-│   ├── crates/ysu-auth/             Rust Portal/CAS、状态、切换、账户、CDP、自助服务
-│   ├── src-tauri/src/               Rust 后台、配置、窗口、托盘、自启
-│   └── scripts/desktop.mjs          Node/Rust 原生构建入口
-├── packaging/                      构建及浏览器、原生验收工具
-├── tests/                          Python CLI 回归
-└── docs/                           当前说明与独立的历史验收
+├── src/ysu_net/                 # Linux Python CLI 与后台守护实现
+│   ├── auth/
+│   │   ├── api.py               # Portal + CAS 纯 HTTP 认证实现
+│   │   ├── browser.py           # Playwright 浏览器认证实现（可选）
+│   │   ├── selfservice.py       # 校园网自助服务 (/self)：设备、7天无感认证与服务设置
+│   │   ├── common.py            # 密码加密、HTML 表单解析与状态模型
+│   │   ├── dns_fallback.py      # 校园网门户/CAS 域名备用 IP 解析
+│   │   └── quota.py             # 套餐剩余流量解析与零流量判定
+│   └── manager/
+│       ├── cli.py               # `ysu` 命令行入口与交互式菜单
+│       ├── daemon.py            # 后台自动重连、零流量换号与无感自动续约守护
+│       ├── accounts.py          # 多账号池存储 (config.accounts.json) 与候选排序
+│       ├── account_switching.py # 账号热切换、零流量轮换与无感认证交接
+│       └── config.py            # 主配置、无感续约配置 (config.nosense.json) 与进程文件锁
+├── desktop/                     # 跨平台 Tauri + Rust 桌面客户端
+│   ├── crates/ysu-auth/         # 纯 Rust 认证核心库（Portal/CAS、自助服务、无感认证、ONNX 验证码、CDP 浏览器）
+│   ├── src-tauri/               # Tauri 原生宿主（任务调度、自动重连、多账号轮换、无感续约、托盘、在线更新）
+│   └── src/                     # Svelte 5 + TypeScript 桌面界面
+└── packaging/                   # 云端构建、更新清单签名校验与冒烟验收脚本
 ```
 
-[前端](../desktop/src/App.svelte)不处理认证协议或持久化密码。[原生后台](../desktop/src-tauri/src/runtime.rs)串行调度认证与重连，[认证库](../desktop/crates/ysu-auth/src/lib.rs)负责协议及结果核验，[配置层](../desktop/src-tauri/src/storage.rs)负责兼容存储和锁。[Tauri 主程序](../desktop/src-tauri/src/main.rs)集中系统集成；平台差异不扩散为三份界面。
+---
 
-两种语言不再共享同一认证执行器；变更协议时必须同时评估 Python 与 Rust，通过对应回归维护相同状态、账户和失败恢复语义。未知状态不当作离线，认证成功不以提交表单或收到 IPC 确认为依据。行为细节见[桌面运行语义](tauri-desktop.md#运行语义)与[CLI 开发](development.md)。
+## 核心业务流程
 
-验证码识别属于两侧各自实现的旁路，不是共享执行器：[CLI](../src/ysu_net/auth/captcha.py)把 ddddocr 作为可选依赖，[认证库](../desktop/crates/ysu-auth/src/captcha.rs)用 `tract` 跑同一份模型。模型既不进安装包，也不随登录下载，桌面端只在磁盘上已有模型时启用；未启用时两侧都回到需人工处理。语义见[桌面语义](tauri-desktop.md#验证码识别)。
+### 1. 门户登录与状态核验
 
-自助服务与门户是两条认证链：[CLI](../src/ysu_net/auth/selfservice.py)与[认证库](../desktop/crates/ysu-auth/src/selfservice.rs)各自实现 `/self` 的 OAuth2 登录与设备接口，但都复用本侧已有的 CAS 表单解析、验证码与密码加密，只把 `service` 换成 `/login/oauth2/code/custom-self`。两条链共享「未知状态不当作成功」的约定：设备下线写入前读一次列表、写入后按有限重试复核，目标仍在在线集合中即报失败。会话复用策略两侧不同——CLI 落盘缓存，桌面端只在进程内缓存，取舍见[安全说明](security.md#资料边界)与[桌面语义](tauri-desktop.md#设备自助服务)。
+1. **预检与引导**：请求门户首页查询当前会话与在线状态；若处于离线 Captive 引导状态，自动跟随门户重定向获取登录参数。
+2. **统一身份认证（CAS）**：拉取 `cer.ysu.edu.cn` 登录页，提取加密密钥与登录凭据；若触发验证码且已配置本地模型，则自动执行离线 OCR 识别。
+3. **服务选择与上线**：CAS 回调门户后提交目标运营商（校园网 / 中国移动 / 中国联通 / 中国电信）完成上线。
+4. **独立复核**：每次登录、下线或切换运营商后，均通过新的状态查询确认在线身份与服务是否一致。
 
-DNS 回退的已核验域名与地址由[包内 JSON](../src/ysu_net/auth/campus-addresses.json)统一维护，Rust 编译时嵌入，Python 默认 API 随包读取；解析、TLS 与各后端覆盖范围集中见[网络语义](tauri-desktop.md#dns-失败时的备用-ip)。该能力纳入 0.2.3，云端与真实环境验证分别见[发布记录](desktop-release-0.2.3.md)。
+### 2. 设备自助服务与 7 天无感认证
 
-## 配置与进程
+1. **OAuth2 委托登录**：先访问 `GET /self/index` 初始化自助服务会话并提取 OAuth2 `callbackAuthorize` 地址，随后通过统一身份认证完成登录（支持复用缓存的 `CASTGC` 会话）。
+2. **无感认证与自动续约**：
+   - 调用 `/self/setting/noSense` 开启 7 天 MAC 无感认证，调用 `/self/mac/unbind` 取消绑定，调用 `/self/setting/net` 修改默认上网服务。
+   - 后台守护（Python `NoSenseRenewer` 与 Rust `Worker`）按账号读取 `config.nosense.json`，当目标设备的无感有效期剩余不足 24 小时或已过期时，自动执行「解绑 → 重新绑定 7 天」。
+3. **多账号换号交接**：当手动切换账号或因零流量自动轮换账号时，自动在下线前解绑旧账号的本机 MAC 无感认证，并在新账号上线后重新绑定本机无感认证、同步迁移自动续约规则。
 
-新桌面沿用 CLI 的配置字段、默认路径和运行锁协议。配置写锁与认证/守护运行锁分开，保存设置不争夺整个守护生命周期。共享配置不表示同时启用两套自动重连：同一配置只由一个运行器管理。多账号权威、账号簿与 Python 文件控制通道的适用范围集中见[多账号说明](accounts.md)。
+---
 
-CLI 的 Linux systemd 服务面向无桌面运行；图形版的托盘和用户登录自启面向桌面会话。配置目录、演示隔离、退出与自启行为集中见[桌面说明](tauri-desktop.md)，安装器仍按[CLI 安装方式](../README.md#快速开始)工作。
+## 安全与可靠性边界
 
-## 构建与发行边界
-
-编译、打包与产品测试仅在 GitHub Actions runner 执行，平台构建 SDK 也只作为 runner 前提；云端失败不回退本地编译。本机只下载、校验云端产物并安装或运行，纯文档修改只做静态核对。开发构建使用独立分支，不打版本标签、不发布正式 Release。
-
-| 链路 | 职责 | 入口 |
-| --- | --- | --- |
-| Python CLI 分发 | runner 生成 wheel / 源码包；保留现有安装器和依赖 | [pyproject.toml](../pyproject.toml)、runner 中的 `uv build` |
-| Rust 桌面构建 | 对应平台 runner 构建原生程序及安装包，不冻结 Python | [desktop.mjs](../desktop/scripts/desktop.mjs)、[Tauri CI](../.github/workflows/tauri.yml) |
-| Rust 认证探针 | 四平台无界面工具，复用认证库；不替代 GUI / Worker 验收 | [验证合同](rust-auth-probe.md)、[Headless CI](../.github/workflows/rust-auth.yml) |
-
-Tauri CI 定义四平台构建和离线验收；Linux `.deb` 与 Windows NSIS 安装包还会在运行器上实际安装，核对安装位置、卸载登记、菜单入口与图标，从安装位置运行原生冒烟后卸载并确认清理；macOS arm64 / x64 分别挂载 `.dmg`，核对应用与“应用程序”快捷方式，复制到 /Applications 后核对包标识、版本、最低系统、图标与本机架构，运行原生冒烟后删除。推送 `v*` 标签时，Release 作业依赖四个平台构建、原生 / 安装及独立浏览器验收全部成功，再发布 Tauri 安装包、独立 Python 分发包和 `SHA256SUMS`。定义存在不代表本轮对应系统已经跑通，实际结果以对应 CI 运行为准。
-
-Linux 包名仍为 `ysu-net`，0.2.0 高于旧 Qt 0.1.0，正常升级无需 `--reinstall`。Windows 旧 Inno Setup 与新版当前用户 NSIS 不会互相替换，先关闭旧自启、退出并卸载旧版；macOS 13.5+ 按 arm64 / x64 分包。Windows Authenticode 发布者签名与 Apple 签名 / 公证尚未提供；它们与[软件内更新包签名](updates.md#信任与云端发布)分别核对，完整迁移要求见[迁移说明](migration.md)。
-
-## 文档归属
-
-[文档导航](README.md)负责按任务选择指南；首页负责两个产品的导航，架构页负责边界，桌面说明负责云端构建和运行语义，[设计说明](rust-desktop-design.md)负责视觉依据，[桌面验收导航](desktop-acceptance.md)串联各阶段证据与未覆盖范围。带日期的验收只对应当时源码与样本；此前 Python 图形版的校内成绩和旧旁车包不作为 Rust 桌面验收证据。
+- **最小权限存储**：所有包含密码、账号池或自助服务会话的本地文件均以 `0600` 权限原子写入；前端快照与日志绝不包含明文密码、Cookie 或票据参数。
+- **跨进程互斥锁**：认证、下线、切换账号与后台重连均通过文件锁串行化；同一台设备上建议只启用桌面客户端或 CLI 服务中的一套自动管理。
+- **受限导航与证书校验**：严格校验 HTTPS 证书与校园网主机白名单，仅对已知的校园网同源门户跳转做协议规范化，防止凭据发往非预期地址。

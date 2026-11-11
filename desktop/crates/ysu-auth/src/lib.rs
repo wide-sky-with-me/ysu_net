@@ -33,7 +33,10 @@ pub use diagnostic::{AuthDiagnostic, DiagnosticOperation, DiagnosticReason, Diag
 pub use info_observation::InfoObservation;
 pub use navigation_diagnostic::{NavigationDiagnostic, NavigationKind};
 pub use quota::{classify_quota, Quota, QuotaState};
-pub use selfservice::{SelfDevice, SelfFlow, SelfKick, SelfPackage, SelfRemember, SelfSnapshot};
+pub use selfservice::{
+    normalize_mac, SelfDevice, SelfFlow, SelfKick, SelfNoSense, SelfPackage, SelfRemember,
+    SelfSnapshot,
+};
 pub use trace::{Trace, TraceEvent, TraceRecord};
 pub const SERVICES: [&str; 4] = ["校园网", "中国移动", "中国联通", "中国电信"];
 pub const QUERY_ERROR: i32 = 2;
@@ -463,6 +466,98 @@ impl AuthClient {
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let service = selfservice::SelfService::open(&self.config, self.local, &op).await?;
             let result = service.kick(&op, &selector).await;
+            if result.is_err() {
+                selfservice::forget_session(&self.config, self.local).await;
+            }
+            result
+        })
+        .await
+    }
+
+    pub async fn self_nosense_enable(
+        &self,
+        selector: &str,
+        service: Option<&str>,
+    ) -> Result<SelfNoSense, AuthError> {
+        let selector = selector.to_string();
+        let service = service.map(str::to_string);
+        self.diagnosed(DiagnosticOperation::SelfService, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let client = selfservice::SelfService::open(&self.config, self.local, &op).await?;
+            let result = client
+                .enable_nosense(&op, &selector, service.as_deref())
+                .await;
+            if result.is_err() {
+                selfservice::forget_session(&self.config, self.local).await;
+            }
+            result
+        })
+        .await
+    }
+
+    pub async fn self_nosense_disable(&self, selector: &str) -> Result<SelfNoSense, AuthError> {
+        let selector = selector.to_string();
+        self.diagnosed(DiagnosticOperation::SelfService, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let client = selfservice::SelfService::open(&self.config, self.local, &op).await?;
+            let result = client.disable_nosense(&op, &selector).await;
+            if result.is_err() {
+                selfservice::forget_session(&self.config, self.local).await;
+            }
+            result
+        })
+        .await
+    }
+
+    pub async fn self_device_service(
+        &self,
+        selector: &str,
+        service: &str,
+    ) -> Result<SelfNoSense, AuthError> {
+        let selector = selector.to_string();
+        let service = service.to_string();
+        self.diagnosed(DiagnosticOperation::SelfService, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let client = selfservice::SelfService::open(&self.config, self.local, &op).await?;
+            let result = client.modify_device_service(&op, &selector, &service).await;
+            if result.is_err() {
+                selfservice::forget_session(&self.config, self.local).await;
+            }
+            result
+        })
+        .await
+    }
+
+    pub async fn self_nosense_renew(
+        &self,
+        selector: &str,
+        service: Option<&str>,
+        force: bool,
+    ) -> Result<SelfNoSense, AuthError> {
+        let selector = selector.to_string();
+        let service = service.map(str::to_string);
+        self.diagnosed(DiagnosticOperation::SelfService, async {
+            self.config
+                .require_credentials()
+                .map_err(|e| e.at(DiagnosticStage::Config))?;
+            let op = self.operation();
+            let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
+            let client = selfservice::SelfService::open(&self.config, self.local, &op).await?;
+            let result = client
+                .renew_nosense(&op, &selector, service.as_deref(), force)
+                .await;
             if result.is_err() {
                 selfservice::forget_session(&self.config, self.local).await;
             }
