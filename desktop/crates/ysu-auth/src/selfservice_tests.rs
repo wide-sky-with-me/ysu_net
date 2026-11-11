@@ -1,8 +1,8 @@
 //! Selection and coercion rules for the self-service device list.
 use crate::selfservice::{
-    format_epoch_ms, is_self_page, normalize_mac, parse_flow, parse_package,
-    resolve_default_service, seed_service, select, select_nosense_target,
-    select_nosense_unbind_targets, text_of,
+    format_epoch_ms, is_self_page, normalize_mac, parse_adapter_mac_from_text, parse_devices,
+    parse_flow, parse_package, resolve_default_service, seed_service, select,
+    select_nosense_target, select_nosense_unbind_targets, text_of,
 };
 use crate::SelfDevice;
 use serde_json::json;
@@ -183,4 +183,81 @@ fn nosense_mac_service_and_target_resolution() {
     let unbound = select_nosense_unbind_targets(&devices, "all").unwrap();
     assert_eq!(unbound.len(), 1);
     assert_eq!(unbound[0].user_mac, "02-00-00-00-00-02");
+}
+
+#[test]
+fn parse_devices_accepts_null_groups_and_null_device_fields() {
+    let empty_online = json!({
+        "code": 200,
+        "message": "OK",
+        "data": {
+            "onlineDevices": null,
+            "offlineDevices": []
+        },
+        "success": true
+    });
+    assert!(parse_devices(&empty_online).unwrap().is_empty());
+
+    let both_null = json!({
+        "code": 200,
+        "data": {
+            "onlineDevices": null,
+            "offlineDevices": null
+        }
+    });
+    assert!(parse_devices(&both_null).unwrap().is_empty());
+
+    let offline_nosense = json!({
+        "code": 200,
+        "data": {
+            "onlineDevices": null,
+            "offlineDevices": [
+                {
+                    "deviceName": null,
+                    "deviceType": null,
+                    "userMac": "aa:bb:cc:dd:ee:ff",
+                    "userIpv4": null,
+                    "onlineDuration": null,
+                    "authType": null,
+                    "currentDevice": null,
+                    "unifiedAuthentication": null,
+                    "onlineUserUuid": null,
+                    "bindNoSense": true,
+                    "noSenseUuid": "ns-offline-1",
+                    "noSenseEndTime": 1_794_883_200_000i64,
+                    "defaultServiceOperaporsConfigUuid": "8a8b808256b247030156b282869a008f",
+                    "terminalType": null,
+                    "location": null
+                }
+            ]
+        }
+    });
+    let parsed = parse_devices(&offline_nosense).unwrap();
+    assert_eq!(parsed.len(), 1);
+    assert!(!parsed[0].online);
+    assert_eq!(parsed[0].user_mac, "AA-BB-CC-DD-EE-FF");
+    assert!(parsed[0].bind_no_sense);
+    assert_eq!(parsed[0].default_service, "中国移动");
+    assert_eq!(parsed[0].no_sense_expires, "2026-11-17 10:40:00");
+
+    assert!(parse_devices(&json!({ "code": 200, "data": null })).is_err());
+    assert!(parse_devices(&json!({ "code": 200 })).is_err());
+}
+
+#[test]
+fn adapter_mac_parser_prefers_physical_adapter_over_virtual() {
+    let sample = concat!(
+        "Ethernet adapter vEthernet (WSL):\r\n",
+        "   Physical Address. . . . . . . . . : 00-15-5D-01-02-03\r\n",
+        "   IPv4 Address. . . . . . . . . . . : 172.20.16.1\r\n",
+        "\r\n",
+        "Wireless LAN adapter WLAN:\r\n",
+        "   Physical Address. . . . . . . . . : AA-BB-CC-DD-EE-FF\r\n",
+        "   IPv4 Address. . . . . . . . . . . : 10.22.100.50\r\n",
+        "   Default Gateway . . . . . . . . . : 10.22.0.1\r\n",
+    );
+    assert_eq!(
+        parse_adapter_mac_from_text(sample).as_deref(),
+        Some("AA-BB-CC-DD-EE-FF")
+    );
 }

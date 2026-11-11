@@ -63,57 +63,56 @@ pub(crate) async fn forget_session(config: &Config, local: bool) {
     sessions().lock().await.remove(&session_key(config, local));
 }
 
+fn null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 /// One entry from `onlineDevices` / `offlineDevices`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfDevice {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub device_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub device_type: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub user_mac: String,
     #[serde(default)]
     pub user_ipv4: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub online_duration: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub auth_type: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub current_device: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub unified_authentication: bool,
     /// Portal identifier; never rendered, used for the kick request and checks.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub online_user_uuid: String,
     /// Filled from the group the device came from, not from the portal JSON.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub online: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub bind_no_sense: bool,
     #[serde(default)]
     pub no_sense_uuid: Option<String>,
     #[serde(default)]
     pub no_sense_end_time: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub no_sense_expires: String,
     #[serde(default)]
     pub default_service_operapors_config_uuid: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub default_service: String,
     #[serde(default)]
     pub terminal_type: Option<i32>,
     #[serde(default)]
     pub location: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DeviceGroups {
-    #[serde(default)]
-    online_devices: Vec<SelfDevice>,
-    #[serde(default)]
-    offline_devices: Vec<SelfDevice>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -289,20 +288,7 @@ impl SelfService {
 
     async fn devices(&self, op: &Operation) -> Result<Vec<SelfDevice>, AuthError> {
         let payload = self.post(DEVICES, &json!({}), op).await?;
-        let groups: DeviceGroups =
-            serde_json::from_value(payload["data"].clone()).map_err(|_| {
-                AuthError::query("自助服务设备响应结构异常")
-                    .at(Stage::Unknown)
-                    .or_reason(Reason::ResponseInvalid)
-            })?;
-        let mut rows = Vec::new();
-        for device in groups.online_devices {
-            rows.push(enrich_device(device, true));
-        }
-        for device in groups.offline_devices {
-            rows.push(enrich_device(device, false));
-        }
-        Ok(rows)
+        parse_devices(&payload)
     }
 
     pub async fn snapshot(&self, op: &Operation) -> Result<SelfSnapshot, AuthError> {
@@ -912,6 +898,79 @@ pub(crate) fn service_label_for_uuid(uuid: Option<&str>) -> String {
     }
 }
 
+fn opt_text_of(value: Option<&serde_json::Value>) -> Option<String> {
+    let text = value.map(text_of).unwrap_or_default();
+    (!text.is_empty()).then_some(text)
+}
+
+fn parse_device_entry(map: &serde_json::Map<String, serde_json::Value>) -> SelfDevice {
+    SelfDevice {
+        device_name: map.get("deviceName").map(text_of).unwrap_or_default(),
+        device_type: map.get("deviceType").map(text_of).unwrap_or_default(),
+        user_mac: map.get("userMac").map(text_of).unwrap_or_default(),
+        user_ipv4: opt_text_of(map.get("userIpv4")),
+        online_duration: map.get("onlineDuration").map(text_of).unwrap_or_default(),
+        auth_type: map.get("authType").map(text_of).unwrap_or_default(),
+        current_device: map
+            .get("currentDevice")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        unified_authentication: map
+            .get("unifiedAuthentication")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        online_user_uuid: map.get("onlineUserUuid").map(text_of).unwrap_or_default(),
+        online: false,
+        bind_no_sense: map
+            .get("bindNoSense")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        no_sense_uuid: opt_text_of(map.get("noSenseUuid")),
+        no_sense_end_time: map
+            .get("noSenseEndTime")
+            .and_then(serde_json::Value::as_i64),
+        no_sense_expires: String::new(),
+        default_service_operapors_config_uuid: opt_text_of(
+            map.get("defaultServiceOperaporsConfigUuid"),
+        ),
+        default_service: String::new(),
+        terminal_type: map
+            .get("terminalType")
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|v| i32::try_from(v).ok()),
+        location: map.get("location").filter(|v| !v.is_null()).map(text_of),
+    }
+}
+
+pub(crate) fn parse_devices(payload: &serde_json::Value) -> Result<Vec<SelfDevice>, AuthError> {
+    let Some(data) = payload.get("data").and_then(serde_json::Value::as_object) else {
+        return Err(AuthError::query("自助服务设备响应结构异常")
+            .at(Stage::Unknown)
+            .or_reason(Reason::ResponseInvalid));
+    };
+    let mut rows = Vec::new();
+    for (group, online) in [("onlineDevices", true), ("offlineDevices", false)] {
+        let Some(items) = data.get(group) else {
+            continue;
+        };
+        if items.is_null() {
+            continue;
+        }
+        let Some(list) = items.as_array() else {
+            return Err(AuthError::query("自助服务设备响应结构异常")
+                .at(Stage::Unknown)
+                .or_reason(Reason::ResponseInvalid));
+        };
+        for item in list {
+            let Some(map) = item.as_object() else {
+                continue;
+            };
+            rows.push(enrich_device(parse_device_entry(map), online));
+        }
+    }
+    Ok(rows)
+}
+
 fn enrich_device(mut device: SelfDevice, online: bool) -> SelfDevice {
     device.online = online;
     if let Some(mac) = normalize_mac(&device.user_mac) {
@@ -923,21 +982,215 @@ fn enrich_device(mut device: SelfDevice, online: bool) -> SelfDevice {
     device
 }
 
+const VIRTUAL_IFACE_KEYWORDS: &[&str] = &[
+    "wsl",
+    "hyper-v",
+    "vmware",
+    "virtualbox",
+    "bluetooth",
+    "蓝牙",
+    "loopback",
+    "tunnel",
+    "tap",
+    "wintun",
+    "clash",
+    "mihomo",
+    "本地连接*",
+    "veth",
+    "docker",
+    "virbr",
+    "br-",
+    "utun",
+    "awdl",
+    "llw",
+];
+
+pub(crate) fn parse_adapter_mac_from_text(text: &str) -> Option<String> {
+    let mac_re = regex::Regex::new(r"\b([0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5})\b").ok()?;
+    let ip_re = regex::Regex::new(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b").ok()?;
+    let mut blocks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        let starts_new = !line.is_empty()
+            && !line.starts_with(' ')
+            && !line.starts_with('\t')
+            && !current.is_empty();
+        if starts_new {
+            blocks.push(std::mem::take(&mut current));
+        }
+        if !line.trim().is_empty() || !current.is_empty() {
+            current.push_str(line);
+            current.push('\n');
+        }
+    }
+    if !current.is_empty() {
+        blocks.push(current);
+    }
+
+    let mut candidates: Vec<(bool, bool, bool, isize, String)> = Vec::new();
+    for (idx, block) in blocks.iter().enumerate() {
+        let Some(first_line) = block.lines().next() else {
+            continue;
+        };
+        let head = first_line.to_lowercase();
+        let kw_match = VIRTUAL_IFACE_KEYWORDS.iter().any(|k| head.contains(k));
+        let is_virtual = kw_match || head.starts_with("lo");
+        let mac = mac_re
+            .captures_iter(block)
+            .filter_map(|cap| normalize_mac(&cap[1]))
+            .find(|m| m != "00-00-00-00-00-00" && m != "FF-FF-FF-FF-FF-FF");
+        let Some(mac) = mac else {
+            continue;
+        };
+        let ips: Vec<&str> = ip_re
+            .captures_iter(block)
+            .filter_map(|cap| cap.get(1).map(|m| m.as_str()))
+            .filter(|ip| {
+                !ip.starts_with("127.")
+                    && !ip.starts_with("169.254.")
+                    && !ip.starts_with("255.")
+                    && !ip.starts_with("0.")
+                    && !ip.starts_with("198.18.")
+                    && !ip.starts_with("198.19.")
+            })
+            .collect();
+        if ips.is_empty() {
+            continue;
+        }
+        let has_campus = ips.iter().any(|ip| ip.starts_with("10."));
+        let has_gateway = ips.len() > 1;
+        candidates.push((!is_virtual, has_campus, has_gateway, -(idx as isize), mac));
+    }
+    candidates.sort();
+    candidates.pop().map(|(_, _, _, _, mac)| mac)
+}
+
+pub(crate) fn detect_local_mac() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let output = std::process::Command::new("ipconfig")
+            .arg("/all")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        return parse_adapter_mac_from_text(&text);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(release) = std::fs::read_to_string("/proc/sys/kernel/osrelease") {
+            let ipconfig_path = std::path::Path::new("/mnt/c/Windows/System32/ipconfig.exe");
+            if release.to_ascii_lowercase().contains("microsoft") && ipconfig_path.is_file() {
+                let res = std::process::Command::new(ipconfig_path)
+                    .arg("/all")
+                    .output();
+                if let Ok(output) = res {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    if let Some(mac) = parse_adapter_mac_from_text(&text) {
+                        return Some(mac);
+                    }
+                }
+            }
+        }
+
+        let net_root = std::path::Path::new("/sys/class/net");
+        if net_root.is_dir() {
+            let mut preferred: Vec<String> = Vec::new();
+            if let Ok(routes) = std::fs::read_to_string("/proc/net/route") {
+                for line in routes.lines().skip(1) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 && parts[1] == "00000000" {
+                        preferred.push(parts[0].to_string());
+                    }
+                }
+            }
+            if let Ok(entries) = std::fs::read_dir(net_root) {
+                let mut names: Vec<String> = entries
+                    .flatten()
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .collect();
+                names.sort();
+                for name in names {
+                    if !preferred.contains(&name) {
+                        preferred.push(name);
+                    }
+                }
+            }
+            let mut fallback: Option<String> = None;
+            for iface in preferred {
+                let low = iface.to_ascii_lowercase();
+                if low == "lo"
+                    || low.starts_with("tun")
+                    || low.starts_with("tap")
+                    || low.starts_with("wg")
+                    || low.starts_with("docker")
+                    || low.starts_with("veth")
+                    || low.starts_with("br-")
+                    || low.starts_with("virbr")
+                {
+                    continue;
+                }
+                let Ok(raw_mac) = std::fs::read_to_string(net_root.join(&iface).join("address"))
+                else {
+                    continue;
+                };
+                let Some(mac) = normalize_mac(&raw_mac) else {
+                    continue;
+                };
+                if mac == "00-00-00-00-00-00" || mac == "FF-FF-FF-FF-FF-FF" {
+                    continue;
+                }
+                let oper = std::fs::read_to_string(net_root.join(&iface).join("operstate"))
+                    .unwrap_or_default();
+                if oper.trim().eq_ignore_ascii_case("up") {
+                    return Some(mac);
+                }
+                if fallback.is_none() {
+                    fallback = Some(mac);
+                }
+            }
+            if fallback.is_some() {
+                return fallback;
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        if let Ok(output) = std::process::Command::new("ifconfig").output() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            return parse_adapter_mac_from_text(&text);
+        }
+
+        None
+    }
+}
+
 pub(crate) fn select_nosense_target(
     devices: &[SelfDevice],
     selector: &str,
 ) -> Result<(String, Option<SelfDevice>), AuthError> {
     let wanted = selector.trim();
     if wanted.is_empty() || wanted.eq_ignore_ascii_case("current") || wanted == "本机" {
-        let target = devices
+        if let Some(target) = devices
             .iter()
             .find(|d| d.current_device)
             .or_else(|| devices.iter().find(|d| d.bind_no_sense))
             .cloned()
-            .ok_or_else(|| {
-                AuthError::query("未找到本机或已开启无感认证的设备，请指定设备编号或 MAC 地址")
-            })?;
-        return Ok((require_mac(&target.user_mac)?, Some(target)));
+        {
+            return Ok((require_mac(&target.user_mac)?, Some(target)));
+        }
+        if let Some(mac) = detect_local_mac() {
+            let matched = devices
+                .iter()
+                .find(|d| normalize_mac(&d.user_mac).as_deref() == Some(mac.as_str()))
+                .cloned();
+            return Ok((mac, matched));
+        }
+        return Err(AuthError::query(
+            "未找到本机或已开启无感认证的设备，请指定设备编号或 MAC 地址",
+        ));
     }
     if wanted.len() <= 4 && wanted.chars().all(|c| c.is_ascii_digit()) {
         let index: usize = wanted

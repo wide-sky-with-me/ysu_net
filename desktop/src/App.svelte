@@ -330,6 +330,9 @@
     nosenseAccount = username;
     nosenseDirty = false;
     syncNoSenseForm(snapshot, username);
+    if ((selfData || snapshot?.self_error) && !locked) {
+      void action('self_service', username || 'current');
+    }
   }
 
   function setNoSenseAutoRenew(enabled: boolean) {
@@ -601,9 +604,12 @@
                   <h2 id="my-devices-heading">我的设备</h2>
                   <span class="inline-label" class:idle={!selfData.online}>{selfData.online} 台在线</span>
                 </div>
-                {#if selfData.online > 1}
-                  <button type="button" class="quiet-button danger-text" disabled={locked} onclick={confirmKickAll}>全部下线</button>
-                {/if}
+                <div class="device-row-actions">
+                  <button type="button" class="quiet-button" disabled={locked} onclick={() => { void action('self_service', nosenseAccount ? nosenseAccount : undefined); }}>刷新</button>
+                  {#if selfData.online > 1}
+                    <button type="button" class="quiet-button danger-text" disabled={locked} onclick={confirmKickAll}>全部下线</button>
+                  {/if}
+                </div>
               </div>
               {#if snapshot?.self_error}<p class="form-error" role="alert"><span>{selfError.summary}</span>{#if selfError.detail}<small class="error-detail numeric">{selfError.detail}</small>{/if}</p>{/if}
               {#if snapshot?.self_notice}<p class="notice-line" role="status">{snapshot.self_notice}</p>{/if}
@@ -723,7 +729,15 @@
               <p class="muted">请先保存校园网账号和密码。</p>
               <button type="button" class="primary-button" disabled={locked} onclick={() => navigate('settings')}>设置账号</button>
             {:else}
-              <button type="button" class="primary-button" disabled={locked} onclick={() => { void action('self_service'); }}>{snapshot?.self_error ? '重试读取设备' : '读取自助服务'}</button>
+              {#if (snapshot?.accounts.items.length ?? 0) > 1}
+                <select aria-label="自助服务账号" value={nosenseAccount} disabled={locked} onchange={(event) => chooseNoSenseAccount(event.currentTarget.value)}>
+                  <option value="">跟随当前活动账号</option>
+                  {#each snapshot?.accounts.items ?? [] as item}
+                    <option value={item.username}>{item.label ? `${item.label}（${item.username}）` : item.username}{item.current ? ' · 当前' : ''}</option>
+                  {/each}
+                </select>
+              {/if}
+              <button type="button" class="primary-button" disabled={locked} onclick={() => { void action('self_service', nosenseAccount ? nosenseAccount : undefined); }}>{snapshot?.self_error ? '重试读取设备' : '读取自助服务'}</button>
             {/if}
           </div>
         {/if}

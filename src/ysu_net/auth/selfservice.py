@@ -749,6 +749,138 @@ def format_kick(result: dict) -> str:
     return "\n".join(lines)
 
 
+_VIRTUAL_IFACE_KEYWORDS = (
+    "wsl", "hyper-v", "vmware", "virtualbox", "bluetooth", "蓝牙",
+    "loopback", "tunnel", "tap", "wintun", "clash", "mihomo",
+    "本地连接*", "veth", "docker", "virbr", "br-", "utun", "awdl", "llw",
+)
+
+
+def parse_adapter_mac_from_text(text: str) -> str | None:
+    """Extract the best active physical adapter MAC from ipconfig /all or ifconfig output."""
+    if not text:
+        return None
+    candidates: list[tuple[bool, bool, bool, int, str]] = []
+    for idx, block in enumerate(re.split(r"\r?\n(?=\S)", text)):
+        lines = block.splitlines()
+        if not lines:
+            continue
+        head = lines[0].lower()
+        is_virtual = any(k in head for k in _VIRTUAL_IFACE_KEYWORDS) or head.startswith("lo")
+        raw_macs = re.findall(
+            r"\b([0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5})\b", block
+        )
+        macs = [
+            m for raw in raw_macs
+            if (m := normalize_mac(raw))
+            and m not in ("00-00-00-00-00-00", "FF-FF-FF-FF-FF-FF")
+        ]
+        if not macs:
+            continue
+        ips = [
+            ip for ip in re.findall(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b", block)
+            if not ip.startswith(("127.", "169.254.", "255.", "0.", "198.18.", "198.19."))
+        ]
+        if not ips:
+            continue
+        has_campus = any(ip.startswith("10.") for ip in ips)
+        has_gateway = len(ips) > 1
+        candidates.append((not is_virtual, has_campus, has_gateway, -idx, macs[0]))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][4]
+
+
+def detect_local_mac() -> str | None:
+    """Best-effort detection of the local active network interface MAC address."""
+    import subprocess
+    import sys
+
+    if sys.platform.startswith("win"):
+        try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            raw = subprocess.check_output(
+                ["ipconfig", "/all"], timeout=3, stderr=subprocess.DEVNULL, creationflags=flags
+            )
+            text = raw.decode("utf-8", errors="ignore")
+            if "WLAN" not in text and "Ethernet" not in text:
+                text = raw.decode("gbk", errors="ignore")
+            return parse_adapter_mac_from_text(text)
+        except Exception:
+            return None
+
+    # Under WSL2, prefer the Windows host's active adapter MAC when accessible.
+    try:
+        osrelease = Path("/proc/sys/kernel/osrelease")
+        ipconfig_exe = Path("/mnt/c/Windows/System32/ipconfig.exe")
+        if (osrelease.is_file()
+                and "microsoft" in osrelease.read_text(encoding="utf-8", errors="ignore").lower()
+                and ipconfig_exe.is_file()):
+            raw = subprocess.check_output(
+                [str(ipconfig_exe), "/all"], timeout=3, stderr=subprocess.DEVNULL
+            )
+            text = raw.decode("utf-8", errors="ignore")
+            if "WLAN" not in text and "Ethernet" not in text:
+                text = raw.decode("gbk", errors="ignore")
+            mac = parse_adapter_mac_from_text(text)
+            if mac:
+                return mac
+    except Exception:
+        pass
+
+    net_root = Path("/sys/class/net")
+    if net_root.is_dir():
+        preferred_ifaces: list[str] = []
+        route_file = Path("/proc/net/route")
+        if route_file.is_file():
+            try:
+                for line in route_file.read_text(encoding="utf-8", errors="ignore").splitlines()[1:]:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1] == "00000000":
+                        preferred_ifaces.append(parts[0])
+            except OSError:
+                pass
+        try:
+            for p in sorted(net_root.iterdir()):
+                if p.name not in preferred_ifaces:
+                    preferred_ifaces.append(p.name)
+        except OSError:
+            pass
+        fallback_mac: str | None = None
+        for iface in preferred_ifaces:
+            low = iface.lower()
+            if low == "lo" or low.startswith(("tun", "tap", "wg", "docker", "veth", "br-", "virbr")):
+                continue
+            addr_path = net_root / iface / "address"
+            try:
+                mac = normalize_mac(addr_path.read_text(encoding="utf-8").strip())
+            except OSError:
+                continue
+            if not mac or mac in ("00-00-00-00-00-00", "FF-FF-FF-FF-FF-FF"):
+                continue
+            state_path = net_root / iface / "operstate"
+            try:
+                oper = state_path.read_text(encoding="utf-8").strip().lower()
+            except OSError:
+                oper = ""
+            if oper == "up":
+                return mac
+            if fallback_mac is None:
+                fallback_mac = mac
+        if fallback_mac:
+            return fallback_mac
+
+    if sys.platform == "darwin":
+        try:
+            raw = subprocess.check_output(["ifconfig"], timeout=3, stderr=subprocess.DEVNULL)
+            return parse_adapter_mac_from_text(raw.decode("utf-8", errors="ignore"))
+        except Exception:
+            return None
+
+    return None
+
+
 def select_nosense_target(rows: list[dict], selector: str | None = "current") -> tuple[str, dict | None]:
     """Resolve `current`, a 1-based device index, or an explicit MAC address."""
     wanted = (selector or "current").strip()
@@ -756,9 +888,13 @@ def select_nosense_target(rows: list[dict], selector: str | None = "current") ->
         row = next((r for r in rows if r.get("本机") == "是"), None)
         if row is None:
             row = next((r for r in rows if r.get("无感") == "是"), None)
-        if row is None:
-            raise QueryError("未找到本机或已绑定无感的设备，请指定设备编号或 MAC 地址")
-        return require_mac(row.get("MAC")), row
+        if row is not None:
+            return require_mac(row.get("MAC")), row
+        local_mac = detect_local_mac()
+        if local_mac:
+            matched = next((r for r in rows if normalize_mac(r.get("MAC")) == local_mac), None)
+            return local_mac, matched
+        raise QueryError("未找到本机或已绑定无感的设备，请指定设备编号或 MAC 地址")
     if wanted.isdigit() and len(wanted) <= 4:
         index = int(wanted)
         if index < 1 or index > len(rows):

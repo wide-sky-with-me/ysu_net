@@ -6,13 +6,13 @@
 
 ---
 
-## 升级桌面客户端（v0.3.0）
+## 升级桌面客户端（v0.3.1）
 
 升级时原有的账号配置（`config.json`）、多账号池（`config.accounts.json`）、无感自动续约配置（`config.nosense.json`）与界面偏好（`gui.json`）均自动保留，无需重新填写密码。
 
 - **Windows 10 / 11 x64**：
   - 在客户端侧栏 **关于** 页点击 **检查更新**，确认后即可下载并完成升级；
-  - 或前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载 `YSU-Net_0.3.0_windows-x64-setup.exe` 直接运行覆盖安装。
+  - 或前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载 `YSU-Net_0.3.1_windows-x64-setup.exe` 直接运行覆盖安装。
 - **macOS 13.5+（Apple 芯片 / Intel）**：
   - 在客户端侧栏 **关于** 页点击 **检查更新** 完成升级；
   - 或下载对应架构的 `.dmg`（`macos-arm64.dmg` 或 `macos-x64.dmg`），退出旧程序后将 `YSU Net.app` 拖入「应用程序」替换。若首次打开提示“已损坏，无法打开”，在终端执行：
@@ -20,9 +20,9 @@
     sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"
     ```
 - **Ubuntu 22.04+ x64**：
-  - 下载 `YSU-Net_0.3.0_linux-x64.deb`，执行：
+  - 下载 `YSU-Net_0.3.1_linux-x64.deb`，执行：
     ```bash
-    sudo apt install ./YSU-Net_0.3.0_linux-x64.deb
+    sudo apt install ./YSU-Net_0.3.1_linux-x64.deb
     ```
 
 ### 从早期版本迁移提示

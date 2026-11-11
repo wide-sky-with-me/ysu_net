@@ -115,9 +115,11 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
                 return false;
             }
             match object.get("name").and_then(Value::as_str) {
-                Some("status" | "info" | "login" | "logout" | "self_service") => {
-                    !object.contains_key("value")
-                }
+                Some("status" | "info" | "login" | "logout") => !object.contains_key("value"),
+                Some("self_service") => object.get("value").is_none_or(|v| {
+                    v.as_str()
+                        .is_some_and(|s| s.trim().len() <= 256 && !s.chars().any(char::is_control))
+                }),
                 Some("self_kick" | "self_nosense_disable") => object
                     .get("value")
                     .and_then(Value::as_str)
@@ -291,6 +293,7 @@ struct State {
     busy_message: String,
     info: Value,
     self_service: Value,
+    self_account: String,
     self_error: String,
     self_notice: String,
     nosense: Value,
@@ -473,6 +476,7 @@ impl Runtime {
             busy_message: String::new(),
             info: Value::Null,
             self_service: Value::Null,
+            self_account: String::new(),
             self_error: String::new(),
             self_notice: String::new(),
             nosense,
@@ -751,6 +755,7 @@ impl Runtime {
             "nosense" => {
                 let _settings = self.setting_guard().await?;
                 let store = self.store.clone();
+                let has_account = args.get("account").and_then(Value::as_str).is_some();
                 let acct = args
                     .get("account")
                     .and_then(Value::as_str)
@@ -775,6 +780,9 @@ impl Runtime {
                     "无感自动续约已关闭".to_string()
                 };
                 self.update(|state| {
+                    if has_account {
+                        state.self_account = acct.unwrap_or_default();
+                    }
                     state.nosense = nosense_value(&updated, &msg);
                     state.log("success", &msg);
                 });
@@ -815,7 +823,18 @@ impl Runtime {
                     "switch_account" => {
                         Action::SwitchAccount(args["value"].as_str().unwrap().into())
                     }
-                    "self_service" => Action::SelfService,
+                    "self_service" => {
+                        if let Some(acct) = args.get("value").and_then(Value::as_str) {
+                            let trimmed = acct.trim();
+                            self.state.lock().unwrap().self_account =
+                                if trimmed.eq_ignore_ascii_case("current") {
+                                    String::new()
+                                } else {
+                                    trimmed.to_string()
+                                };
+                        }
+                        Action::SelfService
+                    }
                     "self_kick" => Action::SelfKick(args["value"].as_str().unwrap().into()),
                     "self_nosense_enable" => {
                         let raw = args["value"].as_str().unwrap();
@@ -1270,6 +1289,29 @@ impl Worker {
         }
     }
 
+    async fn self_config(&self, config: &Config) -> Config {
+        let target = self.runtime.state.lock().unwrap().self_account.clone();
+        if target.is_empty() || target == config.username {
+            return config.clone();
+        }
+        let store = self.runtime.store.clone();
+        let cfg_copy = config.clone();
+        if let Ok(Ok(book)) = self
+            .runtime
+            .blocking(move || Ok(store.load_accounts(&cfg_copy)))
+            .await
+        {
+            if let Some(account) = book
+                .accounts
+                .into_iter()
+                .find(|a| a.username == target && !a.password.is_empty())
+            {
+                return account.config(config);
+            }
+        }
+        config.clone()
+    }
+
     async fn execute_inner(&mut self, action: Action) -> Result<(), String> {
         let config = match self.runtime.config().await {
             Ok(config) => config,
@@ -1295,7 +1337,8 @@ impl Worker {
             Action::SelfService => {
                 self.phase = DiagnosticStage::AccountInfo;
                 self.busy("正在读取自助服务");
-                let result = self.runtime.backend.self_service(&config).await;
+                let self_cfg = self.self_config(&config).await;
+                let result = self.runtime.backend.self_service(&self_cfg).await;
                 if let Err(error) = &result {
                     self.runtime
                         .recording
@@ -1327,7 +1370,8 @@ impl Worker {
             Action::SelfKick(selector) => {
                 self.phase = DiagnosticStage::UserOnline;
                 self.busy("正在下线设备");
-                let result = self.runtime.backend.self_kick(&config, &selector).await;
+                let self_cfg = self.self_config(&config).await;
+                let result = self.runtime.backend.self_kick(&self_cfg, &selector).await;
                 match result {
                     Ok(kick) => {
                         let notice = format!(
@@ -1338,7 +1382,7 @@ impl Worker {
                         );
                         // Re-read the full snapshot so the list and its 1-based
                         // indices always match what the next kick will resolve.
-                        let refreshed = self.runtime.backend.self_service(&config).await;
+                        let refreshed = self.runtime.backend.self_service(&self_cfg).await;
                         if let Err(error) = &refreshed {
                             self.runtime
                                 .recording
@@ -1384,13 +1428,14 @@ impl Worker {
             | Action::SelfDeviceService { .. }
             | Action::SelfNoSenseRenew { .. } => {
                 self.phase = DiagnosticStage::UserOnline;
+                let self_cfg = self.self_config(&config).await;
                 let (busy_text, fail_prefix, result) = match &action {
                     Action::SelfNoSenseEnable { target, service } => (
                         "正在开启无感认证并核验结果",
                         "开启无感认证未完成",
                         self.runtime
                             .backend
-                            .self_nosense_enable(&config, target, service.as_deref())
+                            .self_nosense_enable(&self_cfg, target, service.as_deref())
                             .await,
                     ),
                     Action::SelfNoSenseDisable(target) => (
@@ -1398,7 +1443,7 @@ impl Worker {
                         "关闭无感认证未完成",
                         self.runtime
                             .backend
-                            .self_nosense_disable(&config, target)
+                            .self_nosense_disable(&self_cfg, target)
                             .await,
                     ),
                     Action::SelfDeviceService { target, service } => (
@@ -1406,7 +1451,7 @@ impl Worker {
                         "修改缺省服务未完成",
                         self.runtime
                             .backend
-                            .self_device_service(&config, target, service)
+                            .self_device_service(&self_cfg, target, service)
                             .await,
                     ),
                     Action::SelfNoSenseRenew {
@@ -1418,7 +1463,7 @@ impl Worker {
                         "续约无感认证未完成",
                         self.runtime
                             .backend
-                            .self_nosense_renew(&config, target, service.as_deref(), *force)
+                            .self_nosense_renew(&self_cfg, target, service.as_deref(), *force)
                             .await,
                     ),
                     _ => unreachable!(),
@@ -1458,7 +1503,7 @@ impl Worker {
                                 outcome["service"].as_str().unwrap_or("套餐默认服务")
                             ),
                         };
-                        let refreshed = self.runtime.backend.self_service(&config).await;
+                        let refreshed = self.runtime.backend.self_service(&self_cfg).await;
                         if let Err(error) = &refreshed {
                             self.runtime
                                 .recording

@@ -1,6 +1,6 @@
 [package]
 name = "ysu-net"
-version = "0.3.0"
+version = "0.3.1"
 description = "YSU campus network desktop client"
 authors = ["ysu-net contributors"]
 license = "MIT"

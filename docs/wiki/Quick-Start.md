@@ -9,8 +9,8 @@
 ## 方式一：桌面客户端（Windows / Ubuntu / macOS）
 
 1. **下载安装**：前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应系统的安装包：
-   - **Windows 10/11 x64**：运行 `YSU-Net_0.3.0_windows-x64-setup.exe` 完成安装。
-   - **Ubuntu 22.04+ x64**：执行 `sudo apt install ./YSU-Net_0.3.0_linux-x64.deb`。
+   - **Windows 10/11 x64**：运行 `YSU-Net_0.3.1_windows-x64-setup.exe` 完成安装。
+   - **Ubuntu 22.04+ x64**：执行 `sudo apt install ./YSU-Net_0.3.1_linux-x64.deb`。
    - **macOS 13.5+**：按芯片架构选择 `macos-arm64.dmg`（Apple 芯片）或 `macos-x64.dmg`（Intel），拖入「应用程序」。首次打开若提示无法打开，可在终端运行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"`。
 2. **填写账号**：打开客户端，进入侧栏 **设置 → 账号**，输入学号/工号与密码，选择默认运营商（校园网 / 中国移动 / 中国联通 / 中国电信）并保存。
 3. **一键连接**：回到 **连接** 页点击 **立即连接**，并按需开启 **自动重连**。

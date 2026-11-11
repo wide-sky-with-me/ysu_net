@@ -598,3 +598,33 @@ class NoSenseTests(OfflineTestCase):
             selfservice.NOSENSE_REGISTER,
             selfservice.DEVICE_MODIFY,
         ])
+
+    def test_parse_devices_handles_null_online_and_offline_lists(self):
+        self.assertEqual(
+            selfservice.parse_devices({"code": 200, "data": {"onlineDevices": None, "offlineDevices": []}}),
+            {"online": 0, "total": 0, "rows": []},
+        )
+        self.assertEqual(
+            selfservice.parse_devices({"code": 200, "data": {"onlineDevices": None, "offlineDevices": None}}),
+            {"online": 0, "total": 0, "rows": []},
+        )
+
+    def test_select_nosense_target_falls_back_to_local_mac_when_no_online_devices(self):
+        sample_ipconfig = (
+            "Ethernet adapter vEthernet (WSL):\r\n"
+            "   Physical Address. . . . . . . . . : 00-15-5D-01-02-03\r\n"
+            "   IPv4 Address. . . . . . . . . . . : 172.20.16.1\r\n"
+            "\r\n"
+            "Wireless LAN adapter WLAN:\r\n"
+            "   Physical Address. . . . . . . . . : AA-BB-CC-DD-EE-FF\r\n"
+            "   IPv4 Address. . . . . . . . . . . : 10.22.100.50\r\n"
+            "   Default Gateway . . . . . . . . . : 10.22.0.1\r\n"
+        )
+        self.assertEqual(
+            selfservice.parse_adapter_mac_from_text(sample_ipconfig),
+            "AA-BB-CC-DD-EE-FF",
+        )
+        self.mock("ysu_net.auth.selfservice.detect_local_mac", return_value="AA-BB-CC-DD-EE-FF")
+        mac, row = selfservice.select_nosense_target([], "current")
+        self.assertEqual(mac, "AA-BB-CC-DD-EE-FF")
+        self.assertIsNone(row)
