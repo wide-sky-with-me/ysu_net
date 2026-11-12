@@ -52,7 +52,7 @@
 </section>
 
 <style>
-  .debug-recording { padding: 18px 24px; margin-bottom: 16px; background: var(--surface); border-radius: var(--radius-lg); }
+  .debug-recording { padding: 18px 24px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--card-shadow); }
   .debug-heading, .debug-file { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   h2 { font-size: 14px; margin: 0; }
   p, .debug-heading > span { font-size: 12px; color: var(--muted); }

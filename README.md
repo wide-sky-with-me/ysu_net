@@ -42,14 +42,14 @@
 
 ### 发行版本说明
 
-当前版本为 **v0.3.1**。桌面安装包与更新清单统一由 GitHub Actions 在四平台构建并通过自检后发布至 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)。
+当前版本为 **v0.3.2**。桌面安装包与更新清单统一由 GitHub Actions 在四平台构建并通过自检后发布至 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)。
 
 | 平台 | Release 安装包 | 安装与升级方式 |
 | --- | --- | --- |
-| Windows 10 / 11 x64 | `YSU-Net_0.3.1_windows-x64-setup.exe` | 双击运行安装器（当前用户安装，免管理员权限）；支持在「关于」页检查更新 |
-| Ubuntu 22.04+ x64 | `YSU-Net_0.3.1_linux-x64.deb` | 执行 `sudo apt install ./YSU-Net_0.3.1_linux-x64.deb` |
-| macOS 13.5+ Apple 芯片 | `YSU-Net_0.3.1_macos-arm64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
-| macOS 13.5+ Intel | `YSU-Net_0.3.1_macos-x64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
+| Windows 10 / 11 x64 | `YSU-Net_0.3.2_windows-x64-setup.exe` | 双击运行安装器（当前用户安装，免管理员权限）；支持在「关于」页检查更新 |
+| Ubuntu 22.04+ x64 | `YSU-Net_0.3.2_linux-x64.deb` | 执行 `sudo apt install ./YSU-Net_0.3.2_linux-x64.deb` |
+| macOS 13.5+ Apple 芯片 | `YSU-Net_0.3.2_macos-arm64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
+| macOS 13.5+ Intel | `YSU-Net_0.3.2_macos-x64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
 
 > **macOS 首次打开提示**：由于安装包未使用付费 Apple Developer ID 公证，若首次启动提示“已损坏，无法打开”，请在终端执行：
 > `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"`

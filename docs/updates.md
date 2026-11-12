@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | **Windows 10/11 x64** | 软件内检查更新 / 手动运行安装包 | 在侧栏「关于」页点击 **检查更新**，确认后自动下载、验签并启动安装器 |
 | **macOS 13.5+ (arm64 / x64)** | 软件内检查更新 / 手动替换 `.dmg` | 在侧栏「关于」页点击 **检查更新**，确认后自动下载、验签并更新应用 |
-| **Ubuntu 22.04+ x64** | `.deb` 系统包升级 | 从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载新 `.deb`，执行 `sudo apt install ./YSU-Net_0.3.1_linux-x64.deb` |
+| **Ubuntu 22.04+ x64** | `.deb` 系统包升级 | 从 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载新 `.deb`，执行 `sudo apt install ./YSU-Net_0.3.2_linux-x64.deb` |
 | **Linux Python CLI** | 源码与安装脚本更新 | 在仓库目录执行 `ysu stop && git pull --ff-only && bash install.sh && ysu on` |
 
 ---
