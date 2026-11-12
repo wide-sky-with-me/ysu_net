@@ -2,7 +2,7 @@
 
 [返回导航](Home.md) · [快速开始](Quick-Start.md) · [命令行速查](CLI-Reference.md) · [常见问题排障](Troubleshooting.md)
 
-桌面客户端基于 Tauri 2 + Rust 原生构建，在 Windows、Linux 与 macOS 上提供一致的界面与后台守护体验，支持快捷键 `Ctrl+1` 至 `Ctrl+6` 快速切换页面。
+桌面客户端基于 Tauri 2 + Svelte 5 + Rust 原生构建，在 Windows、Linux 与 macOS 上提供统一的圆润卡片界面、状态感知柔光、弹性微交互动效与后台守护体验，支持快捷键 `Ctrl+1` 至 `Ctrl+6` 快速切换页面。
 
 ![桌面客户端连接页浅色界面](https://raw.githubusercontent.com/wide-sky-with-me/ysu_net/main/docs/screenshots/desktop-connection-light.png)
 

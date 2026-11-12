@@ -4,7 +4,7 @@
 
 ## 选择你的使用方式
 
-- **Windows / Linux / macOS 桌面客户端**：提供图形界面、系统托盘驻留、开机自启与软件内更新（Windows / macOS），直接前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应安装包即可使用，无需配置 Python 环境。
+- **Windows / Linux / macOS 桌面客户端（最新正式版 `v0.3.2`）**：采用圆润卡片、状态柔光与弹性微交互界面（支持浅色/深色与 6 套主题强调色），内置系统托盘驻留、开机自启与软件内签名更新（Windows / macOS），直接前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应安装包即可使用，无需配置 Python 环境。
 - **Linux 命令行与后台守护 (`ysu`)**：适合 Linux 桌面、服务器、WSL 与 SSH 终端，通过 `bash install.sh` 安装，支持 `systemd` 后台自动重连与无感认证自动续约。
 
 > 同一台设备上请只开启桌面端或命令行其中一套后台自动重连，避免两个程序同时竞争登录。

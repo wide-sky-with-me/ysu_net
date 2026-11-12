@@ -6,6 +6,6 @@
 
 | 图片文件 | 说明 | SHA256 |
 | --- | --- | --- |
-| [desktop-connection-light.png](desktop-connection-light.png) | 浅色模式 · 连接页 | `67287b9fb1a84546dd52d7697bae9996d0e2851678837a3f0ff22452d00e1522` |
-| [desktop-account-dark.png](desktop-account-dark.png) | 深色模式 · 账户页 | `efcb0fd948eedd6fe63d8e7f716ceee6970276233d2329044b6cebf710f808a8` |
-| [desktop-accounts-dark.png](desktop-accounts-dark.png) | 深色模式 · 多账号池管理 | `5f3f6d7325c62e3a92322ec9059c4b61946d3ee4c93556a5a1b1c1daeaa2305e` |
+| [desktop-connection-light.png](desktop-connection-light.png) | 浅色模式 · 连接页 | `7cf6ec72598a762b91ce379c59583269fb656c1fa36bced79047c2148da5b985` |
+| [desktop-account-dark.png](desktop-account-dark.png) | 深色模式 · 账户页 | `06ab96ae25ac940aaba3fd31a699829284f1e605d2c1dc51a950f849deb4a1ce` |
+| [desktop-accounts-dark.png](desktop-accounts-dark.png) | 深色模式 · 多账号池管理 | `a8e234328d461d72cb02c69d164060b2e74d00f6effde4b79ffbce6bdbed80ab` |
