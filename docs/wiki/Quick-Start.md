@@ -2,16 +2,26 @@
 
 [返回导航](Home.md) · [桌面客户端](Desktop-Client.md) · [命令行速查](CLI-Reference.md) · [常见问题排障](Troubleshooting.md)
 
-在开始前，请先确认设备已接入燕山大学校园网有线或无线网络（能够访问校园网门户 `auth1.ysu.edu.cn`）。
+**YSU Net** 提供 **桌面客户端（Windows / Ubuntu / macOS）** 和 **Linux Shell 命令行（`ysu`）** 双版本。在开始前，请先确认设备已接入燕山大学校园网有线或无线网络（能够访问校园网门户 `auth1.ysu.edu.cn`）。
 
 ---
 
 ## 方式一：桌面客户端（Windows / Ubuntu / macOS）
 
-1. **下载安装**：前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应系统的安装包：
-   - **Windows 10/11 x64**：运行 `YSU-Net_0.3.2_windows-x64-setup.exe` 完成安装。
-   - **Ubuntu 22.04+ x64**：执行 `sudo apt install ./YSU-Net_0.3.2_linux-x64.deb`。
-   - **macOS 13.5+**：按芯片架构选择 `macos-arm64.dmg`（Apple 芯片）或 `macos-x64.dmg`（Intel），拖入「应用程序」。首次打开若提示无法打开，可在终端运行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"`。
+1. **下载最新安装包（`releases/latest`）**：前往 [GitHub Releases Latest](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应系统的最新安装包，或直接复制下方带国内镜像加速的一键安装命令：
+   - **Windows 10/11 x64**：下载并运行 `YSU-Net_*_windows-x64-setup.exe`（后续可在软件内「关于」页直接检查更新），或在 PowerShell 运行：
+     ```powershell
+     $v = (Invoke-RestMethod "https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/latest/download/latest.json").version
+     Invoke-WebRequest "https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/download/v$v/YSU-Net_${v}_windows-x64-setup.exe" -OutFile "$env:TEMP\ysu-net-setup.exe"
+     Start-Process "$env:TEMP\ysu-net-setup.exe"
+     ```
+   - **Ubuntu 22.04+ x64**：下载最新 `.deb` 安装包后执行 `sudo apt install ./YSU-Net_*_linux-x64.deb`，或在终端一键拉取最新 `.deb` 安装：
+     ```bash
+     VER=$(curl -fsSL https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/latest/download/latest.json | grep -o '"version": *"[^"]*"' | head -n1 | cut -d'"' -f4) && \
+     curl -fL "https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/download/v${VER}/YSU-Net_${VER}_linux-x64.deb" -o /tmp/ysu-net-latest.deb && \
+     sudo apt install -y /tmp/ysu-net-latest.deb
+     ```
+   - **macOS 13.5+**：按芯片架构下载 `YSU-Net_*_macos-arm64.dmg`（Apple 芯片）或 `YSU-Net_*_macos-x64.dmg`（Intel），拖入「应用程序」。首次打开若提示无法打开，可在终端运行 `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"`。
 2. **填写账号**：打开客户端，进入侧栏 **设置 → 账号**，输入学号/工号与密码，选择默认运营商（校园网 / 中国移动 / 中国联通 / 中国电信）并保存。
 3. **一键连接**：回到 **连接** 页点击 **立即连接**，并按需开启 **自动重连**。
 4. **开启 7 天无感认证（可选）**：进入侧栏 **设备** 页，点击 **读取设备**，在「无感认证（7天）」区域点击 **开启本机 7 天无感认证** 并勾选 **到期前自动续约**，即可免去每周重复认证。
@@ -20,14 +30,23 @@
 
 ---
 
-## 方式二：Linux 命令行 (`ysu`)
+## 方式二：Linux Shell 命令行 (`ysu`)
 
-### 1. 安装
+### 1. 安装（已套好国内镜像源，复制粘贴即用）
 
 ```bash
-git clone https://github.com/wide-sky-with-me/ysu_net.git
+# 若尚未安装 uv，自动通过国内 GitHub 镜像拉取 latest 安装脚本
+command -v uv >/dev/null 2>&1 || {
+  curl -LsSf https://ghfast.top/https://github.com/astral-sh/uv/releases/latest/download/uv-installer.sh \
+    | env UV_INSTALLER_GHE_BASE_URL="https://ghfast.top/https://github.com" sh
+  export PATH="$HOME/.local/bin:$PATH"
+}
+
+git clone https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net.git
 cd ysu_net
-bash install.sh                  # 如需自动识别验证码可加 --captcha
+UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple" \
+UV_PYTHON_INSTALL_MIRROR="https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download" \
+bash install.sh                  # 如需自动识别验证码可追加 --captcha
 export PATH="$HOME/.local/bin:$PATH"
 ```
 

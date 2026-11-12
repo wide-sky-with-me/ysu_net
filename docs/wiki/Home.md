@@ -1,11 +1,11 @@
 # YSU Net 使用指南
 
-欢迎使用 **YSU Net** 燕山大学校园网连接与管理工具。本 Wiki 提供快速上手、桌面端与命令行操作指南及常见问题排障。
+欢迎使用 **YSU Net** 燕山大学校园网连接与管理工具。项目同时提供 **桌面客户端（GUI）** 与 **Linux Shell 命令行（`ysu`）** 双版本，共享同一套配置与认证能力。
 
-## 选择你的使用方式
+## 选择你的使用版本
 
-- **Windows / Linux / macOS 桌面客户端（最新正式版 `v0.3.2`）**：采用圆润卡片、状态柔光与弹性微交互界面（支持浅色/深色与 6 套主题强调色），内置系统托盘驻留、开机自启与软件内签名更新（Windows / macOS），直接前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应安装包即可使用，无需配置 Python 环境。
-- **Linux 命令行与后台守护 (`ysu`)**：适合 Linux 桌面、服务器、WSL 与 SSH 终端，通过 `bash install.sh` 安装，支持 `systemd` 后台自动重连与无感认证自动续约。
+- **桌面客户端（Windows / Linux / macOS）**：采用圆润卡片、状态柔光与弹性微交互界面（支持浅色/深色与 6 套主题强调色），内置系统托盘驻留、开机自启与软件内签名更新（Windows / macOS），直接前往 [GitHub Releases Latest](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载最新安装包即可使用，无需配置 Python 环境。
+- **Shell 命令行版 (`ysu`，Linux / 服务器 / WSL / SSH)**：纯终端交互与脚本自动化，通过 `bash install.sh` 一键安装（文档命令已内置国内 GitHub 与清华源镜像加速），支持 `systemd` 后台自动重连与无感认证自动续约。
 
 > 同一台设备上请只开启桌面端或命令行其中一套后台自动重连，避免两个程序同时竞争登录。
 

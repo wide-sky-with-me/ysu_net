@@ -19,9 +19,11 @@ for arg in "$@"; do
   esac
 done
 if ! command -v uv >/dev/null 2>&1; then
-  echo "未找到 uv，请先安装 uv 并加入 PATH：https://docs.astral.sh/uv/getting-started/installation/" >&2
+  echo "未找到 uv，请先安装 uv（国内推荐：pip install -U -i https://pypi.tuna.tsinghua.edu.cn/simple uv）并加入 PATH。" >&2
   exit 2
 fi
+export UV_INDEX_URL="${UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+export UV_PYTHON_INSTALL_MIRROR="${UV_PYTHON_INSTALL_MIRROR:-https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download}"
 printf '\n[1/2] 准备 Python 环境和项目依赖…\n' >&2
 if ! uv sync "${SYNC_ARGS[@]}"; then
   printf '\n[失败] 依赖安装未完成，请根据上方错误检查网络或缓存，再重新运行安装命令。\n' >&2

@@ -6,23 +6,25 @@
 
 ---
 
-## 升级桌面客户端（v0.3.2）
+## 升级桌面客户端（`releases/latest`）
 
 升级时原有的账号配置（`config.json`）、多账号池（`config.accounts.json`）、无感自动续约配置（`config.nosense.json`）与界面偏好（`gui.json`）均自动保留，无需重新填写密码。
 
 - **Windows 10 / 11 x64**：
   - 在客户端侧栏 **关于** 页点击 **检查更新**，确认后即可下载并完成升级；
-  - 或前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载 `YSU-Net_0.3.2_windows-x64-setup.exe` 直接运行覆盖安装。
+  - 或前往 [GitHub Releases Latest](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载最新的 `YSU-Net_*_windows-x64-setup.exe` 直接运行覆盖安装。
 - **macOS 13.5+（Apple 芯片 / Intel）**：
   - 在客户端侧栏 **关于** 页点击 **检查更新** 完成升级；
-  - 或下载对应架构的 `.dmg`（`macos-arm64.dmg` 或 `macos-x64.dmg`），退出旧程序后将 `YSU Net.app` 拖入「应用程序」替换。若首次打开提示“已损坏，无法打开”，在终端执行：
+  - 或前往 [GitHub Releases Latest](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应架构的最新 `.dmg`（`YSU-Net_*_macos-arm64.dmg` 或 `YSU-Net_*_macos-x64.dmg`），退出旧程序后将 `YSU Net.app` 拖入「应用程序」替换。若首次打开提示“已损坏，无法打开”，在终端执行：
     ```bash
     sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"
     ```
 - **Ubuntu 22.04+ x64**：
-  - 下载 `YSU-Net_0.3.2_linux-x64.deb`，执行：
+  - 直接在终端拉取 `releases/latest` 的最新 `.deb` 安装包并升级（已套好国内镜像）：
     ```bash
-    sudo apt install ./YSU-Net_0.3.2_linux-x64.deb
+    VER=$(curl -fsSL https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/latest/download/latest.json | grep -o '"version": *"[^"]*"' | head -n1 | cut -d'"' -f4) && \
+    curl -fL "https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/download/v${VER}/YSU-Net_${VER}_linux-x64.deb" -o /tmp/ysu-net-latest.deb && \
+    sudo apt install -y /tmp/ysu-net-latest.deb
     ```
 
 ### 从早期版本迁移提示
@@ -39,6 +41,8 @@
 ```bash
 ysu stop
 git pull --ff-only
+UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple" \
+UV_PYTHON_INSTALL_MIRROR="https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download" \
 bash install.sh                # 若启用了验证码识别或浏览器模式，请对应加上 --captcha / --browser
 ysu doctor
 ysu on
@@ -49,7 +53,10 @@ ysu on
 ```bash
 sudo systemctl stop ysu-net.service
 git pull --ff-only
-sudo env PATH="$PATH" bash install.sh --system
+sudo env PATH="$PATH" \
+  UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple" \
+  UV_PYTHON_INSTALL_MIRROR="https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download" \
+  bash install.sh --system
 sudo ysu on
 ```
 

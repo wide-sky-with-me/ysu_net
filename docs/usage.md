@@ -6,11 +6,20 @@
 
 ---
 
-## 安装方式
+## 安装方式（已套好国内镜像源，粘贴即用）
 
 ```bash
-git clone https://github.com/wide-sky-with-me/ysu_net.git
+# 若尚未安装 uv，自动通过国内 GitHub 镜像拉取 latest 安装脚本
+command -v uv >/dev/null 2>&1 || {
+  curl -LsSf https://ghfast.top/https://github.com/astral-sh/uv/releases/latest/download/uv-installer.sh \
+    | env UV_INSTALLER_GHE_BASE_URL="https://ghfast.top/https://github.com" sh
+  export PATH="$HOME/.local/bin:$PATH"
+}
+
+git clone https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net.git
 cd ysu_net
+UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple" \
+UV_PYTHON_INSTALL_MIRROR="https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download" \
 bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```

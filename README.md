@@ -11,9 +11,12 @@
 
 [快速开始](#快速开始) · [核心功能](#核心功能) · [桌面客户端](#桌面客户端) · [Linux 命令行](#linux-命令行) · [文档导航](docs/README.md) · [问题排障](docs/wiki/Troubleshooting.md)
 
-**YSU Net** 是面向燕山大学校园网（`auth1.ysu.edu.cn` / `cer.ysu.edu.cn`）的跨平台网络连接与管理工具，提供 **Windows / Linux / macOS 原生桌面客户端** 和 **Linux 命令行与后台守护工具（`ysu`）**。
+**YSU Net** 是面向燕山大学校园网（`auth1.ysu.edu.cn` / `cer.ysu.edu.cn`）的跨平台网络连接与管理工具，同时提供 **桌面客户端（GUI）** 与 **Linux Shell 命令行（`ysu`）** 双版本：
 
-支持一键登录与下线、运营商切换、断线自动重连、多账号池与零流量自动换号、在线设备管理，以及 **7 天无感认证与后台自动续约**。
+- **桌面客户端（Windows / Linux / macOS）**：Tauri + Rust 原生图形界面，内置系统托盘驻留、开机自启与软件内签名更新，无需安装 Python，开箱即用。
+- **Shell 命令行版（`ysu`，Linux / 服务器 / WSL / SSH）**：纯终端交互菜单与脚本自动化，内置 `systemd` 后台守护与极低资源占用，适合服务器、无桌面环境与开发者。
+
+双版本共用一致的配置与功能体系：支持一键登录与下线、四类运营商切换、断线自动重连、多账号池与零流量自动换号、在线设备管理，以及 **7 天无感认证与后台自动续约**。
 
 | 连接页 · 浅色 | 账户页 · 深色 | 多账号池 · 深色 |
 | --- | --- | --- |
@@ -33,23 +36,38 @@
 
 ## 快速开始
 
-根据你的使用环境选择对应形态（同一台设备上请只开启其中一种自动管理）：
+根据使用环境选择 **桌面版** 或 **Shell 命令行版**（同一台设备上请只开启其中一种后台自动管理）：
 
-| 形态 | 适用系统 | 特点 | 获取与安装 |
+| 版本形态 | 适用系统 | 特点 | 获取与安装 |
 | --- | --- | --- | --- |
-| **桌面客户端** | Windows 10/11 x64<br>Ubuntu 22.04+ x64<br>macOS 13.5+ (Apple Silicon / Intel) | 图形界面、系统托盘驻留、开机自启、软件内检查更新（Windows / macOS），无需安装 Python | 前往 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载对应安装包 |
-| **Linux 命令行 (`ysu`)** | Linux 桌面、服务器、WSL、SSH 终端 | 极低资源占用、systemd 后台守护、支持交互菜单与脚本自动化 | 克隆仓库后运行 `bash install.sh` |
+| **桌面客户端** | Windows 10/11 x64<br>Ubuntu 22.04+ x64<br>macOS 13.5+ (Apple Silicon / Intel) | 圆润卡片图形界面、系统托盘驻留、开机自启、软件内检查更新（Windows / macOS），无需安装 Python | 前往 [GitHub Releases Latest](https://github.com/wide-sky-with-me/ysu_net/releases/latest) 下载最新安装包 |
+| **Shell 命令行 (`ysu`)** | Linux 桌面、服务器、WSL、SSH 终端 | 极低资源占用、`systemd` 后台常驻守护、支持终端交互菜单与脚本自动化 | 克隆仓库后运行 `bash install.sh`（下方已附国内镜像一键命令） |
 
-### 发行版本说明
+### 桌面版最新安装包（始终指向 `releases/latest`）
 
-当前版本为 **v0.3.2**。桌面安装包与更新清单统一由 GitHub Actions 在四平台构建并通过自检后发布至 [GitHub Releases](https://github.com/wide-sky-with-me/ysu_net/releases/latest)。
+桌面安装包与更新清单由 GitHub Actions 在四平台构建并通过自检后发布至 **[GitHub Releases Latest](https://github.com/wide-sky-with-me/ysu_net/releases/latest)**：
 
-| 平台 | Release 安装包 | 安装与升级方式 |
+| 平台 | Release 最新安装包 | 安装与升级方式 |
 | --- | --- | --- |
-| Windows 10 / 11 x64 | `YSU-Net_0.3.2_windows-x64-setup.exe` | 双击运行安装器（当前用户安装，免管理员权限）；支持在「关于」页检查更新 |
-| Ubuntu 22.04+ x64 | `YSU-Net_0.3.2_linux-x64.deb` | 执行 `sudo apt install ./YSU-Net_0.3.2_linux-x64.deb` |
-| macOS 13.5+ Apple 芯片 | `YSU-Net_0.3.2_macos-arm64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
-| macOS 13.5+ Intel | `YSU-Net_0.3.2_macos-x64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；支持在「关于」页检查更新 |
+| Windows 10 / 11 x64 | `YSU-Net_*_windows-x64-setup.exe` | 双击运行最新安装器（当前用户安装，免管理员权限）；后续可直接在「关于」页检查更新 |
+| Ubuntu 22.04+ x64 | `YSU-Net_*_linux-x64.deb` | 下载最新 `.deb` 后执行 `sudo apt install ./YSU-Net_*_linux-x64.deb`（或直接运行下方一键命令） |
+| macOS 13.5+ Apple 芯片 | `YSU-Net_*_macos-arm64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；后续可在「关于」页检查更新 |
+| macOS 13.5+ Intel | `YSU-Net_*_macos-x64.dmg` | 打开镜像并将 `YSU Net.app` 拖入「应用程序」；后续可在「关于」页检查更新 |
+
+也可在终端直接拉取并运行每次 `latest` 发布的桌面安装包（已套好国内 GitHub 镜像 `ghfast.top`）：
+
+- **Windows PowerShell 一键下载并启动最新安装器**：
+  ```powershell
+  $v = (Invoke-RestMethod "https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/latest/download/latest.json").version
+  Invoke-WebRequest "https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/download/v$v/YSU-Net_${v}_windows-x64-setup.exe" -OutFile "$env:TEMP\ysu-net-setup.exe"
+  Start-Process "$env:TEMP\ysu-net-setup.exe"
+  ```
+- **Ubuntu / Debian x64 一键下载并安装最新 `.deb`**：
+  ```bash
+  VER=$(curl -fsSL https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/latest/download/latest.json | grep -o '"version": *"[^"]*"' | head -n1 | cut -d'"' -f4) && \
+  curl -fL "https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net/releases/download/v${VER}/YSU-Net_${VER}_linux-x64.deb" -o /tmp/ysu-net-latest.deb && \
+  sudo apt install -y /tmp/ysu-net-latest.deb
+  ```
 
 > **macOS 首次打开提示**：由于安装包未使用付费 Apple Developer ID 公证，若首次启动提示“已损坏，无法打开”，请在终端执行：
 > `sudo xattr -rd com.apple.quarantine "/Applications/YSU Net.app"`
@@ -74,23 +92,34 @@
 
 ## Linux 命令行
 
-### 1. 安装与初始化
+### 1. 安装与初始化（已内置国内镜像源，复制粘贴即用）
 
 ```bash
-git clone https://github.com/wide-sky-with-me/ysu_net.git
+# 1. 若尚未安装 uv，自动通过国内 GitHub 镜像拉取 latest 安装脚本完成安装
+command -v uv >/dev/null 2>&1 || {
+  curl -LsSf https://ghfast.top/https://github.com/astral-sh/uv/releases/latest/download/uv-installer.sh \
+    | env UV_INSTALLER_GHE_BASE_URL="https://ghfast.top/https://github.com" sh
+  export PATH="$HOME/.local/bin:$PATH"
+}
+
+# 2. 通过 GitHub 镜像克隆仓库，并使用清华 PyPI 源与 Python 镜像源安装 ysu 及后台服务
+git clone https://ghfast.top/https://github.com/wide-sky-with-me/ysu_net.git
 cd ysu_net
-bash install.sh                  # 默认安装用户级命令与 systemd 服务
+UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple" \
+UV_PYTHON_INSTALL_MIRROR="https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download" \
+bash install.sh
 export PATH="$HOME/.local/bin:$PATH"
 
+# 3. 配置账号、选择运营商并立即上线
 ysu config account               # 交互输入学号/工号与密码
 ysu service                      # 选择运营商（校园网 / 中国移动 / 中国联通 / 中国电信）
 ysu on                           # 立即登录并启动后台自动重连
 ```
 
-可选安装参数：
+可选安装参数（同样可附加在上述 `bash install.sh` 后）：
 - `bash install.sh --captcha`：一并安装离线验证码识别依赖（`ddddocr`）。
 - `bash install.sh --browser`：一并安装 Playwright 浏览器认证支持及 Chromium。
-- `sudo env PATH="$PATH" bash install.sh --system`：安装为系统级服务（`/etc/ysu-net/config.json`，开机无需登录桌面即可联网）。
+- `sudo env PATH="$PATH" UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple" UV_PYTHON_INSTALL_MIRROR="https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download" bash install.sh --system`：安装为系统级服务（`/etc/ysu-net/config.json`，开机无需登录桌面即可联网）。
 
 ### 2. 常用命令速查
 
