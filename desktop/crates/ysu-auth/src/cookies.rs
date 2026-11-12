@@ -5,6 +5,23 @@ use url::Url;
 #[derive(Default)]
 pub(crate) struct Jar(RwLock<cookie_store::CookieStore>);
 
+impl Jar {
+    pub fn cookie_value(&self, url: &Url, name: &str) -> Option<String> {
+        let store = self.0.read().ok()?;
+        store
+            .matches(url)
+            .into_iter()
+            .find(|cookie| cookie.name() == name && !cookie.value().is_empty())
+            .map(|cookie| cookie.value().to_owned())
+    }
+
+    pub fn insert_cookie(&self, url: &Url, set_cookie: &str) {
+        if let Ok(mut store) = self.0.write() {
+            let _ = store.parse(set_cookie, url);
+        }
+    }
+}
+
 impl CookieStore for Jar {
     fn set_cookies(&self, headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
         if let Ok(mut store) = self.0.write() {

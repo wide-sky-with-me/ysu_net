@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
-from .common import QueryError
+from .common import InteractionRequired, QueryError
 
 SELF_PATH = "/self/index"
 
@@ -506,19 +506,25 @@ def open_session(base: str, cas_host: str, username: str, password: str,
     """
     from .api import _new_portal_session, cas_login
 
+    cached_tgc = []
     if not fresh:
         cached = load_session(base, username, ttl=ttl)
         if cached is not None:
             if _still_authorised(cached, base):
                 cached._ysu_self_cached = True     # noqa: SLF001 - internal marker
                 return cached
+            cached_tgc = [c for c in cached.cookies if c.name == "CASTGC"]
             clear_session(base, username)   # stale: drop only this account's entry
 
     session = _new_portal_session()
+    for c in cached_tgc:
+        session.cookies.set(c.name, c.value, domain=c.domain, path=c.path)
     try:
         already_in, service = _seed_self(session, base)
         if not already_in:
             cas_login(session, username, password, debug=debug, service=service)
+    except InteractionRequired as exc:
+        raise InteractionRequired(f"自助服务登录失败：{exc}") from exc
     except Exception as exc:  # re-raise with a stable prefix, keep the reason
         raise QueryError(f"自助服务登录失败：{exc}") from exc
     if not landed_in_self(session, base):

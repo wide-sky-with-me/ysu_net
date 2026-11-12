@@ -138,29 +138,43 @@ class NoSenseRenewer:
 
 
 class Reconnector:
+    MAX_LOGIN_FAILURES = 3
+
     def __init__(self, runner=run_backend, jitter=random.uniform):
         self.runner = runner
         self.jitter = jitter
         self.failures = 0
+        self.login_failures = 0
+        self.login_credentials = None
         self.blocked_credentials = None
 
     def step(self, config):
         result = self.runner(config, "status")
         if result.code == 0:
             self.failures = 0
+            self.login_failures = 0
+            self.login_credentials = None
             self.blocked_credentials = None
             return config.check_interval, "在线"
         if result.code == 1:
             credentials = (config.username, config.password, config.service, config.backend)
             if self.blocked_credentials == credentials:
                 return config.max_retry_interval, "认证已暂停：修改配置或手动登录后恢复"
+            if self.login_credentials != credentials:
+                self.login_credentials = credentials
+                self.login_failures = 0
             result = self.runner(config, "login")
             if result.code == 0:
                 self.failures = 0
+                self.login_failures = 0
                 return config.check_interval, "重连成功"
-            if result.code == 4:
+            self.login_failures += 1
+            if result.code == 4 or self.login_failures >= self.MAX_LOGIN_FAILURES:
                 self.blocked_credentials = credentials
-                return config.max_retry_interval, result.message
+                message = result.message if result.code == 4 else (
+                    f"{result.message}；连续重连失败已达 {self.MAX_LOGIN_FAILURES} 次，自动重连已暂停，请检查账号或网络后手动登录"
+                )
+                return config.max_retry_interval, message
         # Query failures never trigger login; both queries and transient login failures back off.
         self.failures = min(self.failures + 1, 20)
         delay = min(config.max_retry_interval, config.retry_interval * 2 ** (self.failures - 1))

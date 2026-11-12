@@ -229,11 +229,22 @@ impl SelfService {
             protocol::cas_login_url_with(http, op, &service),
         )
         .await?;
-        protocol::api_cas_login(http, url, config, op).await?;
+        let used_tgc = protocol::api_cas_login_with_tgc(http, url, config, op).await?;
         if !authorised(http, op).await {
-            return Err(AuthError::interaction("自助服务登录后仍未进入自助服务页")
-                .at(Stage::CasNavigation)
-                .or_reason(Reason::ResponseInvalid));
+            if used_tgc {
+                protocol::clear_cas_tgc(config);
+                let url = at(
+                    Stage::CasNavigation,
+                    protocol::cas_login_url_with(http, op, &service),
+                )
+                .await?;
+                protocol::api_cas_login_with_tgc(http, url, config, op).await?;
+            }
+            if !authorised(http, op).await {
+                return Err(AuthError::interaction("自助服务登录后仍未进入自助服务页")
+                    .at(Stage::CasNavigation)
+                    .or_reason(Reason::ResponseInvalid));
+            }
         }
         Ok(())
     }

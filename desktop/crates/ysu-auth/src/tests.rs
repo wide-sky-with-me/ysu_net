@@ -223,6 +223,8 @@ struct State {
     nosense_mac: Option<String>,
     nosense_service_uuid: String,
     nosense_end_time: i64,
+    issue_tgc: bool,
+    tgc_valid: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -262,6 +264,8 @@ impl Default for State {
             nosense_mac: None,
             nosense_service_uuid: "00_DEFAULT_IN_PACKAGE".into(),
             nosense_end_time: 0,
+            issue_tgc: false,
+            tgc_valid: false,
         }
     }
 }
@@ -448,6 +452,18 @@ fn respond(s: &mut State, r: Request) -> Response {
         )),
         "/authserver/checkNeedCaptcha.htl" => Response::json(json!({"isNeed":s.captcha})),
         "/authserver/login" if r.method == "GET" => {
+            if s.issue_tgc
+                && s.tgc_valid
+                && r.headers
+                    .get("cookie")
+                    .is_some_and(|c| c.contains("CASTGC=cas-tgc-ticket"))
+            {
+                s.authenticated = true;
+                return Response::redirect(&format!(
+                    "{}/cas-ticket-return?ticket=private-ticket",
+                    s.base
+                ));
+            }
             let body = if s.risk {
                 "<title>IP被冻结</title>".into()
             } else if s.dom_captcha {
@@ -502,10 +518,16 @@ fn respond(s: &mut State, r: Request) -> Response {
                 return Response::body(400, b"fixture validation failed".to_vec(), "text/html");
             }
             s.authenticated = true;
-            Response::redirect(&format!(
+            let reply = Response::redirect(&format!(
                 "{}/cas-ticket-return?ticket=private-ticket",
                 s.base
-            ))
+            ));
+            if s.issue_tgc {
+                s.tgc_valid = true;
+                reply.cookie("CASTGC=cas-tgc-ticket; Path=/authserver; HttpOnly")
+            } else {
+                reply
+            }
         }
         "/cas-ticket-return" => {
             Response::html(s.callback_body.as_deref().unwrap_or("ticket returned"))
@@ -1281,6 +1303,64 @@ async fn self_nosense_enable_modify_renew_and_disable() {
     let disabled = client.self_nosense_disable("all").await.unwrap();
     assert!(!disabled.bind_no_sense);
     assert_eq!(disabled.unbound, vec!["02-00-00-00-00-01".to_string()]);
+}
+
+#[test]
+fn cas_rejected_by_captcha_inspects_error_notice_not_static_form() {
+    let static_with_wrong_password = format!(
+        "{FORM}<span id=msg>您提供的用户名或者密码有误</span><input placeholder='请输入验证码'>"
+    );
+    assert!(!protocol::cas_rejected_by_captcha(
+        &static_with_wrong_password
+    ));
+
+    let password_warning_mentioning_captcha =
+        format!("{FORM}<span id=msg>用户名或密码错误，再错将需要验证码</span>");
+    assert!(!protocol::cas_rejected_by_captcha(
+        &password_warning_mentioning_captcha
+    ));
+
+    let captcha_invalid = format!("{FORM}<span id=msg>无效的验证码</span>");
+    assert!(protocol::cas_rejected_by_captcha(&captcha_invalid));
+}
+
+#[tokio::test]
+async fn cas_tgc_reused_across_portal_login_retries_and_cleared_on_logout() {
+    let f = Fixture::new();
+    f.mutate(|s| {
+        s.cas_required = true;
+        s.issue_tgc = true;
+        s.select_override = Some(json!({"result":"fail","message":"temporary portal error"}));
+    });
+    let client = f.client();
+    let err = client.login().await.unwrap_err();
+    assert_eq!(err.code, OPERATION_ERROR);
+
+    let post_count = |f: &Fixture| {
+        f.state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|r| r.method == "POST" && r.path.starts_with("/authserver/login"))
+            .count()
+    };
+    assert_eq!(post_count(&f), 1);
+
+    // Next portal session requires CAS authentication again, but CASTGC is valid.
+    f.mutate(|s| {
+        s.authenticated = false;
+        s.select_override = None;
+    });
+    let status = client.login().await.unwrap();
+    assert!(status.online);
+    assert_eq!(post_count(&f), 1);
+
+    // Logout clears cached CASTGC, so a subsequent login after CAS de-auth posts credentials again.
+    assert!(!client.logout().await.unwrap().online);
+    f.mutate(|s| s.authenticated = false);
+    assert!(client.login().await.unwrap().online);
+    assert_eq!(post_count(&f), 2);
 }
 
 #[tokio::test]

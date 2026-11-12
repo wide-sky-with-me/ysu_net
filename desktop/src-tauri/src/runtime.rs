@@ -939,9 +939,13 @@ fn environment(demo: bool) -> Value {
         "browser_component_available":true})
 }
 
+const MAX_LOGIN_FAILURES: u32 = 3;
+
 #[derive(Default)]
 struct Reconnect {
     failures: u32,
+    login_failures: u32,
+    login_identity: Option<String>,
     blocked: Option<String>,
 }
 impl Reconnect {
@@ -955,15 +959,37 @@ impl Reconnect {
         .expect("serializable credential identity")
     }
     fn paused(&mut self, config: &Config) -> bool {
-        if self
-            .blocked
-            .as_ref()
-            .is_some_and(|v| *v != Self::identity(config))
-        {
+        let current = Self::identity(config);
+        if self.blocked.as_ref().is_some_and(|v| *v != current) {
             self.blocked = None;
             self.failures = 0;
+            self.login_failures = 0;
+            self.login_identity = None;
+        }
+        if self.login_identity.as_ref().is_some_and(|v| *v != current) {
+            self.login_failures = 0;
+            self.login_identity = None;
         }
         self.blocked.is_some()
+    }
+    fn record_login_failure(&mut self, config: &Config, code: i32) -> bool {
+        let current = Self::identity(config);
+        if self.login_identity.as_ref() != Some(&current) {
+            self.login_identity = Some(current.clone());
+            self.login_failures = 0;
+        }
+        self.login_failures = self.login_failures.saturating_add(1);
+        if code == 4 || self.login_failures >= MAX_LOGIN_FAILURES {
+            self.blocked = Some(current);
+            true
+        } else {
+            false
+        }
+    }
+    fn clear_login_failures(&mut self) {
+        self.failures = 0;
+        self.login_failures = 0;
+        self.login_identity = None;
     }
     fn delay(&mut self, config: &Config, jitter: f64) -> f64 {
         self.failures = (self.failures + 1).min(20);
@@ -1633,6 +1659,7 @@ impl Worker {
             Action::Login | Action::Logout | Action::Switch(_) => {
                 if matches!(action, Action::Login) {
                     self.reconnect = Reconnect::default();
+                    self.nosense_schedule.clear();
                 }
                 let _temporary = if self.guard.is_none() {
                     match self.acquire().await {
@@ -1734,6 +1761,16 @@ impl Worker {
                             DiagnosticReason::IdentityMismatch,
                         ));
                     }
+                    if matches!(action, Action::Login) {
+                        let code = result.as_ref().err().map_or(3, |v| v.code);
+                        if !self.reconnect.record_login_failure(&config, code) {
+                            let delay = self
+                                .reconnect
+                                .delay(&config, rand::thread_rng().gen_range(0.0..=0.1));
+                            self.next_check = Instant::now() + Duration::from_secs_f64(delay);
+                            return Ok(());
+                        }
+                    }
                 }
                 self.next_check = Instant::now() + Duration::from_secs(config.check_interval);
             }
@@ -1803,7 +1840,7 @@ impl Worker {
         }
         let (delay, message) = match observed {
             Ok(status) if status.online => {
-                self.reconnect.failures = 0;
+                self.reconnect.clear_login_failures();
                 if !paused && self.guard.is_some() && self.rotate_if_needed(&config, &status).await
                 {
                     self.schedule(
@@ -1855,17 +1892,26 @@ impl Worker {
                             && v.service.as_deref() == Some(&config.service)
                     })
                 {
-                    self.reconnect.failures = 0;
+                    self.reconnect.clear_login_failures();
                     (config.check_interval as f64, "重连已独立确认成功")
-                } else if result.as_ref().is_err_and(|v| v.code == 4) {
-                    self.reconnect.blocked = Some(Reconnect::identity(&config));
-                    (config.check_interval as f64, public_error(4))
                 } else {
-                    (
-                        self.reconnect
-                            .delay(&config, rand::thread_rng().gen_range(0.0..=0.1)),
-                        public_error(3),
-                    )
+                    let code = result.as_ref().err().map_or(3, |v| v.code);
+                    if self.reconnect.record_login_failure(&config, code) {
+                        (
+                            config.check_interval as f64,
+                            if code == 4 {
+                                public_error(4)
+                            } else {
+                                "连续重连失败已达上限，自动重连已暂停，请检查账号或网络后手动登录"
+                            },
+                        )
+                    } else {
+                        (
+                            self.reconnect
+                                .delay(&config, rand::thread_rng().gen_range(0.0..=0.1)),
+                            public_error(3),
+                        )
+                    }
                 }
             }
             Err(_) => (
@@ -2001,13 +2047,19 @@ impl Worker {
                     };
                     messages.push(msg);
                 }
-                Err(_) => {
+                Err(error) => {
                     any_failed = true;
+                    let backoff = if error.code == 4 { 86_400 * 365 } else { 1_800 };
                     self.nosense_schedule.insert(
                         acct_cfg.username.clone(),
-                        (key, Instant::now() + Duration::from_secs(1_800)),
+                        (key, Instant::now() + Duration::from_secs(backoff)),
                     );
-                    messages.push("无感自动续约待重试".to_string());
+                    let msg = if error.code == 4 {
+                        "无感自动续约已暂停（认证未通过，请修改配置后重试）"
+                    } else {
+                        "无感自动续约待重试"
+                    };
+                    messages.push(msg.to_string());
                 }
             }
         }

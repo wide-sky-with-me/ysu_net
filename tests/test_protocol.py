@@ -259,6 +259,27 @@ class ProtocolTests(OfflineTestCase):
             api.cas_login(sess, "mock-user", "wrong-password", False)
         self.assertEqual(sess.post.call_count, 1)
 
+    def test_cas_captcha_error_detection_ignores_static_form_and_password_errors(self):
+        self.assertFalse(api._cas_rejected_by_captcha(
+            '<form><input name="captcha" placeholder="验证码"></form><span id="msg">您提供的用户名或者密码有误</span>'
+        ))
+        self.assertFalse(api._cas_rejected_by_captcha(
+            '<span id="msg">用户名或密码错误，下次需要验证码</span>'
+        ))
+        self.assertTrue(api._cas_rejected_by_captcha(
+            '<span id="msg">无效的验证码</span>'
+        ))
+
+    def test_cas_sso_tgc_redirect_skips_password_post(self):
+        sess = self.session()
+        login_url = "https://cer.ysu.edu.cn/authserver/login?service=mock"
+        sess.get.side_effect = [
+            SimpleNamespace(url="https://auth1.ysu.edu.cn/cas-sso/clientredirect", is_redirect=True, headers={"Location": login_url}),
+            SimpleNamespace(content=b"portal finish", url="https://auth1.ysu.edu.cn/portal/entry/pc/authenticate?ticket=mock"),
+        ]
+        api.cas_login(sess, "mock-user", "plain-password", False)
+        sess.post.assert_not_called()
+
     def test_cas_server_error_is_retryable_not_credential_rejection(self):
         sess = self.cas_fixture(rejected=True)
         sess.post.return_value.status_code = 503

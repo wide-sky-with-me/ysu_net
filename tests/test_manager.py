@@ -129,6 +129,29 @@ class ReconnectTests(OfflineTestCase):
             self.worker.step(self.config)
         self.assertEqual(sum(c.args[1] == "login" for c in self.runner.call_args_list), 2)
 
+    def test_three_consecutive_failed_logins_pause_until_credentials_change(self):
+        self.runner.side_effect = [
+            Result(1), Result(3, "登录操作未完成"),
+            Result(1), Result(3, "登录操作未完成"),
+            Result(1), Result(3, "登录操作未完成"),
+            Result(1),
+            Result(1), Result(0),
+        ]
+        self.assertEqual(self.worker.step(self.config)[0], 30)
+        self.assertEqual(self.worker.step(self.config)[0], 60)
+        delay, msg = self.worker.step(self.config)
+        self.assertEqual(delay, 900)
+        self.assertIn("自动重连已暂停", msg)
+        # 4th offline tick does not call login
+        delay4, msg4 = self.worker.step(self.config)
+        self.assertEqual(delay4, 900)
+        self.assertIn("认证已暂停", msg4)
+        self.assertEqual(sum(c.args[1] == "login" for c in self.runner.call_args_list), 3)
+        # Changing credentials resumes login
+        changed = replace(self.config, password="new")
+        self.assertEqual(self.worker.step(changed)[0], 15)
+        self.assertEqual(sum(c.args[1] == "login" for c in self.runner.call_args_list), 4)
+
     def test_daemon_once_reads_config_without_network(self):
         path = self.tmp / "config.json"
         config.save_config(path, self.config)

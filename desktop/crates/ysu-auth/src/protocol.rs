@@ -283,10 +283,16 @@ impl Session {
                     e.at(Stage::CasNavigation)
                         .or_reason(Reason::BrowserProtocol)
                 })?;
+                node = self.node(op).await?;
             } else {
-                api_cas_login(&self.http, url, config, op).await?;
+                let used_tgc = api_cas_login_with_tgc(&self.http, url.clone(), config, op).await?;
+                node = self.node(op).await?;
+                if node == "authenticate" && used_tgc {
+                    clear_cas_tgc(config);
+                    api_cas_login(&self.http, url, config, op).await?;
+                    node = self.node(op).await?;
+                }
             }
-            node = self.node(op).await?;
             if node == "authenticate" {
                 return Err(AuthError::interaction(
                     "统一认证后仍要求登录，请检查账号密码、验证码或风控状态",
@@ -761,7 +767,104 @@ pub(crate) async fn captcha_required(
     .await
 }
 
-const CAPTCHA_ATTEMPTS: u32 = 3;
+const CAPTCHA_ATTEMPTS: u32 = 2;
+const CAS_TGC_TTL: std::time::Duration = std::time::Duration::from_secs(1_800);
+
+fn cas_tgc_cache(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, String)>> {
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, String)>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn cas_tgc_key(config: &Config) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        config.base, config.cas_host, config.username, config.password
+    )
+}
+
+pub(crate) fn clear_cas_tgc(config: &Config) {
+    if let Ok(mut guard) = cas_tgc_cache().lock() {
+        guard.remove(&cas_tgc_key(config));
+    }
+}
+
+fn cached_cas_tgc(config: &Config) -> Option<String> {
+    let mut guard = cas_tgc_cache().lock().ok()?;
+    guard.retain(|_, (saved, _)| saved.elapsed() < CAS_TGC_TTL);
+    guard.get(&cas_tgc_key(config)).map(|(_, tgc)| tgc.clone())
+}
+
+fn store_cas_tgc(config: &Config, tgc: String) {
+    if let Ok(mut guard) = cas_tgc_cache().lock() {
+        guard.retain(|_, (saved, _)| saved.elapsed() < CAS_TGC_TTL);
+        guard.insert(cas_tgc_key(config), (std::time::Instant::now(), tgc));
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn cas_rejected_by_captcha(body: &str) -> bool {
+    cas_rejected_by_captcha_inner(body)
+}
+
+fn cas_rejected_by_captcha_inner(body: &str) -> bool {
+    if risk_page(body) {
+        return false;
+    }
+    let html = Html::parse_document(body);
+    let mut notice = String::new();
+    for sel in [
+        "#msg",
+        "#error",
+        "#formError",
+        ".errors",
+        ".tip_Error",
+        "#showErrorTip",
+    ] {
+        for element in html.select(&selector(sel)) {
+            for part in element.text() {
+                notice.push_str(part);
+            }
+        }
+    }
+    notice.contains("验证码")
+        && !["密码", "用户名", "冻结", "锁定", "频繁", "不存在", "停用"]
+            .iter()
+            .any(|term| notice.contains(term))
+}
+
+fn prepare_cas_form(
+    body: &str,
+    page_url: &Url,
+    http: &Transport,
+    config: &Config,
+) -> Result<LoginForm, AuthError> {
+    let mut form = LoginForm::parse(body, page_url, http)
+        .map_err(|e| e.at(Stage::CasForm).or_reason(Reason::ResponseInvalid))?;
+    form.fields
+        .insert("username".into(), config.username.clone());
+    form.fields.insert(
+        "password".into(),
+        encrypt_password(&config.password, &form.salt)
+            .map_err(|e| e.at(Stage::CasForm).or_reason(Reason::ResponseInvalid))?,
+    );
+    form.fields
+        .entry("_eventId".into())
+        .or_insert_with(|| "submit".into());
+    form.fields
+        .entry("cllt".into())
+        .or_insert_with(|| "userNameLogin".into());
+    form.fields
+        .entry("dllt".into())
+        .or_insert_with(|| "generalLogin".into());
+    form.fields.entry("lt".into()).or_default();
+    if form.fields.get("captcha").is_some_and(String::is_empty) {
+        form.fields.remove("captcha");
+    }
+    Ok(form)
+}
 
 async fn fetch_captcha(
     http: &Transport,
@@ -790,14 +893,48 @@ pub(crate) async fn api_cas_login(
     config: &Config,
     op: &Operation,
 ) -> Result<(), AuthError> {
-    let page = at(Stage::CasNavigation, http.get(url, op)).await?;
+    api_cas_login_with_tgc(http, url, config, op)
+        .await
+        .map(|_| ())
+}
+
+pub(crate) async fn api_cas_login_with_tgc(
+    http: &Transport,
+    url: Url,
+    config: &Config,
+    op: &Operation,
+) -> Result<bool, AuthError> {
+    if http.cookie_value(&url, "CASTGC").is_none() {
+        if let Some(tgc) = cached_cas_tgc(config) {
+            http.insert_cookie(&url, &format!("CASTGC={tgc}; Path=/authserver; HttpOnly"));
+        }
+    }
+    let page = at(Stage::CasNavigation, http.navigation_get(url.clone(), op)).await?;
     page.ensure_success()
         .map_err(|e| e.at(Stage::CasNavigation))?;
-    let mut form = LoginForm::parse(&page.text(), &page.url, http)
-        .map_err(|e| e.at(Stage::CasForm).or_reason(Reason::ResponseInvalid))?;
+    if page.chain.len() > 1
+        && page.url.origin() == http.base.origin()
+        && !page.url.path().ends_with("/authserver/login")
+    {
+        if risk_page(&page.text()) {
+            clear_cas_tgc(config);
+            return Err(
+                AuthError::interaction("统一认证未完成门户回跳，请人工处理后重试")
+                    .at(Stage::CasCallback)
+                    .because(Reason::BusinessRejected),
+            );
+        }
+        if let Some(tgc) = http.cookie_value(&url, "CASTGC") {
+            store_cas_tgc(config, tgc);
+        }
+        return Ok(true);
+    }
+    clear_cas_tgc(config);
+    let mut page_url = page.url.clone();
+    let mut form = prepare_cas_form(&page.text(), &page_url, http, config)?;
     // The opt-in local model is only used when it is already on disk; nothing is
     // downloaded from inside a login attempt.
-    let solver = if captcha_required(http, &page.url, &config.username, form.captcha, op).await? {
+    let solver = if captcha_required(http, &page_url, &config.username, form.captcha, op).await? {
         match crate::captcha::ready_model().and_then(|p| crate::captcha::CaptchaOcr::load(&p).ok())
         {
             Some(solver) => Some(solver),
@@ -811,38 +948,18 @@ pub(crate) async fn api_cas_login(
     } else {
         None
     };
-    form.fields
-        .insert("username".into(), config.username.clone());
-    form.fields.insert(
-        "password".into(),
-        encrypt_password(&config.password, &form.salt)
-            .map_err(|e| e.at(Stage::CasForm).or_reason(Reason::ResponseInvalid))?,
-    );
-    form.fields
-        .entry("_eventId".into())
-        .or_insert_with(|| "submit".into());
-    form.fields
-        .entry("cllt".into())
-        .or_insert_with(|| "userNameLogin".into());
-    form.fields
-        .entry("dllt".into())
-        .or_insert_with(|| "generalLogin".into());
-    form.fields.entry("lt".into()).or_default();
-    if form.fields.get("captcha").is_some_and(String::is_empty) {
-        form.fields.remove("captcha");
-    }
-    let action = form.action.clone();
     let mut solved = 0;
     let r = loop {
         if let Some(solver) = solver.as_ref() {
             form.fields
                 .insert("captcha".into(), fetch_captcha(http, solver, op).await?);
         }
+        let action = form.action.clone();
         let body = url::form_urlencoded::Serializer::new(String::new())
             .extend_pairs(form.fields.iter())
             .finish()
             .into_bytes();
-        let mut headers = http.api_headers(&action, Some(&page.url));
+        let mut headers = http.api_headers(&action, Some(&page_url));
         headers.remove("isportal");
         headers.insert(
             CONTENT_TYPE,
@@ -862,15 +979,22 @@ pub(crate) async fn api_cas_login(
         if matches!(reply.status, 301 | 302 | 303) {
             break reply;
         }
-        // Only a challenge rejection is retried, and only while a solver is active:
-        // a wrong password must not turn into repeated credential attempts.
-        let rejected_by_captcha = reply.text().contains("验证码");
-        if solver.is_some() && rejected_by_captcha && solved < CAPTCHA_ATTEMPTS - 1 {
+        // Only an explicit captcha notice is retried, and only with freshly parsed
+        // execution/salt tokens from the returned page so a wrong password never
+        // multiplies credential attempts or replays a consumed flow token.
+        let reply_text = reply.text();
+        if solver.is_some()
+            && cas_rejected_by_captcha_inner(&reply_text)
+            && solved < CAPTCHA_ATTEMPTS - 1
+        {
             solved += 1;
+            page_url = reply.url.clone();
+            form = prepare_cas_form(&reply_text, &page_url, http, config)?;
             continue;
         }
         return Err(
             AuthError::interaction("统一认证未确认登录，请检查账号密码、验证码或风控状态")
+                .at(Stage::CasSubmit)
                 .because(Reason::BusinessRejected),
         );
     };
@@ -897,7 +1021,10 @@ pub(crate) async fn api_cas_login(
                     .because(Reason::BusinessRejected),
             );
         }
-        Ok(())
+        if let Some(tgc) = http.cookie_value(&url, "CASTGC") {
+            store_cas_tgc(config, tgc);
+        }
+        Ok(false)
     })
     .await
 }
@@ -920,9 +1047,21 @@ pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
             if [
                 "账号密码错误",
                 "用户名或密码错误",
+                "密码错误",
                 "验证码",
                 "风控",
                 "IP被冻结",
+                "冻结",
+                "锁定",
+                "欠费",
+                "停机",
+                "余额不足",
+                "未绑定",
+                "无绑定",
+                "绑定关系",
+                "用户不存在",
+                "账号不存在",
+                "黑名单",
             ]
             .iter()
             .any(|term| msg.contains(term))

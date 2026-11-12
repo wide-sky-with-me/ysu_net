@@ -393,6 +393,15 @@ class SessionCacheTests(OfflineTestCase):
             selfservice.open_session(self.BASE, "cas", "u", "p")
         self.assertIsNone(selfservice.load_session(self.BASE, "u"))
 
+    def test_interaction_required_is_preserved_not_downgraded_to_query_error(self):
+        from ysu_net.auth.common import InteractionRequired
+        self.mock("ysu_net.auth.selfservice._seed_self",
+                  return_value=(False, selfservice.callback_url(self.BASE)))
+        self.mock("ysu_net.auth.api.cas_login",
+                  side_effect=InteractionRequired("bad password"))
+        with self.assertRaises(InteractionRequired):
+            selfservice.open_session(self.BASE, "cas", "u", "p", fresh=True)
+
     def test_cached_session_skips_login(self):
         selfservice.save_session(self.jar(SESSION="s"), self.BASE, "u")
         self.mock("ysu_net.auth.selfservice._still_authorised", return_value=True)

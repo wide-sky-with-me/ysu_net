@@ -423,8 +423,9 @@ impl AuthClient {
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let mut session = self.session(&op).await?;
             let result = session.logout(&self.config, &op).await;
-            // A cached /self session must not outlive the logout it just made stale.
+            // A cached /self session or CAS TGC must not outlive the logout it just made stale.
             selfservice::forget_session(&self.config, self.local).await;
+            protocol::clear_cas_tgc(&self.config);
             result
         })
         .await

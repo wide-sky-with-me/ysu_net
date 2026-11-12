@@ -138,6 +138,12 @@ impl Transport {
             .join(path.trim_start_matches('/'))
             .map_err(|_| AuthError::query("统一认证路径异常"))
     }
+    pub fn cookie_value(&self, url: &Url, name: &str) -> Option<String> {
+        self.jar.cookie_value(url, name)
+    }
+    pub fn insert_cookie(&self, url: &Url, set_cookie: &str) {
+        self.jar.insert_cookie(url, set_cookie);
+    }
     pub fn allowed(&self, u: &Url) -> Result<(), AuthError> {
         if !u.username().is_empty()
             || u.password().is_some()

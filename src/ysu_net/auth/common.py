@@ -91,8 +91,11 @@ def check_action(status, payload, action):
         if failed:
             if any("同时在线用户数量上限" in message for message in messages):
                 raise InteractionRequired("运营商同时在线数量已达上限，请先在其他终端正常下线后重试")
-            if any(term in message for message in messages for term in
-                   ("账号密码错误", "用户名或密码错误", "验证码", "风控", "IP被冻结")):
+            if any(term in message for message in messages for term in (
+                "账号密码错误", "用户名或密码错误", "密码错误", "验证码", "风控", "IP被冻结",
+                "冻结", "锁定", "欠费", "停机", "余额不足", "未绑定", "无绑定",
+                "绑定关系", "用户不存在", "账号不存在", "黑名单",
+            )):
                 raise InteractionRequired("运营商认证需要人工处理，请检查账号绑定、密码或验证码")
             raise OperationFailed(f"{action} 被服务器拒绝")
 

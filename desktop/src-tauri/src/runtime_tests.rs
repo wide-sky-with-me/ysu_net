@@ -827,6 +827,35 @@ async fn interaction_pause_only_clears_on_configuration_change_or_manual_login()
     assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
 }
 
+#[tokio::test]
+async fn consecutive_operation_login_failures_trip_circuit_breaker_at_three_attempts() {
+    let (runtime, receiver) = fixture();
+    runtime.desired.store(true, Ordering::Release);
+    demo(&runtime).lock().unwrap().operation_error = Some(3);
+    let mut worker = Worker::new(runtime.clone(), receiver);
+    worker.guard = Some(runtime.store.acquire_run().unwrap());
+    worker.tick().await;
+    worker.tick().await;
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
+    assert!(worker.reconnect.blocked.is_some());
+
+    // Subsequent ticks must not attempt further automatic logins while blocked.
+    worker.tick().await;
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
+
+    // Changing credentials clears the circuit breaker.
+    runtime
+        .request("save_config", json!({"password":"updated-password"}))
+        .await
+        .unwrap();
+    demo(&runtime).lock().unwrap().operation_error = None;
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 4);
+    assert!(worker.reconnect.blocked.is_none());
+}
+
 #[test]
 fn exponential_backoff_and_jitter_never_exceed_cap() {
     let config = Config {

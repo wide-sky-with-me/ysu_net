@@ -46,6 +46,7 @@ def failure_reason(code, error):
     signatures = (
         (4, "运营商同时在线数量已达上限", "session_limit"),
         (4, "运营商认证需要人工处理", "carrier_auth"),
+        (4, "自助服务登录失败", "self_login"),
         (2, "自助服务登录失败", "self_login"),
         (2, "自助服务登录后仍未进入自助服务页", "self_login"),
         (2, "自助服务接口", "self_login"),
