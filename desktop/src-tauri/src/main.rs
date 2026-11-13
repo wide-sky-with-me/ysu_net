@@ -171,11 +171,25 @@ fn get_desktop_settings(
     } else {
         startup::read_enabled(&*app.autolaunch())?
     };
-    Ok(
-        json!({"autostart": enabled, "tray_available": bridge.tray_available.load(Ordering::Acquire),
+    let manager = app.state::<updater::UpdateManager>();
+    let ignored = bridge.snapshot()["prefs"]["ignored_update_version"]
+        .as_str()
+        .unwrap_or("")
+        .to_owned();
+    let mut payload = json!({
+        "autostart": enabled,
+        "tray_available": bridge.tray_available.load(Ordering::Acquire),
         "tray_tooltip": !cfg!(target_os = "linux"),
-        "version": app.package_info().version.to_string(), "demo": bridge.demo}),
-    )
+        "version": app.package_info().version.to_string(),
+        "demo": bridge.demo,
+        "updater_supported": manager.is_automatic(),
+    });
+    if let Some(prompt) = manager.startup_prompt(&ignored) {
+        if let Ok(value) = serde_json::to_value(prompt) {
+            payload["startup_update"] = value;
+        }
+    }
+    Ok(payload)
 }
 
 #[tauri::command]
@@ -302,6 +316,7 @@ fn main() {
             updater::updater_open_releases,
             updater::updater_check,
             updater::updater_install,
+            updater::updater_dismiss_prompt,
             updater::updater_resume,
             updater::updater_restart,
             captcha::captcha_status,
@@ -343,6 +358,8 @@ fn main() {
             }
             if options.smoke {
                 smoke::start(handle);
+            } else if !bridge.demo {
+                updater::start_startup_check(handle, bridge.clone());
             }
             Ok(())
         })

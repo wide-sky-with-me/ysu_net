@@ -45,6 +45,15 @@ fn default_autostart_minimized() -> bool {
     true
 }
 
+fn default_auto_check_update() -> bool {
+    true
+}
+
+pub fn valid_ignored_version(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.len() <= 128 && !trimmed.chars().any(|ch| ch.is_control())
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Prefs {
     pub theme: String,
@@ -54,6 +63,12 @@ pub struct Prefs {
     #[serde(default = "default_autostart_minimized")]
     pub autostart_minimized: bool,
     pub auto_reconnect: bool,
+    #[serde(default = "default_auto_check_update")]
+    pub auto_check_update: bool,
+    #[serde(default)]
+    pub auto_install_update: bool,
+    #[serde(default)]
+    pub ignored_update_version: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +115,9 @@ impl Default for Prefs {
             close_to_tray: true,
             autostart_minimized: default_autostart_minimized(),
             auto_reconnect: false,
+            auto_check_update: default_auto_check_update(),
+            auto_install_update: false,
+            ignored_update_version: String::new(),
         }
     }
 }
@@ -344,11 +362,24 @@ impl Store {
             if let Some(value) = data.get("auto_reconnect").and_then(Value::as_bool) {
                 prefs.auto_reconnect = value;
             }
+            if let Some(value) = data.get("auto_check_update").and_then(Value::as_bool) {
+                prefs.auto_check_update = value;
+            }
+            if let Some(value) = data.get("auto_install_update").and_then(Value::as_bool) {
+                prefs.auto_install_update = value;
+            }
+            if let Some(value) = data
+                .get("ignored_update_version")
+                .and_then(Value::as_str)
+                .filter(|v| valid_ignored_version(v))
+            {
+                prefs.ignored_update_version = value.trim().into();
+            }
         }
         prefs
     }
 
-    pub fn update_prefs(&self, changes: Map<String, Value>) -> Result<Prefs, String> {
+    pub fn update_prefs(&self, mut changes: Map<String, Value>) -> Result<Prefs, String> {
         if changes.is_empty()
             || !changes.keys().all(|key| {
                 [
@@ -357,6 +388,9 @@ impl Store {
                     "close_to_tray",
                     "autostart_minimized",
                     "auto_reconnect",
+                    "auto_check_update",
+                    "auto_install_update",
+                    "ignored_update_version",
                 ]
                 .contains(&key.as_str())
             })
@@ -372,8 +406,22 @@ impl Store {
         if changes
             .get("autostart_minimized")
             .is_some_and(|value| !value.is_boolean())
+            || changes
+                .get("auto_check_update")
+                .is_some_and(|value| !value.is_boolean())
+            || changes
+                .get("auto_install_update")
+                .is_some_and(|value| !value.is_boolean())
+            || changes
+                .get("ignored_update_version")
+                .is_some_and(|value| !value.as_str().is_some_and(valid_ignored_version))
         {
             return Err("偏好参数无效".into());
+        }
+        if let Some(value) = changes.get_mut("ignored_update_version") {
+            if let Some(trimmed) = value.as_str().map(str::trim).map(str::to_owned) {
+                *value = Value::String(trimmed);
+            }
         }
         let path = self.prefs_path();
         let _lock = lock_file(&path.with_file_name("gui.json.write.lock"), true)?;
@@ -932,5 +980,49 @@ mod tests {
             }
         }
         assert_eq!(fs::read(&store.path).unwrap(), auth_before);
+    }
+
+    #[test]
+    fn update_preferences_default_and_round_trip_with_validation() {
+        let store = Store::open(None, true).unwrap();
+        let defaults = store.load_prefs();
+        assert!(defaults.auto_check_update);
+        assert!(!defaults.auto_install_update);
+        assert!(defaults.ignored_update_version.is_empty());
+
+        for invalid in [json!(null), json!("true"), json!(1), json!([])] {
+            assert!(store
+                .update_prefs(changes(json!({"auto_check_update":invalid})))
+                .is_err());
+            assert!(store
+                .update_prefs(changes(json!({"auto_install_update":invalid})))
+                .is_err());
+        }
+        for invalid_version in [
+            json!(null),
+            json!(123),
+            json!("0.3.5\n"),
+            json!("v".repeat(129)),
+        ] {
+            assert!(store
+                .update_prefs(changes(json!({"ignored_update_version":invalid_version})))
+                .is_err());
+        }
+        assert!(!store.prefs_path().exists());
+
+        let saved = store
+            .update_prefs(changes(json!({
+                "auto_check_update": false,
+                "auto_install_update": true,
+                "ignored_update_version": " 0.3.5 "
+            })))
+            .unwrap();
+        assert!(!saved.auto_check_update);
+        assert!(saved.auto_install_update);
+        assert_eq!(saved.ignored_update_version, "0.3.5");
+        let reloaded = store.load_prefs();
+        assert!(!reloaded.auto_check_update);
+        assert!(reloaded.auto_install_update);
+        assert_eq!(reloaded.ignored_update_version, "0.3.5");
     }
 }

@@ -229,7 +229,11 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
                         .as_str()
                         .is_some_and(|v| ["system", "light", "dark"].contains(&v)),
                     "accent" => v.as_str().is_some_and(valid_accent),
-                    "close_to_tray" | "autostart_minimized" => v.is_boolean(),
+                    "close_to_tray" | "autostart_minimized" | "auto_check_update"
+                    | "auto_install_update" => v.is_boolean(),
+                    "ignored_update_version" => v
+                        .as_str()
+                        .is_some_and(crate::storage::valid_ignored_version),
                     _ => false,
                 })
         }

@@ -783,3 +783,40 @@ fn official_release_opener_dispatches_to_isolated_linux_handler_without_network(
     }
     assert_eq!(std::fs::read_to_string(&capture).unwrap(), expected);
 }
+
+#[test]
+fn startup_prompt_respects_ignored_and_dismissed_versions() {
+    let demo = UpdateManager::with_support("0.3.4".into(), true, true);
+    assert!(!demo.is_automatic());
+    let manual = UpdateManager::with_support("0.3.4".into(), false, false);
+    assert!(!manual.is_automatic());
+
+    let manager = UpdateManager::with_support("0.3.4".into(), false, true);
+    assert!(manager.is_automatic());
+    *manager.startup_prompt.lock().unwrap() = Some(StartupUpdatePrompt {
+        kind: StartupPromptKind::Available,
+        version: "0.3.5".into(),
+        notes: "notes".into(),
+    });
+    assert!(manager.startup_prompt("").is_some());
+    assert!(manager.startup_prompt("0.3.5").is_none());
+    assert!(manager.startup_prompt("0.3.4").is_some());
+
+    *manager.startup_prompt.lock().unwrap() = Some(StartupUpdatePrompt {
+        kind: StartupPromptKind::RestartRequired,
+        version: "0.3.5".into(),
+        notes: "notes".into(),
+    });
+    assert!(manager.startup_prompt("0.3.5").is_some());
+
+    manager.dismiss_startup_prompt("0.3.5");
+    assert!(manager.startup_prompt("").is_none());
+
+    // Simulate a late startup prompt emission in the same app session for the dismissed version.
+    *manager.startup_prompt.lock().unwrap() = Some(StartupUpdatePrompt {
+        kind: StartupPromptKind::Available,
+        version: "0.3.5".into(),
+        notes: "notes".into(),
+    });
+    assert!(manager.startup_prompt("").is_none());
+}

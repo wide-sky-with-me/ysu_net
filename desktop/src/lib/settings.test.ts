@@ -8,9 +8,11 @@ describe('confirmed desktop settings', () => {
   it('whitelists desktop state and rejects malformed or missing capabilities', () => {
     const state = { autostart: false, tray_available: true, version: '0.2.1', demo: false, tray_tooltip: true };
     expect(parseDesktopSettings({ ...state, password: 'fixture-secret', path: '/private/fixture' })).toEqual(state);
-    for (const value of [null, [], true, {}, { ...state, autostart: 1 }, { ...state, tray_available: 'true' }, { ...state, demo: 'false' }, { ...state, tray_tooltip: 1 }]) {
+    for (const value of [null, [], true, {}, { ...state, autostart: 1 }, { ...state, tray_available: 'true' }, { ...state, demo: 'false' }, { ...state, tray_tooltip: 1 }, { ...state, updater_supported: 'yes' }]) {
       expect(() => parseDesktopSettings(value)).toThrow(SETTING_UNCONFIRMED);
     }
+    const withPrompt = { ...state, updater_supported: true, startup_update: { kind: 'available', version: '0.3.5', notes: '更新说明' } };
+    expect(parseDesktopSettings(withPrompt)).toEqual(withPrompt);
   });
   it('a completed setter is not a matching OS readback', () => {
     const state = { autostart: false, tray_available: true, version: '0.2.1' };
@@ -20,7 +22,7 @@ describe('confirmed desktop settings', () => {
   });
   it('requires explicit requested values in an authoritative snapshot', () => {
     const snapshot = demoSnapshot();
-    for (const changes of [{ theme: 'light' as const }, { accent: 'teal' as const }, { close_to_tray: false }, { autostart_minimized: false }]) {
+    for (const changes of [{ theme: 'light' as const }, { accent: 'teal' as const }, { close_to_tray: false }, { autostart_minimized: false }, { auto_check_update: false, auto_install_update: false }, { auto_install_update: true }, { ignored_update_version: '0.3.5' }]) {
       const saved = { ...snapshot, prefs: { ...snapshot.prefs, ...changes } };
       expect(confirmedPreferences(saved, changes).prefs).toMatchObject(changes);
       expect(() => confirmedPreferences({ ok: true }, changes)).toThrow(SETTING_UNCONFIRMED);
@@ -53,6 +55,11 @@ describe('setting feedback', () => {
     expect(preferenceNotice({ close_to_tray: false })).toBe('关闭窗口后退出应用');
     expect(preferenceNotice({ theme: 'dark' })).toBe('界面主题已保存');
     expect(preferenceNotice({ accent: 'teal' })).toBe('主题色已保存');
+    expect(preferenceNotice({ auto_check_update: true })).toBe('已开启自动检查更新');
+    expect(preferenceNotice({ auto_check_update: false })).toBe('已关闭自动检查更新');
+    expect(preferenceNotice({ auto_install_update: true })).toBe('已开启自动下载安装更新');
+    expect(preferenceNotice({ auto_install_update: false })).toBe('已关闭自动下载安装更新');
+    expect(preferenceNotice({ ignored_update_version: '0.3.5' })).toBe('已忽略此版本更新');
   });
   it('never displays arbitrary native errors, paths, credentials or rejected values', () => {
     for (const kind of Object.keys(settingBusyMessage) as Setting[]) {

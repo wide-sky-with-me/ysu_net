@@ -21,7 +21,7 @@ export function demoSnapshot(search = ''): Snapshot {
       base: 'https://auth1.ysu.edu.cn', cas_host: 'https://cer.ysu.edu.cn', verify_tls: true,
       check_interval: 15, retry_interval: 30, max_retry_interval: 900, operation_timeout: 180, password_set: scenario !== 'empty',
     },
-    prefs: { theme: params.get('theme') === 'dark' ? 'dark' : params.get('theme') === 'light' ? 'light' : 'system', accent: normalizeAccent(params.get('accent')), close_to_tray: true, auto_reconnect: scenario !== 'external' && scenario !== 'no-auto', autostart_minimized: true },
+    prefs: { theme: params.get('theme') === 'dark' ? 'dark' : params.get('theme') === 'light' ? 'light' : 'system', accent: normalizeAccent(params.get('accent')), close_to_tray: true, auto_reconnect: scenario !== 'external' && scenario !== 'no-auto', autostart_minimized: true, auto_check_update: true, auto_install_update: false, ignored_update_version: '' },
     status: { online, service: online ? '中国移动' : null, user: online ? '20260001' : '', ip: online ? '10.24.16.82' : '', message: online === null ? '模拟查询超时，在线状态尚未确认' : online ? '已确认校园网连接' : '校园网尚未连接' },
     auto: { state: scenario === 'external' ? 'external' : scenario === 'no-auto' ? 'off' : 'on', message: scenario === 'external' ? '由外部后台服务管理，请先在命令行停止服务' : scenario === 'no-auto' ? '自动重连已关闭' : '正在监测连接，断线后自动登录' },
     accounts: {
@@ -384,7 +384,18 @@ export function createDemoTransport(search = ''): Transport {
         if ('accent' in changes && normalizeAccent(changes.accent) !== changes.accent) throw new Error('模拟：主题色值无效');
         if (scenario === 'prefs-failure') throw new Error('模拟：界面偏好保存失败，原设置已保留');
         if ('autostart_minimized' in changes && typeof changes.autostart_minimized !== 'boolean') throw new Error('模拟：启动方式值无效');
-        state.prefs = { ...state.prefs, ...changes }; log('界面偏好已保存');
+        if ('auto_check_update' in changes && typeof changes.auto_check_update !== 'boolean') throw new Error('模拟：自动检查更新值无效');
+        if ('auto_install_update' in changes && typeof changes.auto_install_update !== 'boolean') throw new Error('模拟：自动下载安装值无效');
+        if ('ignored_update_version' in changes && (typeof changes.ignored_update_version !== 'string' || changes.ignored_update_version.length > 128)) throw new Error('模拟：忽略版本值无效');
+        const nextCheck = changes.auto_check_update ?? state.prefs.auto_check_update;
+        const nextInstall = changes.auto_install_update ?? state.prefs.auto_install_update;
+        if (!nextCheck && nextInstall) throw new Error('模拟：更新设置组合无效');
+        state.prefs = {
+          ...state.prefs,
+          ...changes,
+          ...(changes.ignored_update_version !== undefined ? { ignored_update_version: changes.ignored_update_version.trim() } : {}),
+        };
+        log('界面偏好已保存');
         publish(); return snapshot();
       } else if (command === 'diagnostics') {
         log('本地环境诊断完成'); publish();

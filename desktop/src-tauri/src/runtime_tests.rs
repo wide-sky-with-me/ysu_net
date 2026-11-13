@@ -1625,3 +1625,33 @@ async fn nosense_actions_and_auto_renew_config_persist_and_update_snapshot() {
         current_self["config"]["username"]
     );
 }
+
+#[tokio::test]
+async fn update_preferences_validate_and_persist_in_runtime_snapshot() {
+    let (runtime, _) = fixture();
+    assert_eq!(runtime.snapshot()["prefs"]["auto_check_update"], true);
+    assert_eq!(runtime.snapshot()["prefs"]["auto_install_update"], false);
+    assert_eq!(runtime.snapshot()["prefs"]["ignored_update_version"], "");
+    assert!(!valid_request(
+        "save_prefs",
+        &json!({"auto_check_update": "yes"})
+    ));
+    assert!(!valid_request(
+        "save_prefs",
+        &json!({"ignored_update_version": "0.3.5\n"})
+    ));
+    let saved = runtime
+        .request(
+            "save_prefs",
+            json!({
+                "auto_check_update": false,
+                "auto_install_update": true,
+                "ignored_update_version": " 0.3.5 "
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved["prefs"]["auto_check_update"], false);
+    assert_eq!(saved["prefs"]["auto_install_update"], true);
+    assert_eq!(saved["prefs"]["ignored_update_version"], "0.3.5");
+}

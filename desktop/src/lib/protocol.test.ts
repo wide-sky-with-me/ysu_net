@@ -112,6 +112,18 @@ describe('snapshot contract', () => {
     expect(parseSnapshot({ ...data, prefs: { ...data.prefs, autostart_minimized: false } }).prefs.autostart_minimized).toBe(false);
     for (const value of [null, 'false', 0, {}, []]) expect(() => parseSnapshot({ ...data, prefs: { ...data.prefs, autostart_minimized: value } })).toThrow('偏好格式');
   });
+  it('defaults legacy update prefs and rejects malformed update pref values', () => {
+    const data = demoSnapshot();
+    const { auto_check_update: _c, auto_install_update: _i, ignored_update_version: _v, ...legacy } = data.prefs;
+    expect(parseSnapshot({ ...data, prefs: legacy }).prefs).toMatchObject({
+      auto_check_update: true,
+      auto_install_update: false,
+      ignored_update_version: '',
+    });
+    for (const bad of [{ auto_check_update: 'yes' }, { auto_install_update: 1 }, { ignored_update_version: 123 }]) {
+      expect(() => parseSnapshot({ ...data, prefs: { ...data.prefs, ...bad } })).toThrow('偏好格式');
+    }
+  });
   it('rejects malformed sequences and shape', () => {
     for (const sequence of [-1, 1.5, NaN, Infinity, '4']) expect(() => parseSnapshot({ ...demoSnapshot(), sequence })).toThrow();
     expect(() => parseSnapshot({ ...demoSnapshot(), info: { online: true, items: [['bad']], fields: [] } })).toThrow();

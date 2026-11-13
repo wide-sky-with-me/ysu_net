@@ -10,6 +10,9 @@ export type UpdateError = typeof UPDATE_ERRORS[number];
 export const DOWNLOAD_MODES = ['full', 'delta', 'cached'] as const;
 export type DownloadMode = typeof DOWNLOAD_MODES[number];
 export interface UpdateRelease { version: string; notes: string }
+export const STARTUP_PROMPT_KINDS = ['available', 'restart_required'] as const;
+export type StartupPromptKind = typeof STARTUP_PROMPT_KINDS[number];
+export interface StartupUpdatePrompt { kind: StartupPromptKind; version: string; notes: string }
 export interface UpdateSnapshot {
   sequence: number;
   phase: UpdatePhase;
@@ -144,4 +147,23 @@ export function createUpdaterClient(mode: 'desktop' | 'demo' | 'web', demo = fal
       try { handler(parseUpdateSnapshot(event.payload)); } catch { onerror?.('ipc'); }
     }).catch(() => { throw 'ipc' satisfies UpdateError; }),
   };
+}
+
+export function parseStartupUpdatePrompt(value: unknown): StartupUpdatePrompt | null {
+  if (!object(value) || !includes(STARTUP_PROMPT_KINDS, value.kind) || typeof value.version !== 'string' || typeof value.notes !== 'string') return null;
+  const version = value.version.trim();
+  return version ? { kind: value.kind, version, notes: value.notes } : null;
+}
+
+export function subscribeStartupPrompt(mode: 'desktop' | 'demo' | 'web', demo: boolean, handler: (prompt: StartupUpdatePrompt) => void): Promise<() => void> {
+  if (mode !== 'desktop' || demo) return Promise.resolve(() => {});
+  return listen('updater-startup-prompt', (event) => {
+    const prompt = parseStartupUpdatePrompt(event.payload);
+    if (prompt) handler(prompt);
+  }).catch(() => () => {});
+}
+
+export async function dismissStartupPrompt(mode: 'desktop' | 'demo' | 'web', demo: boolean, version: string): Promise<void> {
+  if (mode !== 'desktop' || demo || !version.trim()) return;
+  try { await invoke('updater_dismiss_prompt', { version }); } catch {}
 }

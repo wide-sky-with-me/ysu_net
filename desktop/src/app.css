@@ -322,7 +322,7 @@
   .account-fields dd { overflow-wrap: anywhere; white-space: pre-wrap; }
   .online-info-card .missing { color: var(--muted); font-size: 14px; font-weight: 450; }
   .online-info-empty { margin-top: 14px; padding: 20px 24px; background: var(--surface); border-radius: var(--radius-lg); }
-  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 300px; max-width: 520px; margin-top: 16px; gap: 20px; padding: 38px; background: var(--surface); background-image: radial-gradient(100% 100% at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent) 0%, transparent 65%); border: 1px solid var(--card-border); border-radius: 32px; box-shadow: var(--card-shadow); }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 300px; max-width: 520px; margin: 16px auto 0; gap: 20px; padding: 38px; background: var(--surface); background-image: radial-gradient(100% 100% at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent) 0%, transparent 65%); border: 1px solid var(--card-border); border-radius: 32px; box-shadow: var(--card-shadow); }
   .empty-state > svg { box-sizing: content-box; color: var(--accent); padding: 18px; background: var(--accent-soft); border-radius: 24px; box-shadow: 0 8px 20px -4px color-mix(in srgb, var(--accent) 22%, transparent); }
   .empty-state.error > svg { color: var(--danger); background: var(--danger-soft); box-shadow: 0 8px 20px -4px color-mix(in srgb, var(--danger) 22%, transparent); }
   .empty-state h2 { font-size: 18px; font-weight: 600; }
@@ -458,6 +458,12 @@
   .confirm-dialog p { color: var(--muted); font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
   .dialog-actions button { min-width: 88px; }
+  .update-dialog { width: min(480px, calc(100vw - 32px)); }
+  .update-dialog .dialog-actions { flex-wrap: wrap; }
+  .update-dialog .update-ignore-button { margin-right: auto; }
+  .update-dialog-notes { margin: 14px 0 0; max-height: 200px; overflow: auto; padding: 14px 16px; border-radius: 20px; background: var(--field); color: var(--text); font-family: var(--font-ui); font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .update-dialog .update-progress { margin-top: 14px; }
+  .update-dialog .update-error { color: var(--danger); font-size: 13px; line-height: 1.6; margin-top: 12px; }
   .account-hint { margin-top: 12px; overflow-wrap: anywhere; }
   .account-error { color: var(--danger); margin-top: 12px; font-size: 13px; overflow-wrap: anywhere; }
   .auto-section p.quota-status:is([data-state='available'], [data-state='unlimited']) { color: var(--accent); }

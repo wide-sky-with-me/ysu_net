@@ -6,7 +6,10 @@ use serde::Serialize;
 use std::{
     future::Future,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -144,6 +147,20 @@ pub struct UpdateRelease {
     pub notes: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupPromptKind {
+    Available,
+    RestartRequired,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct StartupUpdatePrompt {
+    pub kind: StartupPromptKind,
+    pub version: String,
+    pub notes: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct UpdateSnapshot {
     pub sequence: u64,
@@ -171,6 +188,9 @@ pub struct UpdateManager {
     session: Mutex<Session>,
     operation: tokio::sync::Mutex<()>,
     release_opener: ReleasePageOpener,
+    startup_started: AtomicBool,
+    startup_prompt: Mutex<Option<StartupUpdatePrompt>>,
+    dismissed_prompt_version: Mutex<Option<String>>,
     demo: bool,
     automatic: bool,
 }
@@ -210,9 +230,62 @@ impl UpdateManager {
             release_opener: Box::new(|url| {
                 tauri_plugin_opener::open_url(url, None::<&str>).map_err(|_| ())
             }),
+            startup_started: AtomicBool::new(false),
+            startup_prompt: Mutex::new(None),
+            dismissed_prompt_version: Mutex::new(None),
             demo,
             automatic,
         }
+    }
+
+    pub fn is_automatic(&self) -> bool {
+        self.automatic && !self.demo
+    }
+
+    pub fn startup_prompt(&self, ignored_version: &str) -> Option<StartupUpdatePrompt> {
+        let prompt = self.startup_prompt.lock().unwrap().clone()?;
+        let dismissed = self.dismissed_prompt_version.lock().unwrap().clone();
+        if dismissed.as_deref() == Some(prompt.version.as_str()) {
+            return None;
+        }
+        let ignored = ignored_version.trim();
+        if prompt.kind == StartupPromptKind::Available
+            && !ignored.is_empty()
+            && prompt.version == ignored
+        {
+            return None;
+        }
+        Some(prompt)
+    }
+
+    pub fn dismiss_startup_prompt(&self, version: &str) {
+        let trimmed = version.trim();
+        if trimmed.is_empty() || trimmed.len() > 128 {
+            return;
+        }
+        *self.dismissed_prompt_version.lock().unwrap() = Some(trimmed.to_owned());
+        let mut prompt = self.startup_prompt.lock().unwrap();
+        if prompt.as_ref().is_some_and(|item| item.version == trimmed) {
+            *prompt = None;
+        }
+    }
+
+    fn set_startup_prompt(&self, app: &AppHandle, prompt: StartupUpdatePrompt) {
+        if self
+            .dismissed_prompt_version
+            .lock()
+            .unwrap()
+            .as_deref()
+            == Some(prompt.version.as_str())
+        {
+            return;
+        }
+        *self.startup_prompt.lock().unwrap() = Some(prompt.clone());
+        let _ = app.emit("updater-startup-prompt", &prompt);
+    }
+
+    fn clear_startup_prompt(&self) {
+        *self.startup_prompt.lock().unwrap() = None;
     }
 
     fn open_releases(&self) -> Result<(), UpdateError> {
@@ -417,6 +490,234 @@ async fn apply_update(
     result
 }
 
+async fn check_candidate(app: &AppHandle) -> Result<Option<Update>, UpdateError> {
+    let public_key = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|config| config.get("pubkey"))
+        .and_then(|value| value.as_str())
+        .filter(|key| !key.trim().is_empty())
+        .ok_or(UpdateError::Configuration)?;
+    let updater = app
+        .updater_builder()
+        .pubkey(public_key)
+        .endpoints(vec![FEED_URL
+            .parse()
+            .map_err(|_| UpdateError::Configuration)?])
+        .map_err(|_| UpdateError::Configuration)?
+        .clear_headers()
+        .timeout(CHECK_TIMEOUT)
+        .build()
+        .map_err(|_| UpdateError::Configuration)?;
+    let candidate = match delta::fetch_feed().await? {
+        Some(raw) => updater
+            .restore_update(raw)
+            .map_err(|error| public_error(&error, UpdatePhase::Checking))?,
+        None => None,
+    };
+    if candidate
+        .as_ref()
+        .is_some_and(|update| !trusted_asset_url(&update.download_url, &update.signature))
+    {
+        return Err(UpdateError::UntrustedAsset);
+    }
+    Ok(candidate)
+}
+
+fn begin_checking(app: &AppHandle, manager: &UpdateManager) {
+    manager.change(app, |session| {
+        session.pending = None;
+        session.snapshot.phase = UpdatePhase::Checking;
+        session.snapshot.release = None;
+        session.snapshot.error = None;
+        session.snapshot.downloaded = 0;
+        session.snapshot.total = None;
+        session.snapshot.download_mode = None;
+        session.snapshot.fallback = false;
+    });
+}
+
+fn apply_check_result(
+    app: &AppHandle,
+    manager: &UpdateManager,
+    candidate: Option<Update>,
+) -> UpdateSnapshot {
+    manager.change(app, |session| {
+        session.snapshot.phase = if candidate.is_some() {
+            UpdatePhase::Available
+        } else {
+            UpdatePhase::UpToDate
+        };
+        session.snapshot.release = candidate.as_ref().map(|update| UpdateRelease {
+            version: update.version.clone(),
+            notes: update
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .chars()
+                .take(16_384)
+                .collect(),
+        });
+        session.pending = candidate.map(|mut update| {
+            update.timeout = Some(DOWNLOAD_TIMEOUT);
+            update
+        });
+    })
+}
+
+async fn run_install(
+    app: &AppHandle,
+    bridge: &Arc<CoreBridge>,
+    manager: &UpdateManager,
+    candidate: Update,
+) -> Result<UpdateSnapshot, InstallFailure> {
+    manager.change(app, |session| {
+        session.snapshot.error = None;
+        session.snapshot.downloaded = 0;
+        session.snapshot.total = None;
+        session.snapshot.download_mode = None;
+        session.snapshot.fallback = false;
+    });
+    let progress = NativeProgress { manager, app };
+    let artifact = NativeArtifact {
+        update: candidate,
+        cache_root: app
+            .path()
+            .app_cache_dir()
+            .ok()
+            .map(|root| root.join("update-packages-v1")),
+    };
+    match apply_update(&artifact, bridge, &progress).await {
+        Ok(()) => Ok(manager.change(app, |session| session.pending = None)),
+        Err(failure) => {
+            manager.fail(app, failure.error, failure.recovery);
+            Err(failure)
+        }
+    }
+}
+
+pub fn start_startup_check(app: AppHandle, bridge: Arc<CoreBridge>) {
+    {
+        let manager = app.state::<UpdateManager>();
+        if manager.permitted().is_err() || manager.startup_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+    }
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        if bridge.quitting.load(Ordering::Acquire) {
+            return;
+        }
+        let prefs = bridge.snapshot()["prefs"].clone();
+        if !prefs["auto_check_update"].as_bool().unwrap_or(true) {
+            return;
+        }
+        let auto_install = prefs["auto_install_update"].as_bool().unwrap_or(false);
+        let ignored = prefs["ignored_update_version"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        let manager = app.state::<UpdateManager>();
+        let Ok(_operation) = manager.operation.try_lock() else {
+            return;
+        };
+        if manager.snapshot().phase != UpdatePhase::Idle {
+            return;
+        }
+        begin_checking(&app, &manager);
+        let candidate = match check_candidate(&app).await {
+            Ok(candidate) => candidate,
+            Err(_) => {
+                // Background startup checks can run before campus network login; restore Idle silently.
+                manager.change(&app, |session| {
+                    session.pending = None;
+                    session.snapshot.phase = UpdatePhase::Idle;
+                    session.snapshot.release = None;
+                    session.snapshot.error = None;
+                });
+                return;
+            }
+        };
+        let snapshot = apply_check_result(&app, &manager, candidate);
+        let Some(release) = snapshot.release else {
+            return;
+        };
+        if !ignored.is_empty() && release.version == ignored {
+            return;
+        }
+        if !auto_install {
+            manager.set_startup_prompt(
+                &app,
+                StartupUpdatePrompt {
+                    kind: StartupPromptKind::Available,
+                    version: release.version,
+                    notes: release.notes,
+                },
+            );
+            return;
+        }
+        for _ in 0..15 {
+            if bridge.quitting.load(Ordering::Acquire) {
+                return;
+            }
+            if !bridge.update_busy() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        if bridge.quitting.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(candidate) = manager.session.lock().unwrap().pending.clone() else {
+            return;
+        };
+        if bridge.update_busy() {
+            manager.set_startup_prompt(
+                &app,
+                StartupUpdatePrompt {
+                    kind: StartupPromptKind::Available,
+                    version: release.version,
+                    notes: release.notes,
+                },
+            );
+            return;
+        }
+        match run_install(&app, &bridge, &manager, candidate).await {
+            Ok(_) => {
+                manager.set_startup_prompt(
+                    &app,
+                    StartupUpdatePrompt {
+                        kind: StartupPromptKind::RestartRequired,
+                        version: release.version,
+                        notes: release.notes,
+                    },
+                );
+            }
+            Err(failure) => {
+                if !failure.recovery && failure.error == UpdateError::CoreBusy {
+                    manager.change(&app, |session| {
+                        session.snapshot.phase = UpdatePhase::Available;
+                        session.snapshot.error = None;
+                    });
+                }
+                if !failure.recovery {
+                    manager.set_startup_prompt(
+                        &app,
+                        StartupUpdatePrompt {
+                            kind: StartupPromptKind::Available,
+                            version: release.version,
+                            notes: release.notes,
+                        },
+                    );
+                }
+            }
+        }
+    });
+}
+
 #[tauri::command]
 pub fn updater_open_releases(manager: State<'_, UpdateManager>) -> Result<(), UpdateError> {
     manager.open_releases()
@@ -425,6 +726,11 @@ pub fn updater_open_releases(manager: State<'_, UpdateManager>) -> Result<(), Up
 #[tauri::command]
 pub fn updater_status(manager: State<'_, UpdateManager>) -> UpdateSnapshot {
     manager.snapshot()
+}
+
+#[tauri::command]
+pub fn updater_dismiss_prompt(version: String, manager: State<'_, UpdateManager>) {
+    manager.dismiss_startup_prompt(&version);
 }
 
 #[tauri::command]
@@ -443,74 +749,10 @@ pub async fn updater_check(
     ) {
         return Err(UpdateError::InvalidState);
     }
-    manager.change(&app, |session| {
-        session.pending = None;
-        session.snapshot.phase = UpdatePhase::Checking;
-        session.snapshot.release = None;
-        session.snapshot.error = None;
-        session.snapshot.downloaded = 0;
-        session.snapshot.total = None;
-        session.snapshot.download_mode = None;
-        session.snapshot.fallback = false;
-    });
-    let checked = async {
-        let public_key = app
-            .config()
-            .plugins
-            .0
-            .get("updater")
-            .and_then(|config| config.get("pubkey"))
-            .and_then(|value| value.as_str())
-            .filter(|key| !key.trim().is_empty())
-            .ok_or(UpdateError::Configuration)?;
-        let updater = app
-            .updater_builder()
-            .pubkey(public_key)
-            .endpoints(vec![FEED_URL
-                .parse()
-                .map_err(|_| UpdateError::Configuration)?])
-            .map_err(|_| UpdateError::Configuration)?
-            .clear_headers()
-            .timeout(CHECK_TIMEOUT)
-            .build()
-            .map_err(|_| UpdateError::Configuration)?;
-        let candidate = match delta::fetch_feed().await? {
-            Some(raw) => updater
-                .restore_update(raw)
-                .map_err(|error| public_error(&error, UpdatePhase::Checking))?,
-            None => None,
-        };
-        if candidate
-            .as_ref()
-            .is_some_and(|update| !trusted_asset_url(&update.download_url, &update.signature))
-        {
-            return Err(UpdateError::UntrustedAsset);
-        }
-        Ok(candidate)
-    }
-    .await;
-    match checked {
-        Ok(candidate) => Ok(manager.change(&app, |session| {
-            session.snapshot.phase = if candidate.is_some() {
-                UpdatePhase::Available
-            } else {
-                UpdatePhase::UpToDate
-            };
-            session.snapshot.release = candidate.as_ref().map(|update| UpdateRelease {
-                version: update.version.clone(),
-                notes: update
-                    .body
-                    .as_deref()
-                    .unwrap_or("")
-                    .chars()
-                    .take(16_384)
-                    .collect(),
-            });
-            session.pending = candidate.map(|mut update| {
-                update.timeout = Some(DOWNLOAD_TIMEOUT);
-                update
-            });
-        })),
+    manager.clear_startup_prompt();
+    begin_checking(&app, &manager);
+    match check_candidate(&app).await {
+        Ok(candidate) => Ok(apply_check_result(&app, &manager, candidate)),
         Err(error) => {
             manager.fail(&app, error, false);
             Err(error)
@@ -549,31 +791,12 @@ pub async fn updater_install(
     if candidate.version != version {
         return Err(UpdateError::StaleCandidate);
     }
-    manager.change(&app, |session| {
-        session.snapshot.error = None;
-        session.snapshot.downloaded = 0;
-        session.snapshot.total = None;
-        session.snapshot.download_mode = None;
-        session.snapshot.fallback = false;
-    });
-    let progress = NativeProgress {
-        manager: &manager,
-        app: &app,
-    };
-    let artifact = NativeArtifact {
-        update: candidate,
-        cache_root: app
-            .path()
-            .app_cache_dir()
-            .ok()
-            .map(|root| root.join("update-packages-v1")),
-    };
-    match apply_update(&artifact, bridge.inner(), &progress).await {
-        Ok(()) => Ok(manager.change(&app, |session| session.pending = None)),
-        Err(failure) => {
-            manager.fail(&app, failure.error, failure.recovery);
-            Err(failure.error)
+    match run_install(&app, bridge.inner(), &manager, candidate).await {
+        Ok(snapshot) => {
+            manager.clear_startup_prompt();
+            Ok(snapshot)
         }
+        Err(failure) => Err(failure.error),
     }
 }
 

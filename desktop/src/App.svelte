@@ -3,6 +3,7 @@
   import Icon from './components/Icon.svelte';
   import Toggle from './components/Toggle.svelte';
   import Confirm from './components/Confirm.svelte';
+  import UpdatePrompt from './components/UpdatePrompt.svelte';
   import SettingsTabs from './components/SettingsTabs.svelte';
   import AccentPicker from './components/AccentPicker.svelte';
   import AccountBook from './components/AccountBook.svelte';
@@ -23,6 +24,8 @@
   import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, NoSenseService, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
   import type { SelfDevice, SelfService } from './lib/protocol';
   import { CAPTCHA_STATUS_FAILED, captchaProblem, captchaSummary } from './lib/captcha';
+  import { dismissStartupPrompt, subscribeStartupPrompt } from './lib/updater';
+  import type { StartupUpdatePrompt } from './lib/updater';
 
   type Page = 'connection' | 'account' | 'devices' | 'settings' | 'logs' | 'about';
   // `key` is the Ctrl+N shortcut. It is pinned per page rather than derived from
@@ -47,7 +50,10 @@
   let systemDark = $state(false);
   let notice = $state<{ message: string; error: boolean } | null>(null);
   let confirmation = $state<{ title: string; message: string; confirm: string; danger?: boolean; icon?: string; run: () => void } | null>(null);
+  let updatePrompt = $state<StartupUpdatePrompt | null>(null);
+  let dismissedUpdateVersion = $state('');
   let stop: (() => void) | undefined;
+  let stopUpdatePrompt: (() => void) | undefined;
   let mounted = false;
   let accountUsername = $state('');
   let password = $state('');
@@ -171,6 +177,10 @@
       }
       previousNosense = nosenseKey;
     }
+    const ignored = next.prefs.ignored_update_version.trim();
+    if (updatePrompt?.kind === 'available' && ignored && updatePrompt.version === ignored) {
+      updatePrompt = null;
+    }
     if (logFloor > next.logs.length) logFloor = 0;
   }
 
@@ -186,9 +196,21 @@
     finally { if (mounted) starting = false; }
   }
 
+  function presentStartupPrompt(prompt: StartupUpdatePrompt) {
+    if (!mounted) return;
+    if (dismissedUpdateVersion && dismissedUpdateVersion === prompt.version) return;
+    const ignored = snapshot?.prefs.ignored_update_version?.trim() || '';
+    if (prompt.kind === 'available' && ignored && prompt.version === ignored) return;
+    updatePrompt = prompt;
+  }
+
   function refreshDesktopSettings() {
     if (!mounted || transport.mode === 'web') return;
-    void transport.getDesktopSettings().then((settings) => { if (mounted) native = settings; }).catch((error) => { if (mounted) notice = { message: `桌面设置读取失败：${errorMessage(error)}`, error: true }; });
+    void transport.getDesktopSettings().then((settings) => {
+      if (!mounted) return;
+      native = settings;
+      if (settings.startup_update) presentStartupPrompt(settings.startup_update);
+    }).catch((error) => { if (mounted) notice = { message: `桌面设置读取失败：${errorMessage(error)}`, error: true }; });
   }
 
   onMount(() => {
@@ -199,8 +221,12 @@
     media.addEventListener('change', change);
     void initialize();
     refreshDesktopSettings();
+    void subscribeStartupPrompt(transport.mode, !!native?.demo, presentStartupPrompt).then((cleanup) => {
+      if (!mounted) { cleanup(); return; }
+      stopUpdatePrompt = cleanup;
+    });
     const stopObservation = beginStateObservation(transport, { window, document });
-    return () => { mounted = false; stopObservation(); stop?.(); password = ''; media.removeEventListener('change', change); };
+    return () => { mounted = false; stopObservation(); stopUpdatePrompt?.(); stop?.(); password = ''; media.removeEventListener('change', change); };
   });
 
   async function execute(job: () => Promise<unknown>, message?: string, independent = false, onerror?: (message: string) => void) {
@@ -464,6 +490,40 @@
     }, preferenceNotice(changes));
   }
 
+  function changeAutoCheckUpdate(enabled: boolean) {
+    const changes: CoreCommands['save_prefs'] = enabled
+      ? { auto_check_update: true }
+      : { auto_check_update: false, auto_install_update: false };
+    void executeSetting('auto_check_update', async () => {
+      receive(confirmedPreferences(await transport.request('save_prefs', changes), changes));
+    }, preferenceNotice({ auto_check_update: enabled }));
+  }
+
+  function changeAutoInstallUpdate(enabled: boolean) {
+    const changes: CoreCommands['save_prefs'] = enabled && !snapshot?.prefs.auto_check_update
+      ? { auto_check_update: true, auto_install_update: true }
+      : { auto_install_update: enabled };
+    void executeSetting('auto_install_update', async () => {
+      receive(confirmedPreferences(await transport.request('save_prefs', changes), changes));
+    }, preferenceNotice({ auto_install_update: enabled }));
+  }
+
+  function dismissUpdatePrompt(version: string) {
+    dismissedUpdateVersion = version;
+    updatePrompt = null;
+    void dismissStartupPrompt(transport.mode, !!native?.demo, version);
+  }
+
+  function ignoreUpdateVersion(version: string) {
+    dismissedUpdateVersion = version;
+    updatePrompt = null;
+    void dismissStartupPrompt(transport.mode, !!native?.demo, version);
+    const changes: CoreCommands['save_prefs'] = { ignored_update_version: version };
+    void executeSetting('ignore_update', async () => {
+      receive(confirmedPreferences(await transport.request('save_prefs', changes), changes));
+    }, preferenceNotice(changes));
+  }
+
   function loadCaptcha() {
     if (transport.mode === 'web') return;
     void transport.captchaStatus().then((value) => { if (mounted) { captcha = value; captchaError = null; } })
@@ -495,7 +555,7 @@
   }
 
   function shortcut(event: KeyboardEvent) {
-    if (confirmation) return;
+    if (confirmation || updatePrompt) return;
     if (event.key === 'F5') {
       event.preventDefault();
       if (!available) { if (!starting) void initialize(); }
@@ -815,6 +875,11 @@
               <div class="setting-row"><div><span>关闭窗口时驻留托盘</span>{#if !native?.tray_available}<p>{!native ? transport.mode === 'web' ? '请在桌面客户端设置。' : '托盘状态待确认。' : '当前环境未提供系统托盘，关闭窗口将退出应用。'}</p>{/if}</div><Toggle checked={snapshot?.prefs.close_to_tray || false} busy={pendingSetting === 'tray'} disabled={locked || !native?.tray_available} label="关闭窗口时驻留托盘" onchange={(value) => savePreference({ close_to_tray: value })} /></div>
               <div class="quit-row"><button type="button" disabled={localLocked} onclick={() => { confirmation = { title: '退出 YSU Net', message: '退出后，本客户端的自动重连将停止；当前已建立的校园网连接不会因此自动下线。', confirm: '退出应用', icon: 'exit', run: () => { void execute(() => transport.quit(), undefined, true); } }; }}><Icon name="exit" size={16} />退出应用</button></div>
             </section>
+            <section class="settings-section">
+              <div class="section-heading"><h2>软件更新</h2></div>
+              <div class="setting-row"><div><span>自动更新</span>{#if transport.mode === 'desktop' && native?.demo}<p>离线模拟不检查更新。</p>{:else if native?.updater_supported === false}<p>当前 Linux deb 包请手动更新。</p>{/if}</div><Toggle checked={snapshot?.prefs.auto_check_update ?? true} busy={pendingSetting === 'auto_check_update'} disabled={locked || !native || (transport.mode === 'desktop' && native.demo) || native.updater_supported === false} label="自动更新" onchange={changeAutoCheckUpdate} /></div>
+              <div class="setting-row"><div><span>自动下载安装更新</span></div><Toggle checked={snapshot?.prefs.auto_install_update ?? false} busy={pendingSetting === 'auto_install_update'} disabled={locked || !native || (transport.mode === 'desktop' && native.demo) || native.updater_supported === false} label="自动下载安装更新" onchange={changeAutoInstallUpdate} /></div>
+            </section>
           {:else if settingsSection === 'authentication'}
             <form class="authentication-settings" onsubmit={(event) => { event.preventDefault(); saveParameters(); }}>
               <fieldset disabled={locked}>
@@ -876,4 +941,6 @@
 
 {#if confirmation}
   <Confirm title={confirmation.title} message={confirmation.message} confirm={confirmation.confirm} danger={confirmation.danger} icon={confirmation.icon} oncancel={() => { confirmation = null; }} onconfirm={() => { const run = confirmation?.run; confirmation = null; run?.(); }} />
+{:else if updatePrompt}
+  <UpdatePrompt prompt={updatePrompt} mode={transport.mode} demo={!!native?.demo} {busy} currentVersion={native?.version || environment?.version || ''} ondismiss={dismissUpdatePrompt} onignore={ignoreUpdateVersion} />
 {/if}

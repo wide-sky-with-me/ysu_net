@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
-import { canInstallUpdate, createUpdaterClient, initialUpdateSnapshot, newerUpdateSnapshot, parseUpdateSnapshot, RELEASES_URL, UPDATE_ERRORS, UPDATE_PHASES, updateCheckNotice, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
+import { canInstallUpdate, createUpdaterClient, dismissStartupPrompt, initialUpdateSnapshot, newerUpdateSnapshot, parseStartupUpdatePrompt, parseUpdateSnapshot, RELEASES_URL, subscribeStartupPrompt, UPDATE_ERRORS, UPDATE_PHASES, updateCheckNotice, updateDownloadLabel, updateErrorCode, updateErrorMessage, updatePercent, updateWorking } from './updater';
 import type { UpdatePhase, UpdateSnapshot } from './updater';
 import { render } from 'svelte/server';
 import UpdatePanel from './UpdatePanel.svelte';
+import UpdatePrompt from '../components/UpdatePrompt.svelte';
 
 const candidate = (phase: UpdatePhase = 'available'): UpdateSnapshot => ({
   sequence: 4, phase, current_version: '0.2.0', release: { version: '0.3.0', notes: '测试更新说明 <script>plain text</script>' }, downloaded: 0, total: null, download_mode: null, fallback: false, error: null, releases_url: RELEASES_URL,
@@ -184,5 +185,53 @@ describe('update state and recovery semantics', () => {
     expect(updateErrorMessage('recovery_failed')).toContain('重试恢复后台');
     expect(updateErrorMessage('application_restore_failed')).toContain('重新安装');
     expect(updateErrorMessage('core_stop_failed')).toContain('更新未安装');
+  });
+});
+
+describe('startup update prompt contract', () => {
+  beforeEach(() => vi.resetAllMocks());
+  it('validates startup prompt payloads and dispatches dismiss IPC', async () => {
+    expect(parseStartupUpdatePrompt({ kind: 'available', version: ' 0.3.5 ', notes: '说明' })).toEqual({
+      kind: 'available',
+      version: '0.3.5',
+      notes: '说明',
+    });
+    expect(parseStartupUpdatePrompt({ kind: 'restart_required', version: '0.3.5', notes: '' })).toEqual({
+      kind: 'restart_required',
+      version: '0.3.5',
+      notes: '',
+    });
+    for (const invalid of [null, {}, { kind: 'other', version: '0.3.5', notes: '' }, { kind: 'available', version: ' ', notes: '' }, { kind: 'available', version: '0.3.5', notes: [] }]) {
+      expect(parseStartupUpdatePrompt(invalid)).toBeNull();
+    }
+    mocks.listen.mockResolvedValue(() => {});
+    const handler = vi.fn();
+    await subscribeStartupPrompt('desktop', false, handler);
+    expect(mocks.listen.mock.calls[0][0]).toBe('updater-startup-prompt');
+    const cb = mocks.listen.mock.calls[0][1] as (e: { payload: unknown }) => void;
+    cb({ payload: { kind: 'available', version: '0.3.5', notes: 'notes' } });
+    cb({ payload: { kind: 'invalid', version: '0.3.5', notes: 'notes' } });
+    expect(handler).toHaveBeenCalledTimes(1);
+    mocks.invoke.mockResolvedValue(null);
+    await dismissStartupPrompt('desktop', false, '0.3.5');
+    expect(mocks.invoke).toHaveBeenCalledWith('updater_dismiss_prompt', { version: '0.3.5' });
+  });
+
+  it('renders startup update prompt safely as text without injecting HTML', () => {
+    const rendered = render(UpdatePrompt, {
+      props: {
+        prompt: { kind: 'available', version: '0.3.5', notes: '<script>alert(1)</script>' },
+        mode: 'desktop',
+        currentVersion: '0.3.4',
+        ondismiss: () => {},
+        onignore: () => {},
+      },
+    });
+    expect(rendered.body).toContain('发现新版本 v0.3.5');
+    expect(rendered.body).toContain('忽略此版本');
+    expect(rendered.body).toContain('暂不提醒');
+    expect(rendered.body).toContain('立即更新');
+    expect(rendered.body).not.toContain('<script>alert(1)</script>');
+    expect(rendered.body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
 });

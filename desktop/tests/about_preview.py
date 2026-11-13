@@ -40,6 +40,9 @@ NATIVE_FIXTURE = r"""(() => {
     },
     pending: command => Boolean(held.get(command)?.resolve),
     publish: publishUpdate,
+    emitStartupPrompt(prompt) {
+      for (const entry of listeners.values()) if (entry.event === 'updater-startup-prompt') callbacks.get(entry.handler)?.({event: entry.event, id: entry.id, payload: structuredClone(prompt)});
+    },
     complete(command, patch = {}) {
       const plan = held.get(command);
       if (!plan?.resolve) throw new Error('update_request_not_pending');
@@ -73,19 +76,21 @@ NATIVE_FIXTURE = r"""(() => {
       if (command === 'plugin:event|unlisten') {listeners.delete(args.eventId); return;}
       if (command === 'core_request' && args.command === 'snapshot') return structuredClone(core);
       if (command === 'core_request' && args.command === 'observe' && Object.keys(args.args).length === 0) return structuredClone(core);
-      if (command === 'get_desktop_settings') return {autostart: false, tray_available: true, version: '0.2.1', demo: false};
+      if (command === 'core_request' && args.command === 'save_prefs') {core.sequence++; core.prefs = {...core.prefs, ...args.args}; return structuredClone(core);}
+      if (command === 'get_desktop_settings') return {autostart: false, tray_available: true, version: '0.2.1', demo: false, updater_supported: true};
       if (command === 'captcha_status') return {ready: false, path: null, bytes: 0, url: 'https://invalid.example/common.onnx', sha256: '0'.repeat(64)};
       if (command === 'updater_status') {
         if (window.__aboutUpdater.failNextStatus) {window.__aboutUpdater.failNextStatus = false; throw 'ipc';}
         return held.has('status') ? holdRequest('status') : structuredClone(update);
       }
+      if (command === 'updater_dismiss_prompt') return null;
       if (command === 'updater_check') {
         if (held.has('check')) return holdRequest('check');
         publishUpdate({phase: 'available', error: null, release: {version: '0.2.2', notes: '<img src="https://invalid.example/avatar" onerror="window.__aboutExecuted=true">'}});
         return structuredClone(update);
       }
       // Only an explicitly held simulation can acknowledge installation; no installer exists.
-      if (command === 'updater_install' && args?.version === '0.2.2' && Object.keys(args).length === 1 && held.has('install')) return holdRequest('install');
+      if (command === 'updater_install' && ['0.2.2', '0.2.4'].includes(args?.version) && Object.keys(args).length === 1 && held.has('install')) return holdRequest('install');
       if (command === 'project_open_link') {if (!['repository', 'contributors'].includes(args?.target) || Object.keys(args).length !== 1) throw 'invalid_target'; if (window.__aboutFailOpen) throw new Error('/private/browser.exe internal failure'); return;}
       if (command === 'updater_open_releases' && (args === undefined || Object.keys(args).length === 0)) return;
       window.__aboutUnexpected.push(command); throw 'unexpected_mock_command';
@@ -553,6 +558,44 @@ def main():
             assert page.evaluate('localStorage.length + sessionStorage.length') == 0
             page.screenshot(path=str(args.output / f'about-update-feedback-{suffix}.png'), full_page=True)
             native.close()
+
+        prompt_ctx = context(native=True)
+        page = prompt_ctx.new_page()
+        watch(page)
+        page.goto(args.url)
+        page.wait_for_load_state('networkidle')
+        expect(page.get_by_role('dialog')).to_have_count(0)
+        page.evaluate("window.__aboutUpdater.emitStartupPrompt({kind: 'available', version: '0.2.2', notes: '<img src=x onerror=\"window.__aboutExecuted=true\">修复若干问题'})")
+        dialog = page.locator('dialog.update-dialog')
+        expect(dialog).to_be_visible()
+        expect(dialog).to_contain_text('发现新版本 v0.2.2')
+        expect(dialog.locator('.update-dialog-notes')).to_contain_text('<img src=x')
+        assert page.evaluate('window.__aboutExecuted === undefined')
+        dialog.get_by_role('button', name='暂不提醒', exact=True).click()
+        expect(dialog).to_have_count(0)
+        assert page.evaluate("__aboutCalls.some(c=>c.command==='updater_dismiss_prompt'&&c.args.version==='0.2.2')")
+        page.evaluate("window.__aboutUpdater.emitStartupPrompt({kind: 'available', version: '0.2.2', notes: 'repeat'})")
+        expect(dialog).to_have_count(0)
+        page.evaluate("window.__aboutUpdater.emitStartupPrompt({kind: 'available', version: '0.2.3', notes: '版本 0.2.3'})")
+        expect(dialog).to_be_visible()
+        dialog.get_by_role('button', name='忽略此版本', exact=True).click()
+        expect(dialog).to_have_count(0)
+        assert page.evaluate("__aboutCalls.some(c=>c.command==='core_request'&&c.args.command==='save_prefs'&&c.args.args.ignored_update_version==='0.2.3')")
+        page.evaluate("window.__aboutUpdater.emitStartupPrompt({kind: 'available', version: '0.2.4', notes: '版本 0.2.4'})")
+        expect(dialog).to_be_visible()
+        page.evaluate("window.__aboutUpdater.hold('install')")
+        dialog.get_by_role('button', name='立即更新', exact=True).click()
+        page.wait_for_function("window.__aboutUpdater.pending('install')")
+        page.evaluate("window.__aboutUpdater.publish({phase:'downloading',download_mode:'delta',downloaded:512,total:1024})")
+        expect(dialog.locator('.update-progress progress')).to_be_visible()
+        page.evaluate("window.__aboutUpdater.complete('install',{phase:'restart_required',release:{version:'0.2.4',notes:''},error:null})")
+        expect(dialog).to_contain_text('更新已就绪 v0.2.4')
+        expect(dialog.get_by_role('button', name='立即重启', exact=True)).to_be_visible()
+        dialog.get_by_role('button', name='稍后重启', exact=True).click()
+        expect(dialog).to_have_count(0)
+        assert page.evaluate('window.__aboutUnexpected') == []
+        update_checks.append({'name': 'startup-update-prompt-dismiss-ignore-and-install', 'ok': True})
+        prompt_ctx.close()
         browser.close()
     assert not errors and not external, (errors, external)
     report = {'ok': True, 'mode': 'offline-browser-and-mocked-native-ipc', 'real_ipc': False, 'real_business_http_or_websocket': False, 'real_authentication': False, 'real_update_or_browser_open': False, 'layouts': layouts, 'update_checks': update_checks, 'errors': errors, 'external_requests': external}

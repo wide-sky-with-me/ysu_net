@@ -108,6 +108,19 @@ def main():
         expect(page.get_by_role("heading", name="套餐与用量", exact=True)).to_be_visible()
         screenshot("account-light.png")
         layout("account-light")
+        navigate("设备")
+        empty_devices = page.locator(".device-content .empty-state")
+        expect(empty_devices).to_be_visible()
+        assert page.evaluate("""() => {
+            const box = document.querySelector('.device-content');
+            const card = document.querySelector('.device-content .empty-state');
+            if (!box || !card) return false;
+            const br = box.getBoundingClientRect();
+            const cr = card.getBoundingClientRect();
+            return Math.abs((cr.left - br.left) - (br.right - cr.right)) <= 2;
+        }"""), "devices empty state is not horizontally centered"
+        layout("devices-empty-light")
+        checks.append("devices-empty-state-centered")
         navigate("设置")
         password = page.get_by_label("密码", exact=True)
         password.fill("fixture-password")
@@ -186,12 +199,26 @@ def main():
 
         tab("外观与启动")
         screenshot("settings-desktop-light.png")
+        layout("settings-desktop-light")
         start = page.get_by_role("switch", name="登录系统后自动启动", exact=True)
         start.click()
         expect(start).to_have_attribute("aria-checked", "true")
         tray = page.get_by_role("switch", name="关闭窗口时驻留托盘", exact=True)
         tray.click()
         expect(tray).to_have_attribute("aria-checked", "false")
+        auto_check = page.get_by_role("switch", name="自动更新", exact=True)
+        auto_install = page.get_by_role("switch", name="自动下载安装更新", exact=True)
+        expect(auto_check).to_have_attribute("aria-checked", "true")
+        expect(auto_install).to_have_attribute("aria-checked", "false")
+        auto_install.click()
+        expect(auto_install).to_have_attribute("aria-checked", "true")
+        auto_check.click()
+        expect(auto_check).to_have_attribute("aria-checked", "false")
+        expect(auto_install).to_have_attribute("aria-checked", "false")
+        auto_install.click()
+        expect(auto_check).to_have_attribute("aria-checked", "true")
+        expect(auto_install).to_have_attribute("aria-checked", "true")
+        checks.append("auto-update-toggles-coupled-behavior")
         navigate("退出应用")
         expect(page.get_by_role("dialog")).to_contain_text("不会因此自动下线")
         page.keyboard.press("Escape")
