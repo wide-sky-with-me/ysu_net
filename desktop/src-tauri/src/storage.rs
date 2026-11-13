@@ -50,8 +50,7 @@ fn default_auto_check_update() -> bool {
 }
 
 pub fn valid_ignored_version(value: &str) -> bool {
-    let trimmed = value.trim();
-    trimmed.len() <= 128 && !trimmed.chars().any(|ch| ch.is_control())
+    !value.chars().any(|ch| ch.is_control()) && value.trim().len() <= 128
 }
 
 #[derive(Clone, Serialize, Deserialize)]
