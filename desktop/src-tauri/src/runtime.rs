@@ -280,6 +280,12 @@ fn diagnostic_detail(action: &str, phase: DiagnosticStage, error: &AuthError) ->
     detail
 }
 
+struct LogEntry {
+    timestamp: String,
+    level: &'static str,
+    message: String,
+}
+
 struct State {
     sequence: u64,
     config: Config,
@@ -298,7 +304,7 @@ struct State {
     self_notice: String,
     nosense: Value,
     info_error: String,
-    logs: VecDeque<Value>,
+    logs: VecDeque<LogEntry>,
     environment: Value,
     secrets: Vec<String>,
 }
@@ -331,16 +337,49 @@ impl State {
         }
     }
 
+    fn is_known_identity(&self, user: &str) -> bool {
+        if user.is_empty() {
+            return false;
+        }
+        if user == self.config.username {
+            return true;
+        }
+        let Some(items) = self.accounts["items"].as_array() else {
+            return false;
+        };
+        items.iter().any(|item| item["username"] == user)
+    }
+
+    fn public_identity(&self, user: &str) -> String {
+        if self.is_known_identity(user) {
+            user.to_owned()
+        } else {
+            self.text(user)
+        }
+    }
+
     fn snapshot(&self) -> Value {
         let mut config = serde_json::to_value(&self.config).expect("serializable config");
         config.as_object_mut().unwrap().remove("password");
         config["password_set"] = (!self.config.password.is_empty()).into();
+        let logs: Vec<Value> = self
+            .logs
+            .iter()
+            .map(|entry| {
+                json!({
+                    "timestamp": entry.timestamp,
+                    "level": entry.level,
+                    "message": self.text(&entry.message),
+                })
+            })
+            .collect();
         let mut value = json!({
             "sequence": self.sequence, "config": config, "prefs": self.prefs,
             "status": self.status, "auto": self.auto, "busy": self.busy,
             "busy_message": self.text(&self.busy_message), "info": self.info,
-            "info_error": self.text(&self.info_error), "logs": self.logs,
+            "info_error": self.text(&self.info_error), "logs": logs,
             "self_service": self.self_service,
+            "self_account": self.public_identity(&self.self_account),
             "self_error": self.text(&self.self_error),
             "self_notice": self.text(&self.self_notice),
             "nosense": self.nosense,
@@ -352,17 +391,12 @@ impl State {
         }
         if let Some(status) = value["status"].as_object_mut() {
             for key in ["user", "ip", "message"] {
-                let known_identity = key == "user"
-                    && status.get(key).and_then(Value::as_str).is_some_and(|user| {
-                        user == self.config.username
-                            || self.accounts["items"].as_array().is_some_and(|items| {
-                                items.iter().any(|item| item["username"] == user)
-                            })
-                    });
-                if !known_identity {
-                    if let Some(text) = status.get_mut(key) {
-                        self.scrub(text);
-                    }
+                let user = status.get(key).and_then(Value::as_str);
+                if key == "user" && user.is_some_and(|name| self.is_known_identity(name)) {
+                    continue;
+                }
+                if let Some(text) = status.get_mut(key) {
+                    self.scrub(text);
                 }
             }
         }
@@ -374,24 +408,35 @@ impl State {
         self.scrub(&mut value["accounts"]["message"]);
         self.scrub(&mut value["accounts"]["quota"]["message"]);
         self.scrub(&mut value["info"]);
-        self.scrub(&mut value["self_service"]);
+        if let Some(self_service) = value["self_service"].as_object_mut() {
+            for (key, field) in self_service.iter_mut() {
+                let user = field.as_str();
+                if key == "account" && user.is_some_and(|name| self.is_known_identity(name)) {
+                    continue;
+                }
+                self.scrub(field);
+            }
+        } else {
+            self.scrub(&mut value["self_service"]);
+        }
         self.scrub(&mut value["self_error"]);
         self.scrub(&mut value["self_notice"]);
         self.scrub(&mut value["nosense"]["message"]);
         self.scrub(&mut value["auto"]["message"]);
-        if let Some(logs) = value["logs"].as_array_mut() {
-            for log in logs {
-                self.scrub(&mut log["message"]);
-            }
-        }
         value
     }
 
     fn log(&mut self, level: &str, message: &str) {
-        self.logs.push_back(
-            json!({"timestamp": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-            "level": level, "message": self.text(message)}),
-        );
+        let level = match level {
+            "success" => "success",
+            "error" => "error",
+            _ => "info",
+        };
+        self.logs.push_back(LogEntry {
+            timestamp: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            level,
+            message: self.text(message),
+        });
         while self.logs.len() > 2000 {
             self.logs.pop_front();
         }
@@ -1370,26 +1415,36 @@ impl Worker {
                         .recording
                         .task(self.action, self.phase, Some(error));
                 }
-                self.runtime.update(|state| match result {
-                    Ok(snapshot) => {
-                        state.self_service = snapshot;
-                        state.self_error.clear();
-                        state.self_notice.clear();
-                        state.log("info", "自助服务读取完成");
+                let resolved_account = if self_cfg.username == config.username {
+                    String::new()
+                } else {
+                    self_cfg.username.clone()
+                };
+                self.runtime.update(|state| {
+                    if !state.self_account.is_empty() && state.self_account != self_cfg.username {
+                        state.self_account = resolved_account.clone();
                     }
-                    Err(error) => {
-                        let prefix = if error.code == 4 {
-                            "自助服务认证未通过，请检查账号密码或稍后重试"
-                        } else {
-                            "自助服务读取失败，请稍后重试"
-                        };
-                        let message = format!(
-                            "{prefix} [{}]",
-                            diagnostic_detail(self.action, self.phase, &error)
-                        );
-                        state.self_service = Value::Null;
-                        state.self_error = message.clone();
-                        state.log("error", &message);
+                    match result {
+                        Ok(snapshot) => {
+                            state.self_service = snapshot;
+                            state.self_error.clear();
+                            state.self_notice.clear();
+                            state.log("info", "自助服务读取完成");
+                        }
+                        Err(error) => {
+                            let prefix = if error.code == 4 {
+                                "自助服务认证未通过，请检查账号密码或稍后重试"
+                            } else {
+                                "自助服务读取失败，请稍后重试"
+                            };
+                            let message = format!(
+                                "{prefix} [{}]",
+                                diagnostic_detail(self.action, self.phase, &error)
+                            );
+                            state.self_service = Value::Null;
+                            state.self_error = message.clone();
+                            state.log("error", &message);
+                        }
                     }
                 });
             }
@@ -2342,6 +2397,8 @@ impl Backend {
                 let online = demo.online;
                 let bound = demo.nosense_mac.as_deref() == Some("02-00-00-00-00-01");
                 let snapshot = SelfSnapshot {
+                    account: config.username.clone(),
+                    local_mac: Some("02-00-00-00-00-01".into()),
                     devices: if online {
                         vec![SelfDevice {
                             device_name: "我的设备".into(),

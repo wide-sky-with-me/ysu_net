@@ -321,13 +321,93 @@ def _parse_form_fields(form_html: str) -> dict[str, str]:
     return out
 
 
+_HTML_VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+_RISK_IGNORED_TAGS = frozenset({"script", "style", "noscript", "template"})
+_RISK_PAGE_TERMS = (
+    "IP被冻结",
+    "访问被拒绝",
+    "安全验证",
+    "风险验证",
+    "访问频繁",
+    "noSupport",
+)
+_CAS_ERROR_ID_PRIORITY = {
+    "msg": 0,
+    "error": 1,
+    "formerror": 2,
+    "showerrortip": 3,
+}
+
+
+def _is_cas_risk_page(html: str) -> bool:
+    """Detect visible CAS/callback risk or freeze pages while ignoring scripts and styles."""
+    from html.parser import HTMLParser
+
+    class RiskTextParser(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.ignored_stack: list[str] = []
+            self.chunks: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            tl = tag.lower()
+            if tl in _RISK_IGNORED_TAGS:
+                self.ignored_stack.append(tl)
+
+        def handle_endtag(self, tag):
+            tl = tag.lower()
+            if tl in _RISK_IGNORED_TAGS and tl in self.ignored_stack:
+                idx = len(self.ignored_stack) - 1 - self.ignored_stack[::-1].index(tl)
+                del self.ignored_stack[idx:]
+
+        def handle_data(self, data):
+            if not self.ignored_stack:
+                self.chunks.append(data)
+
+    parser = RiskTextParser()
+    parser.feed(html or "")
+    parser.close()
+    text = "".join(parser.chunks)
+    return any(term in text for term in _RISK_PAGE_TERMS)
+
+
 def _extract_pwd_salt(html: str) -> str | None:
-    m = re.search(
-        r'id=["\']pwdEncryptSalt["\'][^>]*value=["\']([^"\']+)["\']',
-        html or "",
-        flags=re.I,
-    )
-    return m.group(1) if m else None
+    from html.parser import HTMLParser
+
+    class SaltParser(HTMLParser):
+        salt: str | None = None
+
+        def handle_starttag(self, tag, attributes):
+            if self.salt is not None or tag.lower() != "input":
+                return
+            attrs = {(k or "").lower(): (v or "") for k, v in attributes}
+            if attrs.get("id") != "pwdEncryptSalt":
+                return
+            val = attrs.get("value", "").strip()
+            if len(val.encode("utf-8")) in (16, 24, 32):
+                self.salt = val
+
+    parser = SaltParser()
+    parser.feed(html or "")
+    parser.close()
+    return parser.salt
 
 
 def _extract_form_action(form_html: str, base_url: str) -> str:
@@ -439,27 +519,94 @@ def _probe_captcha_image(sess: requests.Session, debug: bool) -> tuple[bytes, st
 
 
 def _extract_cas_error_msg(html: str) -> str | None:
-    html = html or ""
-    patterns = [
-        r'id=["\']?msg["\']?[^>]*>\s*([^<]+)\s*<',
-        r'id=["\']?error["\']?[^>]*>\s*([^<]+)\s*<',
-        r'id=["\']?formError["\']?[^>]*>\s*([^<]+)\s*<',
-        r'id=["\']?showErrorTip["\']?[^>]*>\s*([^<]+)\s*<',
-        r'class=["\'][^"\']*(?:errors|tip_Error)[^"\']*["\'][^>]*>\s*([^<]+)\s*<',
-    ]
-    for pat in patterns:
-        m = re.search(pat, html, flags=re.I)
-        if m and m.group(1).strip():
-            return m.group(1).strip()
-    return None
+    from html.parser import HTMLParser
+
+    class ErrorMsgParser(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.open_tags: list[str] = []
+            self.ignored_depth: int | None = None
+            self.active: list[list[Any]] = []
+            self.found: list[tuple[int, int, str]] = []
+            self.seq = 0
+
+        def _flush(self, min_depth: int) -> None:
+            keep = []
+            for item in self.active:
+                prio, depth, seq, chunks = item
+                if depth > min_depth:
+                    msg = " ".join("".join(chunks).split())
+                    if msg:
+                        self.found.append((prio, seq, msg))
+                else:
+                    keep.append(item)
+            self.active = keep
+
+        def handle_starttag(self, tag, attributes):
+            tl = tag.lower()
+            if tl in _HTML_VOID_TAGS:
+                return
+            self.open_tags.append(tl)
+            depth = len(self.open_tags)
+            if tl in _RISK_IGNORED_TAGS and self.ignored_depth is None:
+                self.ignored_depth = depth
+            if self.ignored_depth is not None:
+                return
+            attrs = {(k or "").lower(): (v or "") for k, v in attributes}
+            id_lower = attrs.get("id", "").strip().lower()
+            classes = {c.lower() for c in attrs.get("class", "").split()}
+            prio = _CAS_ERROR_ID_PRIORITY.get(id_lower)
+            if prio is None and (classes & {"errors", "tip_error"}):
+                prio = 4
+            if prio is not None:
+                self.active.append([prio, depth, self.seq, []])
+                self.seq += 1
+
+        def handle_endtag(self, tag):
+            tl = tag.lower()
+            if tl not in self.open_tags:
+                return
+            idx = len(self.open_tags) - 1 - self.open_tags[::-1].index(tl)
+            del self.open_tags[idx:]
+            depth = len(self.open_tags)
+            if self.ignored_depth is not None and self.ignored_depth > depth:
+                self.ignored_depth = None
+            self._flush(depth)
+
+        def handle_data(self, data):
+            if self.ignored_depth is None:
+                for item in self.active:
+                    item[3].append(data)
+
+    parser = ErrorMsgParser()
+    parser.feed(html or "")
+    parser.close()
+    parser._flush(0)
+    if not parser.found:
+        return None
+    return min(parser.found, key=lambda x: (x[0], x[1]))[2]
 
 
 def _cas_rejected_by_captcha(html: str) -> bool:
+    if _is_cas_risk_page(html):
+        return False
     msg = _extract_cas_error_msg(html) or ""
     if "验证码" not in msg:
         return False
     return not any(
-        term in msg for term in ("密码", "用户名", "账号", "冻结", "锁定", "风控", "上限")
+        term in msg
+        for term in (
+            "密码",
+            "用户名",
+            "账号",
+            "冻结",
+            "锁定",
+            "频繁",
+            "不存在",
+            "停用",
+            "风控",
+            "上限",
+        )
     )
 
 
@@ -503,6 +650,53 @@ def _get_cas_login_url_via_clientredirect(
     raise RuntimeError("无法通过 /cas-sso/clientredirect 获取 CAS 登录 URL")
 
 
+def _response_text(resp: Any) -> str:
+    content = getattr(resp, "content", None)
+    if isinstance(content, (bytes, bytearray)) and content:
+        return bytes(content).decode("utf-8", errors="replace")
+    text = getattr(resp, "text", None)
+    return text if isinstance(text, str) else ""
+
+
+def _rewrite_legacy_portal_main(prev_url: str, next_url: str) -> str:
+    """Upgrade redirect.jsp -> http://.../portal/portal-main to https before sending."""
+    base_https = URLS.base.rstrip("/")
+    if not base_https.startswith("https://"):
+        return next_url
+    p_base = urlparse(base_https)
+    p_prev = urlparse(prev_url or "")
+    p_next = urlparse(next_url or "")
+    is_redirect_jsp = (
+        p_prev.scheme == p_base.scheme
+        and p_prev.netloc == p_base.netloc
+        and p_prev.path == "/eportal/redirect.jsp"
+    )
+    qs = parse_qs(p_next.query)
+    sid_vals = qs.get("sessionId") or []
+    valid_sid = (
+        len(sid_vals) == 1
+        and 0 < len(sid_vals[0]) <= 1024
+        and not any(ord(c) < 32 or ord(c) == 127 for c in sid_vals[0])
+    )
+    same_host_http = (
+        p_next.scheme == "http"
+        and p_next.hostname == p_base.hostname
+        and p_next.port in (None, 80)
+        and p_base.port in (None, 443)
+    )
+    if (
+        is_redirect_jsp
+        and same_host_http
+        and p_next.path == "/portal/portal-main"
+        and not p_next.username
+        and p_next.password is None
+        and not p_next.fragment
+        and valid_sid
+    ):
+        return p_next._replace(scheme="https", netloc=p_base.netloc).geturl()
+    return next_url
+
+
 def cas_login(
     sess: requests.Session, username: str, password: str, debug: bool,
     service: str | None = None,
@@ -530,21 +724,29 @@ def cas_login(
         and parsed_r.netloc == base_netloc
         and not parsed_r.path.endswith("/authserver/login")
     ):
+        if _is_cas_risk_page(_response_text(r)):
+            selfservice.clear_session(URLS.base, username)
+            if hasattr(sess.cookies, "clear"):
+                for c in [c for c in sess.cookies if getattr(c, "name", None) == "CASTGC"]:
+                    sess.cookies.clear(domain=c.domain, path=c.path, name=c.name)
+            raise InteractionRequired("统一认证未完成门户回跳（疑似触发风控），请人工处理后重试")
         dprint(debug, f"[CAS] SSO reused via CASTGC -> {r_url}")
         if any(getattr(c, "name", None) == "CASTGC" for c in getattr(sess, "cookies", ())):
             selfservice.save_session(sess, URLS.base, username)
         return
 
-    html = (r.content or b"").decode("utf-8", errors="replace")
+    html = _response_text(r)
     _save_debug_text(debug, "cas_login.html", html)
 
     def _prepare_post(page_html: str, page_url: str) -> tuple[dict[str, str], str]:
+        if _is_cas_risk_page(page_html):
+            raise InteractionRequired("统一认证触发风控，请人工处理后重试")
         form_html = _extract_login_form(page_html)
         parsed_fields = _parse_form_fields(form_html)
-        pwd_salt = _extract_pwd_salt(page_html)
+        pwd_salt = _extract_pwd_salt(form_html) or _extract_pwd_salt(page_html)
         if not pwd_salt:
-            raise RuntimeError(
-                "CAS 登录页未找到 pwdEncryptSalt（可能页面结构变化或被风控返回假页）"
+            raise InteractionRequired(
+                "CAS 登录页未找到有效的 pwdEncryptSalt（可能页面结构变化或触发风控）"
             )
         parsed_fields["username"] = username
         parsed_fields["password"] = cas_encrypt_password(password, pwd_salt)
@@ -639,6 +841,7 @@ def cas_login(
 
     # 手动跟随重定向回 auth1
     nxt = urljoin(r2.url, loc)
+    rr = r2
     for i in range(16):
         rr = sess.get(
             nxt,
@@ -650,16 +853,13 @@ def cas_login(
         if debug:
             print(f"[CAS] hop[{i}] {rr.status_code} url={nxt} loc={loc2}")
         if rr.status_code in (301, 302, 303, 307, 308) and loc2:
-            nxt = urljoin(rr.url, loc2)
-            base_https = URLS.base.rstrip("/")
-            if (
-                base_https.startswith("https://")
-                and rr.url.split("?", 1)[0].rstrip("/") == f"{base_https}/eportal/redirect.jsp"
-                and nxt.startswith("http://" + base_https.removeprefix("https://") + "/portal/portal-main")
-            ):
-                nxt = "https://" + nxt.removeprefix("http://")
+            nxt = _rewrite_legacy_portal_main(rr.url, urljoin(rr.url, loc2))
             continue
         break
+
+    if _is_cas_risk_page(_response_text(rr)):
+        selfservice.clear_session(URLS.base, username)
+        raise InteractionRequired("统一认证未完成门户回跳（疑似触发风控），请人工处理后重试")
 
     if any(getattr(c, "name", None) == "CASTGC" for c in getattr(sess, "cookies", ())):
         selfservice.save_session(sess, URLS.base, username)
@@ -737,6 +937,34 @@ def _new_portal_session() -> requests.Session:
     return sess
 
 
+def _portal_get(sess: requests.Session, url: str, debug: bool) -> tuple[Any, list[str]]:
+    cur = url
+    chain: list[str] = []
+    for _ in range(16):
+        r = sess.get(cur, timeout=REQ_TIMEOUT, allow_redirects=False)
+        r_url = getattr(r, "url", None) or cur
+        for h in getattr(r, "history", ()) or ():
+            hu = getattr(h, "url", None)
+            if hu and (not chain or chain[-1] != hu):
+                chain.append(hu)
+        if not chain or chain[-1] != r_url:
+            chain.append(r_url)
+
+        headers = getattr(r, "headers", None) or {}
+        loc = headers.get("Location") or headers.get("location")
+        status = getattr(r, "status_code", None)
+        is_redir = bool(
+            getattr(r, "is_redirect", False)
+            or getattr(r, "is_permanent_redirect", False)
+        )
+        if not loc or (not is_redir and status not in (301, 302, 303, 307, 308)):
+            return r, chain
+        cur = _rewrite_legacy_portal_main(r_url, urljoin(r_url, loc))
+        dprint(debug, f"[NAV] redirect -> {cur}")
+
+    raise RuntimeError(f"门户导航重定向次数过多。最终URL={cur}")
+
+
 def open_portal_get_session(debug: bool) -> PortalContext:
     sess = _new_portal_session()
     candidates = [URLS.entry_index, URLS.entry_redirect, URLS.route_root]
@@ -744,9 +972,8 @@ def open_portal_get_session(debug: bool) -> PortalContext:
 
     for entry in candidates:
         dprint(debug, f"[NAV] GET {entry}")
-        r = sess.get(entry, timeout=REQ_TIMEOUT, allow_redirects=True)
-        chain = [h.url for h in r.history] + [r.url]
-        last_url = r.url
+        r, chain = _portal_get(sess, entry, debug=debug)
+        last_url = getattr(r, "url", None) or (chain[-1] if chain else entry)
 
         if debug:
             dprint(debug, "[DEBUG] redirect chain:")
@@ -756,19 +983,18 @@ def open_portal_get_session(debug: bool) -> PortalContext:
         sid = _extract_sid_from_chain(chain)
         if sid:
             dprint(debug, f"[INFO] sessionId={sid}")
-            return PortalContext(sess=sess, session_id=sid, last_url=r.url)
+            return PortalContext(sess=sess, session_id=sid, last_url=last_url)
 
-        if "124.124.124.124" in (r.url or ""):
+        if "124.124.124.124" in (last_url or ""):
             dprint(debug, "[INFO] hit 124 captive page, parsing next hop...")
-            _save_debug_text(debug, "124.html", r.text or "")
-            nxt = _extract_next_url_from_124(r.text or "", base_url=URLS.base)
+            _save_debug_text(debug, "124.html", _response_text(r))
+            nxt = _extract_next_url_from_124(_response_text(r), base_url=URLS.base)
             dprint(debug, f"[INFO] parsed next url: {nxt}")
             if not nxt:
                 continue
 
-            r2 = sess.get(nxt, timeout=REQ_TIMEOUT, allow_redirects=True)
-            chain2 = [h.url for h in r2.history] + [r2.url]
-            last_url = r2.url
+            r2, chain2 = _portal_get(sess, nxt, debug=debug)
+            last_url = getattr(r2, "url", None) or (chain2[-1] if chain2 else nxt)
 
             if debug:
                 dprint(debug, "[DEBUG] redirect chain (after 124):")
@@ -778,7 +1004,7 @@ def open_portal_get_session(debug: bool) -> PortalContext:
             sid2 = _extract_sid_from_chain(chain2)
             if sid2:
                 dprint(debug, f"[INFO] sessionId={sid2}")
-                return PortalContext(sess=sess, session_id=sid2, last_url=r2.url)
+                return PortalContext(sess=sess, session_id=sid2, last_url=last_url)
 
     raise RuntimeError(f"无法获取 sessionId。最终URL={last_url}")
 

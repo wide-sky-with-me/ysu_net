@@ -640,9 +640,11 @@ impl LoginForm {
                 );
             }
         }
-        let salt = html
-            .select(&selector("#pwdEncryptSalt"))
+        let salt_selector = selector("#pwdEncryptSalt");
+        let salt = form
+            .select(&salt_selector)
             .next()
+            .or_else(|| html.select(&salt_selector).next())
             .and_then(|e| e.value().attr("value"))
             .filter(|s| matches!(s.trim().len(), 16 | 24 | 32))
             .ok_or_else(|| AuthError::interaction("统一认证加密参数缺失，请检查验证码或风控状态"))?

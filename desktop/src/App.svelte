@@ -66,6 +66,7 @@
   let logFloor = $state(0);
   let previousConfig = '';
   let previousNosense = '';
+  let previousSelfAccount = '';
   let nosenseAccount = $state('');
   let nosenseTargetMac = $state('');
   let nosenseService = $state<NoSenseService>('套餐默认服务');
@@ -155,9 +156,14 @@
       if (!parametersDirty) parameters = { ...next.config };
       previousConfig = configKey;
     }
+    const nextSelfAccount = next.self_account || '';
     const nosenseKey = JSON.stringify(next.nosense);
-    if (nosenseKey !== previousNosense) {
-      if (nosenseAccount && !next.accounts.items.some((item) => item.username === nosenseAccount) && !next.nosense?.accounts?.[nosenseAccount]) {
+    const selfAcctChanged = nextSelfAccount !== previousSelfAccount;
+    if (selfAcctChanged || nosenseKey !== previousNosense) {
+      if (selfAcctChanged) {
+        nosenseAccount = nextSelfAccount;
+        previousSelfAccount = nextSelfAccount;
+      } else if (nosenseAccount && !next.accounts.items.some((item) => item.username === nosenseAccount) && !next.nosense?.accounts?.[nosenseAccount]) {
         nosenseAccount = '';
       }
       if (!nosenseDirty) {
@@ -265,8 +271,27 @@
   }
 
   const selfData = $derived.by((): SelfService | null => snapshot?.self_service ?? null);
+  const currentPoolItem = $derived(snapshot?.accounts.items.find((item) => item.current));
+  const otherPoolItems = $derived((snapshot?.accounts.items || []).filter((item) => !item.current));
+  const configuredSelf = $derived(Boolean(snapshot?.config.username && snapshot?.config.password_set));
+  const effectiveSelfAccount = $derived(selfData?.account || nosenseAccount || snapshot?.config.username || '');
+  const accountMismatch = $derived(Boolean(snapshot?.status?.online && snapshot.status.user && effectiveSelfAccount && snapshot.status.user !== effectiveSelfAccount));
   const infoError = $derived(splitDiagnosticError(snapshot?.info_error));
   const selfError = $derived(splitDiagnosticError(snapshot?.self_error));
+
+  function accountOptionText(username: string, label?: string): string {
+    return label ? `${label}（${username}）` : username;
+  }
+
+  function matchesLocalMac(device: SelfDevice, localMac?: string | null): boolean {
+    const devMac = normalizeMac(device.userMac);
+    const hostMac = normalizeMac(localMac || '');
+    return Boolean(devMac && hostMac && devMac === hostMac);
+  }
+
+  function refreshDevices() {
+    void action('self_service', nosenseAccount || 'current');
+  }
 
   function confirmKick(index: number, device: SelfDevice) {
     const name = device.deviceName && device.deviceName !== device.deviceType ? `${device.deviceName} · ${device.deviceType || '设备'}` : (device.deviceType || device.deviceName || '设备');
@@ -471,7 +496,12 @@
 
   function shortcut(event: KeyboardEvent) {
     if (confirmation) return;
-    if (event.key === 'F5') { event.preventDefault(); if (available) void action(page === 'account' ? 'info' : page === 'devices' ? 'self_service' : 'status'); else if (!starting) void initialize(); }
+    if (event.key === 'F5') {
+      event.preventDefault();
+      if (!available) { if (!starting) void initialize(); }
+      else if (page === 'devices') refreshDevices();
+      else void action(page === 'account' ? 'info' : 'status');
+    }
     const pressed = /^[1-9]$/.test(event.key) ? Number(event.key) : 0;
     const target = pressed ? navigation.find((item) => item.key === pressed) : undefined;
     if ((event.ctrlKey || event.metaKey) && target) { event.preventDefault(); navigate(target.id); }
@@ -521,7 +551,7 @@
       <h1>{pageTitle}</h1>
       {#if page === 'account' || page === 'devices'}<button type="button" class="text-button header-account-action" onclick={() => navigate('settings')}>管理账号</button>{/if}
       {#if page === 'connection' || page === 'account' || page === 'devices'}
-        <button type="button" class="icon-button header-action" aria-label={page === 'account' ? '刷新账户' : page === 'devices' ? '刷新设备' : '刷新状态'} aria-busy={busy} title="刷新（F5）" disabled={busy || transport.mode === 'web'} onclick={() => available ? action(page === 'account' ? 'info' : page === 'devices' ? 'self_service' : 'status') : initialize()}><Icon name="refresh" size={18} /></button>
+        <button type="button" class="icon-button header-action" aria-label={page === 'account' ? '刷新账户' : page === 'devices' ? '刷新设备' : '刷新状态'} aria-busy={busy} title="刷新（F5）" disabled={busy || transport.mode === 'web'} onclick={() => !available ? initialize() : page === 'devices' ? refreshDevices() : action(page === 'account' ? 'info' : 'status')}><Icon name="refresh" size={18} /></button>
       {/if}
     </header>
     <FeedbackDock {busy} busyMessage={snapshot?.busy_message || (pendingSetting ? settingBusyMessage[pendingSetting] : starting ? '正在读取核心状态…' : '正在执行，请稍候…')} {notice} ondismiss={() => { notice = null; }} />
@@ -596,16 +626,44 @@
         {/if}
 
       {:else if page === 'devices'}
-        {#if selfData}
-          <div class="device-content" aria-live="polite">
+        <div class="device-content" aria-live="polite">
+          {#if configuredSelf}
+            <section class="settings-section self-account-card" aria-label="自助服务账号">
+              <div class="self-account-row">
+                <span class="self-account-label">查询账号</span>
+                {#if otherPoolItems.length > 0}
+                  <select class="self-account-select" aria-label="查询账号" value={nosenseAccount} disabled={locked} onchange={(event) => chooseNoSenseAccount(event.currentTarget.value)}>
+                    <option value="">{accountOptionText(snapshot!.config.username, currentPoolItem?.label)} · 当前</option>
+                    {#each otherPoolItems as item}
+                      <option value={item.username} disabled={!item.password_set}>
+                        {accountOptionText(item.username, item.label)}{!item.password_set ? ' · 未存密码' : snapshot?.nosense?.accounts?.[item.username]?.auto_renew ? ' · 自动续约' : ''}
+                      </option>
+                    {/each}
+                  </select>
+                {:else}
+                  <strong class="self-account-name numeric">{accountOptionText(snapshot!.config.username, currentPoolItem?.label)}</strong>
+                {/if}
+                {#if accountMismatch}
+                  <span class="inline-label self-mismatch">当前联网 {snapshot?.status?.user}</span>
+                {/if}
+                {#if selfData?.account && nosenseAccount && selfData.account !== nosenseAccount}
+                  <span class="inline-label idle numeric">实际返回 {selfData.account}</span>
+                {/if}
+              </div>
+            </section>
+          {/if}
+          {#if selfData}
             <section class="settings-section" aria-labelledby="my-devices-heading">
               <div class="section-heading">
                 <div class="device-heading-title">
                   <h2 id="my-devices-heading">我的设备</h2>
                   <span class="inline-label" class:idle={!selfData.online}>{selfData.online} 台在线</span>
+                  {#if selfData.localMac}
+                    <span class="inline-label idle numeric">本机网卡 {selfData.localMac}</span>
+                  {/if}
                 </div>
                 <div class="device-row-actions">
-                  <button type="button" class="quiet-button" disabled={locked} onclick={() => { void action('self_service', nosenseAccount ? nosenseAccount : undefined); }}>刷新</button>
+                  <button type="button" class="quiet-button" disabled={locked} onclick={refreshDevices}>刷新</button>
                   {#if selfData.online > 1}
                     <button type="button" class="quiet-button danger-text" disabled={locked} onclick={confirmKickAll}>全部下线</button>
                   {/if}
@@ -622,7 +680,11 @@
                       <div class="device-main">
                         <strong>{device.deviceType || device.deviceName || '设备'}</strong>
                         {#if device.deviceName && device.deviceName !== device.deviceType}<span class="device-name">{device.deviceName}</span>{/if}
-                        {#if device.currentDevice}<span class="badge">本机</span>{/if}
+                        {#if device.currentDevice}
+                          <span class="badge">本机</span>
+                        {:else if matchesLocalMac(device, selfData.localMac)}
+                          <span class="badge">本机网卡</span>
+                        {/if}
                         {#if device.bindNoSense}<span class="badge">无感</span>{/if}
                         {#if !device.online}<span class="badge muted">离线</span>{/if}
                       </div>
@@ -633,23 +695,25 @@
                           </select>
                           <button type="button" class="quiet-button" disabled={locked || external} onclick={() => { void action('self_nosense_renew', `${index + 1}|${device.defaultService || nosenseService || '套餐默认服务'}`); }}>续约无感</button>
                           <button type="button" class="quiet-button danger-text" disabled={locked || external} onclick={() => confirmDisableNoSense(index + 1, device)}>关闭无感</button>
-                        {:else}
+                        {:else if device.userMac}
                           <button type="button" class="quiet-button" disabled={locked || external} onclick={() => confirmEnableNoSense(index + 1, device)}>开启无感</button>
                         {/if}
                         {#if device.online}
                           <button type="button" class="quiet-button danger-text" disabled={locked} onclick={() => confirmKick(index + 1, device)}>下线</button>
                         {/if}
                       </div>
-                      <dl class="device-meta">
-                        <div><dt>MAC</dt><dd class="numeric">{device.userMac || '—'}</dd></div>
-                        <div><dt>IP</dt><dd class="numeric">{device.userIpv4 || '—'}</dd></div>
-                        <div><dt>在线时长</dt><dd class="numeric">{device.onlineDuration || '—'}</dd></div>
-                        <div><dt>接入</dt><dd>{device.authType || '—'}</dd></div>
-                        {#if device.bindNoSense}
-                          <div><dt>缺省服务</dt><dd>{device.defaultService || '套餐默认服务'}</dd></div>
-                          <div><dt>无感到期</dt><dd class="numeric">{device.noSenseExpires || '—'}</dd></div>
-                        {/if}
-                      </dl>
+                      {#if device.userMac || device.userIpv4 || device.onlineDuration || device.authType || device.bindNoSense}
+                        <dl class="device-meta">
+                          {#if device.userMac}<div><dt>MAC</dt><dd class="numeric">{device.userMac}</dd></div>{/if}
+                          {#if device.userIpv4}<div><dt>IP</dt><dd class="numeric">{device.userIpv4}</dd></div>{/if}
+                          {#if device.onlineDuration}<div><dt>在线时长</dt><dd class="numeric">{device.onlineDuration}</dd></div>{/if}
+                          {#if device.authType}<div><dt>接入</dt><dd>{device.authType}</dd></div>{/if}
+                          {#if device.bindNoSense}
+                            <div><dt>缺省服务</dt><dd>{device.defaultService || '套餐默认服务'}</dd></div>
+                            {#if device.noSenseExpires}<div><dt>无感到期</dt><dd class="numeric">{device.noSenseExpires}</dd></div>{/if}
+                          {/if}
+                        </dl>
+                      {/if}
                     </li>
                   {/each}
                 </ul>
@@ -671,20 +735,9 @@
               </div>
               <form class="nosense-form" onsubmit={(event) => { event.preventDefault(); saveNoSenseConfig(); }}>
                 <fieldset class="nosense-fields" disabled={locked || external}>
-                  {#if (snapshot?.accounts.items.length ?? 0) > 0}
-                    <label class="form-row">
-                      <span>续约账号</span>
-                      <select aria-label="无感续约账号" value={nosenseAccount} onchange={(event) => chooseNoSenseAccount(event.currentTarget.value)}>
-                        <option value="">跟随当前活动账号</option>
-                        {#each snapshot?.accounts.items ?? [] as item}
-                          <option value={item.username}>{item.label ? `${item.label}（${item.username}）` : item.username}{item.current ? ' · 当前' : ''}{snapshot?.nosense?.accounts?.[item.username]?.auto_renew ? ' · 自动续约' : ''}</option>
-                        {/each}
-                      </select>
-                    </label>
-                  {/if}
                   <label class="form-row">
                     <span>目标 MAC</span>
-                    <input name="nosense-mac" autocomplete="off" placeholder="留空默认本机，或输入 XX-XX-XX-XX-XX-XX" bind:value={nosenseTargetMac} oninput={() => { nosenseDirty = true; }} />
+                    <input name="nosense-mac" autocomplete="off" placeholder="留空按本机，或输入 MAC" bind:value={nosenseTargetMac} oninput={() => { nosenseDirty = true; }} />
                   </label>
                   <label class="form-row">
                     <span>缺省服务</span>
@@ -718,29 +771,21 @@
                 </dl>
               </section>
             {/if}
-          </div>
-        {:else}
-          <div class="empty-state" class:error={Boolean(snapshot?.self_error)}>
-            <Icon name={snapshot?.self_error ? 'alert' : 'shield'} size={32} />
-            <h2 role={snapshot?.self_error ? 'alert' : undefined}>{selfError.summary || '尚未读取设备'}</h2>
-            {#if selfError.detail}<p class="error-detail numeric">{selfError.detail}</p>{/if}
-            {#if snapshot?.self_notice}<p class="muted">{snapshot.self_notice}</p>{/if}
-            {#if snapshot && (!snapshot.config.username || !snapshot.config.password_set)}
-              <p class="muted">请先保存校园网账号和密码。</p>
-              <button type="button" class="primary-button" disabled={locked} onclick={() => navigate('settings')}>设置账号</button>
-            {:else}
-              {#if (snapshot?.accounts.items.length ?? 0) > 1}
-                <select aria-label="自助服务账号" value={nosenseAccount} disabled={locked} onchange={(event) => chooseNoSenseAccount(event.currentTarget.value)}>
-                  <option value="">跟随当前活动账号</option>
-                  {#each snapshot?.accounts.items ?? [] as item}
-                    <option value={item.username}>{item.label ? `${item.label}（${item.username}）` : item.username}{item.current ? ' · 当前' : ''}</option>
-                  {/each}
-                </select>
+          {:else}
+            <div class="empty-state" class:error={Boolean(snapshot?.self_error)}>
+              <Icon name={snapshot?.self_error ? 'alert' : 'shield'} size={32} />
+              <h2 role={snapshot?.self_error ? 'alert' : undefined}>{selfError.summary || '尚未读取设备'}</h2>
+              {#if selfError.detail}<p class="error-detail numeric">{selfError.detail}</p>{/if}
+              {#if snapshot?.self_notice}<p class="muted">{snapshot.self_notice}</p>{/if}
+              {#if snapshot && !configuredSelf}
+                <p class="muted">请先保存校园网账号和密码。</p>
+                <button type="button" class="primary-button" disabled={locked} onclick={() => navigate('settings')}>设置账号</button>
+              {:else}
+                <button type="button" class="primary-button" disabled={locked} onclick={refreshDevices}>{snapshot?.self_error ? '重试读取设备' : '读取自助服务'}</button>
               {/if}
-              <button type="button" class="primary-button" disabled={locked} onclick={() => { void action('self_service', nosenseAccount ? nosenseAccount : undefined); }}>{snapshot?.self_error ? '重试读取设备' : '读取自助服务'}</button>
-            {/if}
-          </div>
-        {/if}
+            </div>
+          {/if}
+        </div>
 
       {:else if page === 'settings'}
         <SettingsTabs selected={settingsSection} onchange={chooseSettings} />

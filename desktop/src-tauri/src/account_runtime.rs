@@ -88,9 +88,24 @@ impl Runtime {
             if accounts["auto_switch"] == state.accounts["auto_switch"] {
                 accounts["message"] = state.accounts["message"].clone();
             }
+            if !state.self_account.is_empty() {
+                let retained = accounts["items"].as_array().is_some_and(|items| {
+                    items.iter().any(|item| {
+                        item["username"].as_str() == Some(state.self_account.as_str())
+                            && item["password_set"].as_bool() == Some(true)
+                    })
+                });
+                if !retained {
+                    state.self_account.clear();
+                    state.self_service = Value::Null;
+                    state.self_error.clear();
+                    state.self_notice.clear();
+                }
+            }
         } else {
             state.info = Value::Null;
             state.self_service = Value::Null;
+            state.self_account.clear();
             state.self_error.clear();
             state.self_notice.clear();
         }
@@ -316,6 +331,7 @@ impl Worker {
             state.remember(&plan.target.password);
             state.info = Value::Null;
             state.self_service = Value::Null;
+            state.self_account.clear();
             state.self_error.clear();
             state.self_notice.clear();
         });
@@ -435,6 +451,7 @@ impl Worker {
         self.runtime.update(|state| {
             state.info = Value::Null;
             state.self_service = Value::Null;
+            state.self_account.clear();
             state.self_error.clear();
             state.self_notice.clear();
             state.accounts["quota"] = unknown_quota("账号已切换，等待查询新的剩余流量");

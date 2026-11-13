@@ -68,6 +68,8 @@ export interface NoSenseState {
   message: string;
 }
 export interface SelfService {
+  account?: string;
+  localMac?: string | null;
   devices: SelfDevice[]; online: number;
   package: { package: string; rule: string; period: string; used: string; percent: number | null; balance: string };
   flow: { name: string; total: string; left: string; percent: number | null }[];
@@ -88,6 +90,7 @@ export interface Snapshot {
   info: { online: boolean; fields: Pair[]; items: Pair[] } | null;
   info_error: string;
   self_service?: SelfService | null;
+  self_account?: string;
   self_error?: string;
   self_notice?: string;
   nosense?: NoSenseState;
@@ -141,7 +144,9 @@ const seconds = (value: unknown): value is number => Number.isInteger(value) && 
 function parseSelfService(value: unknown): SelfService | null {
   if (value === undefined || value === null) return null;
   if (!object(value) || !Array.isArray(value.devices) || !Number.isSafeInteger(value.online) || Number(value.online) < 0 ||
-      !object(value.package) || !Array.isArray(value.flow) || !object(value.remember)) {
+      !object(value.package) || !Array.isArray(value.flow) || !object(value.remember) ||
+      (value.account !== undefined && !text(value.account)) ||
+      (value.localMac !== undefined && !nullableText(value.localMac))) {
     throw new Error('桌面核心自助服务数据格式异常');
   }
   const devices = value.devices.map((d): SelfDevice => {
@@ -177,6 +182,8 @@ function parseSelfService(value: unknown): SelfService | null {
     throw new Error('桌面核心记住选择格式异常');
   }
   return {
+    account: value.account === undefined ? '' : value.account,
+    localMac: value.localMac === undefined ? null : value.localMac,
     devices, online: Number(value.online),
     package: { package: pkg.package, rule: pkg.rule, period: pkg.period, used: pkg.used, percent: pkg.percent, balance: pkg.balance },
     flow,
@@ -220,6 +227,7 @@ export function parseSnapshot(value: unknown): Snapshot {
   if (i !== null && (!object(i) || !bool(i.online) || !pairs(i.fields) || !pairs(i.items))) throw new Error('桌面核心账户信息格式异常');
   if (value.info_error !== undefined && !text(value.info_error)) throw new Error('桌面核心账户读取错误格式异常');
   const selfService = parseSelfService(value.self_service);
+  if (value.self_account !== undefined && !text(value.self_account)) throw new Error('桌面核心自助查询账号格式异常');
   if (value.self_error !== undefined && !text(value.self_error)) throw new Error('桌面核心自助服务错误格式异常');
   if (value.self_notice !== undefined && !text(value.self_notice)) throw new Error('桌面核心自助服务通知格式异常');
   const n = value.nosense;
@@ -254,6 +262,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     info: i === null ? null : { online: i.online as boolean, fields: i.fields as Pair[], items: i.items as Pair[] },
     info_error: value.info_error === undefined ? '' : value.info_error as string,
     self_service: selfService,
+    self_account: value.self_account === undefined ? '' : value.self_account as string,
     self_error: value.self_error === undefined ? '' : value.self_error as string,
     self_notice: value.self_notice === undefined ? '' : value.self_notice as string,
     nosense: n === undefined ? { auto_renew: false, target_mac: '', service: '', accounts: {}, message: '' } : { auto_renew: n.auto_renew as boolean, target_mac: n.target_mac as string, service: n.service as string, accounts: nosenseAccounts, message: n.message as string },

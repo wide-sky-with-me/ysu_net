@@ -42,17 +42,17 @@ ysu_net/
 
 ### 1. 门户登录与状态核验
 
-1. **预检与引导**：请求门户首页查询当前会话与在线状态；若处于离线 Captive 引导状态，自动跟随门户重定向获取登录参数。
-2. **统一身份认证（CAS）**：拉取 `cer.ysu.edu.cn` 登录页，提取加密密钥与登录凭据；若触发验证码且已配置本地模型，则自动执行离线 OCR 识别。
-3. **服务选择与上线**：CAS 回调门户后提交目标运营商（校园网 / 中国移动 / 中国联通 / 中国电信）完成上线。
-4. **独立复核**：每次登录、下线或切换运营商后，均通过新的状态查询确认在线身份与服务是否一致。
+1. **预检与引导**：请求门户首页查询当前会话与在线状态；若由 `/eportal/redirect.jsp` 下发旧式 `http://auth1.ysu.edu.cn/portal/portal-main?...` 跳转，发送前本地升级为 `https://` 以保留 `customPageId`/`userIp`/`ssid`/`nasIp` 参数；若处于离线 Captive 引导状态，仅单次只读探测跳转目标后以 `sessionId` 驱动工作流节点（`authenticate → serviceSelection → finish`）。
+2. **统一身份认证（CAS）**：通过 `/cas-sso/clientredirect?client_name=sidadapter` 拉取 `cer.ysu.edu.cn` 登录页，可优先复用未过期的 `CASTGC` 会话（30 分钟有效）跳过账密提交；需要表单认证时仅围绕选中的密码表单解析 `#pwdEncryptSalt`（AES-128/192/256-CBC）与 `#captchaDiv` 并检测 DOM 可见风控文本；触发验证码且已配置本地模型时最多提交 2 次（首轮与 1 次换图重试），连续登录失败达 3 次或返回退出码 `4` 时自动暂停后台重连。
+3. **服务选择与上线**：CAS 回调门户后提交目标运营商（校园网 / 中国移动 / 中国联通 / 中国电信）完成上线；下线前预先获取 `/sam` 会话 Cookie 保证真实下线生效。
+4. **独立复核**：每次登录、下线或切换运营商后，均通过新的无 Cookie 状态查询确认在线身份与服务是否一致。
 
 ### 2. 设备自助服务与 7 天无感认证
 
-1. **OAuth2 委托登录**：先访问 `GET /self/index` 初始化自助服务会话并提取 OAuth2 `callbackAuthorize` 地址，随后通过统一身份认证完成登录（支持复用缓存的 `CASTGC` 会话）。
+1. **OAuth2 委托登录与会话隔离**：校园网内部按应用隔离维护四组会话边界（CAS `/authserver` 的 `CASTGC`/`XSRF-TOKEN`/`JSESSIONID`、门户 `/eportal` `JSESSIONID`、`/sam` `JSESSIONID` 与 `/self`/OAuth2 根路径 `SESSION`）；访问 `/self/index` 先初始化会话并通过 `/oauth2/authorization/custom-self` 经统一身份认证完成委托授权（可复用 `CASTGC`）。
 2. **无感认证与自动续约**：
    - 调用 `/self/setting/noSense` 开启 7 天 MAC 无感认证，调用 `/self/mac/unbind` 取消绑定，调用 `/self/setting/net` 修改默认上网服务。
-   - 后台守护（Python `NoSenseRenewer` 与 Rust `Worker`）按账号读取 `config.nosense.json`，当目标设备的无感有效期剩余不足 24 小时或已过期时，自动执行「解绑 → 重新绑定 7 天」。
+   - 后台守护（Python `NoSenseRenewer` 与 Rust `Worker`）按账号读取 `config.nosense.json`：单个账号查询成功后的常态网络巡检间隔为 **6 小时**（瞬时异常 **30 分钟** 重试，需人工介入异常则暂停），当目标设备的无感有效期剩余不足 24 小时或已过期时，自动执行「解绑 → 重新绑定 7 天」。
 3. **多账号换号交接**：当手动切换账号或因零流量自动轮换账号时，自动在下线前解绑旧账号的本机 MAC 无感认证，并在新账号上线后重新绑定本机无感认证、同步迁移自动续约规则。
 
 ---

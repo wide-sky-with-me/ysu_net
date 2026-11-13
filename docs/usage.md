@@ -80,8 +80,9 @@ ysu self list --account backup # 查看账号池中指定账号的自助服务�
 ```
 
 输出内容包括：
+- **查询账号与本机对照**：明确输出本次查询所属的 `账号`；探测本机物理网卡 MAC 时会自动过滤 VPN / TUN 虚拟适配器（如 `Meta Tunnel`、`Tailscale`、`ZeroTier`、`WireGuard`、`Sing-box`、`tun2socks`）。
 - **套餐与剩余流量**：计费周期、套餐名称、剩余流量、默认上网服务（运营商）。
-- **在线设备列表**：每台设备的序号、本机标记、设备名称、类型、MAC、IP、在线时长、接入方式与无感状态。
+- **在线设备列表**：每台设备的序号、本机标记（门户 `currentDevice` 标为 `本机`，本地物理网卡匹配标为 `本机网卡`）、设备名称、类型、MAC、IP、在线时长、接入方式与无感状态。
 - **7 天无感认证记录**：当前账号下所有已开启无感认证的设备 MAC、设备名称与到期时间。
 - **自动续约状态**：当前账号是否开启到期自动续约、目标 MAC、默认服务以及最近一次续约时间。
 
@@ -138,7 +139,7 @@ ysu self renew now --force
 ysu self renew off
 ```
 
-> **提示**：自动续约由后台守护进程（`ysu-net.service` 或 `ysu daemon`）定期调度执行，开启 `ysu self renew on` 后请保持后台服务处于运行状态（`ysu start` 或 `ysu on`）。
+> **提示**：自动续约由后台守护进程（`ysu-net.service` 或 `ysu daemon`）定期调度执行：单账号查询成功后常态每 **6 小时** 网络巡检一次（瞬时异常 **30 分钟** 后重试，遇到需人工处理的异常暂停该账号续约）；守护本身在连续自动登录失败 **3 次** 时也会自动暂停重连以防触发 IP 冻结。开启 `ysu self renew on` 后请保持后台服务处于运行状态（`ysu start` 或 `ysu on`）。
 
 ### 5. 远程下线在线设备（`ysu self kick`）
 
@@ -165,10 +166,10 @@ ysu config path               # 查看配置文件所在路径
 
 ### 配置文件路径
 
-| 安装模式 | 主配置文件 | 辅助状态与配置文件（同目录） |
+| 安装模式 | 主配置文件 | 辅助配置文件与会话缓存 |
 | --- | --- | --- |
-| 用户级（默认） | `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json` | `config.accounts.json`（多账号池）<br>`config.nosense.json`（无感自动续约规则）<br>`self-session.json`（自助服务会话缓存） |
-| 系统级（`--system`） | `/etc/ysu-net/config.json` | 同目录下的账号池、无感续约与会话文件 |
+| 用户级（默认） | `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json` | 同目录下存放 `config.accounts.json`（多账号池）、`config.nosense.json`（无感自动续约规则）<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
+| 系统级（`--system`） | `/etc/ysu-net/config.json` | 同目录下存放 `config.accounts.json`、`config.nosense.json`<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
 
 所有含凭据或会话的配置文件均以 `0600` 权限创建，仅文件所有者可读写。
 
@@ -211,4 +212,4 @@ uv run python -m ysu_net.auth.api logout
 uv run --extra browser python -m ysu_net.auth.browser login -u 学号 -p '密码' -s 校园网
 ```
 
-退出码约定：`0` 表示成功（或 `status` 确认在线），`1` 表示确认离线，`2` 表示网络或请求异常，`3` 表示操作后状态未确认，`4` 表示需要人工处理（如密码错误或未配置验证码识别时的验证码挑战）。
+退出码约定：`0` 表示成功（或 `status` 确认在线），`1` 表示确认离线，`2` 表示网络或请求异常，`3` 表示操作后状态未确认，`4` 表示需要人工处理（如密码错误、CAS 风控拦截页，或未配置可用识别时的验证码挑战）。

@@ -118,6 +118,17 @@ class RenderTests(OfflineTestCase):
         snap["flow"] = {"items": []}
         self.assertIn("门户未提供", selfservice.format_snapshot(snap))
 
+    def test_render_shows_account_and_local_nic_tag(self):
+        snap = self.snapshot()
+        snap["account"] = "202422040196"
+        snap["localMac"] = "AA-BB-CC-DD-EE-02"
+        snap["devices"]["rows"][1]["本机"] = "否"
+        snap["devices"]["rows"][1]["MAC"] = "AA-BB-CC-DD-EE-02"
+        text = selfservice.format_snapshot(snap)
+        self.assertIn("账号：202422040196", text)
+        self.assertIn("2. 我的设备（在线，本机网卡）", text)
+        self.assertNotIn("1. 我的设备（在线，本机，本机网卡）", text)
+
 
 class UrlTests(OfflineTestCase):
     def test_endpoints_are_fixed_paths(self):
@@ -637,3 +648,22 @@ class NoSenseTests(OfflineTestCase):
         mac, row = selfservice.select_nosense_target([], "current")
         self.assertEqual(mac, "AA-BB-CC-DD-EE-FF")
         self.assertIsNone(row)
+
+    def test_parse_adapter_mac_ignores_vpn_adapters_and_descriptions(self):
+        sample = (
+            "未知适配器 Tailscale:\r\n"
+            "   描述. . . . . . . . . . . . . . . : Tailscale Tunnel\r\n"
+            "   物理地址. . . . . . . . . . . . . : 11-22-33-44-55-66\r\n"
+            "   IPv4 地址 . . . . . . . . . . . . : 100.86.67.127\r\n"
+            "\r\n"
+            "未知适配器 Mihomo:\r\n"
+            "   描述. . . . . . . . . . . . . . . : Meta Tunnel\r\n"
+            "   物理地址. . . . . . . . . . . . . : 11-22-33-44-55-77\r\n"
+            "   IPv4 地址 . . . . . . . . . . . . : 192.168.50.2\r\n"
+            "\r\n"
+            "无线局域网适配器 WLAN:\r\n"
+            "   描述. . . . . . . . . . . . . . . : Intel(R) Wi-Fi 6 AX201\r\n"
+            "   物理地址. . . . . . . . . . . . . : E8-B0-C5-9B-BA-2C\r\n"
+            "   IPv4 地址 . . . . . . . . . . . . : 192.168.1.100\r\n"
+        )
+        self.assertEqual(selfservice.parse_adapter_mac_from_text(sample), "E8-B0-C5-9B-BA-2C")

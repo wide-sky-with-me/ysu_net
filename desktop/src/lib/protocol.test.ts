@@ -18,6 +18,9 @@ describe('snapshot contract', () => {
     const transport = createDemoTransport();
     await transport.request('action', { name: 'self_service' });
     const loaded = parseSnapshot(await transport.request('snapshot', {}));
+    expect(loaded.self_account).toBe('');
+    expect(loaded.self_service?.account).toBe('20260001');
+    expect(loaded.self_service?.localMac).toBe('02-00-00-00-00-01');
     expect(loaded.self_service?.online).toBe(1);
     expect(loaded.self_service?.devices).toHaveLength(1);
     expect(loaded.self_service?.devices[0]).not.toHaveProperty('onlineUserUuid');
@@ -26,9 +29,17 @@ describe('snapshot contract', () => {
     expect(loaded.self_error).toBe('');
     expect(loaded.self_notice).toBe('');
 
+    await transport.request('action', { name: 'self_service', value: 'fixture-student-b' });
+    const secondary = parseSnapshot(await transport.request('snapshot', {}));
+    expect(secondary.self_account).toBe('fixture-student-b');
+    expect(secondary.self_service?.account).toBe('fixture-student-b');
+    expect(secondary.self_service?.localMac).toBe('02-00-00-00-00-01');
+
+    await transport.request('action', { name: 'self_service', value: 'current' });
     await transport.request('action', { name: 'self_kick', value: '1' });
     const kicked = parseSnapshot(await transport.request('snapshot', {}));
     expect(kicked.self_service?.online).toBe(0);
+    expect(kicked.self_service?.account).toBe('20260001');
     expect(kicked.self_notice).toContain('已下线 1 台设备');
 
     await transport.request('action', { name: 'logout' });
@@ -39,6 +50,9 @@ describe('snapshot contract', () => {
 
     const base = demoSnapshot();
     expect(() => parseSnapshot({ ...base, self_service: { devices: 'bad' } })).toThrow('自助服务数据格式异常');
+    expect(() => parseSnapshot({ ...base, self_account: 123 })).toThrow('自助查询账号格式异常');
+    expect(() => parseSnapshot({ ...base, self_service: { ...loaded.self_service, account: 123 } })).toThrow('自助服务数据格式异常');
+    expect(() => parseSnapshot({ ...base, self_service: { ...loaded.self_service, localMac: false } })).toThrow('自助服务数据格式异常');
     expect(() => parseSnapshot({ ...base, self_error: 123 })).toThrow('自助服务错误格式异常');
     expect(() => parseSnapshot({ ...base, self_notice: false })).toThrow('自助服务通知格式异常');
     expect(() => parseSnapshot({ ...base, nosense: { auto_renew: 'bad' } })).toThrow('无感配置格式异常');

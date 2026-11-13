@@ -17,7 +17,7 @@
       {
         "name": "Install and verify exact qbsdiff tools",
         "shell": "bash",
-        "run": "set -euo pipefail\n# The upstream CLI 1.4.4 dev lock pins its self-dependency to 1.4.3.\n# Do not use that broken tool lock; application Cargo.lock/--locked gates stay intact.\ncargo install qbsdiff --version '=1.4.4' --features cmd\ntest \"$(qbsdiff --version)\" = 'qbsdiff 1.4.4'\ntest \"$(qbspatch --version)\" = 'qbspatch 1.4.4'\n"
+        "run": "set -euo pipefail\n# Cargo 1.100+ defaults `cargo install` to packaged Cargo.lock, and upstream 1.4.4's lock\n# pins its dev self-dependency to 1.4.3. Verify the exact crate archive checksum, drop only\n# that broken lockfile, and install locally while keeping application Cargo.lock/--locked gates.\ncrate=\"${RUNNER_TEMP:?}/qbsdiff-1.4.4.crate\"\nsrc=\"${RUNNER_TEMP:?}/qbsdiff-1.4.4\"\nrm -rf \"$src\"\nmkdir -p \"$src\"\ncurl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 \\\n  https://static.crates.io/crates/qbsdiff/qbsdiff-1.4.4.crate -o \"$crate\"\necho \"fdc7f24528be166f08f2c7becaca5618865499b6ded2565d5afcd795cc0d7596  $crate\" | sha256sum -c -\ntar -xzf \"$crate\" -C \"$src\" --strip-components=1 --no-same-owner\nrm -f \"$src/Cargo.lock\"\ncargo install --path \"$src\" --features cmd\ntest \"$(qbsdiff --version)\" = 'qbsdiff 1.4.4'\ntest \"$(qbspatch --version)\" = 'qbspatch 1.4.4'\n"
       }
     ]
   }

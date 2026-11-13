@@ -146,6 +146,10 @@ pub struct SelfRemember {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SelfSnapshot {
+    #[serde(default)]
+    pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_mac: Option<String>,
     pub devices: Vec<SelfDevice>,
     pub online: usize,
     pub package: SelfPackage,
@@ -311,6 +315,8 @@ impl SelfService {
         let remember = parse_remember(&self.post(REMEMBER, &json!({}), op).await?)?;
 
         Ok(SelfSnapshot {
+            account: String::new(),
+            local_mac: None,
             devices,
             online,
             package,
@@ -1006,6 +1012,12 @@ const VIRTUAL_IFACE_KEYWORDS: &[&str] = &[
     "wintun",
     "clash",
     "mihomo",
+    "meta tunnel",
+    "tailscale",
+    "zerotier",
+    "wireguard",
+    "sing-box",
+    "tun2socks",
     "本地连接*",
     "veth",
     "docker",
@@ -1040,11 +1052,20 @@ pub(crate) fn parse_adapter_mac_from_text(text: &str) -> Option<String> {
 
     let mut candidates: Vec<(bool, bool, bool, isize, String)> = Vec::new();
     for (idx, block) in blocks.iter().enumerate() {
-        let Some(first_line) = block.lines().next() else {
+        let mut lines = block.lines();
+        let Some(first_line) = lines.next() else {
             continue;
         };
         let head = first_line.to_lowercase();
-        let kw_match = VIRTUAL_IFACE_KEYWORDS.iter().any(|k| head.contains(k));
+        let mut meta = head.clone();
+        for line in lines {
+            let lower = line.to_lowercase();
+            if lower.contains("描述") || lower.contains("description") {
+                meta.push('\n');
+                meta.push_str(&lower);
+            }
+        }
+        let kw_match = VIRTUAL_IFACE_KEYWORDS.iter().any(|k| meta.contains(k));
         let is_virtual = kw_match || head.starts_with("lo");
         let mac = mac_re
             .captures_iter(block)

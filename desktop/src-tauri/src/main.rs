@@ -21,6 +21,17 @@ use tray::{install as make_tray, update as update_tray};
 #[cfg(test)]
 use tray_model::auto_control_available;
 
+#[cfg(windows)]
+fn trim_working_set() {
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+    unsafe {
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
+#[cfg(not(windows))]
+fn trim_working_set() {}
+
 #[derive(Default)]
 struct WindowGeometry {
     size: Option<tauri::PhysicalSize<u32>>,
@@ -244,6 +255,13 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let async_runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(8)
+        .enable_all()
+        .build()
+        .expect("初始化异步运行器失败");
+    tauri::async_runtime::set(async_runtime.handle().clone());
     let bridge = CoreBridge::new(options.demo, options.smoke);
     let autostart_args = startup::registration_args(options.config.as_deref());
     let app = tauri::Builder::default()
@@ -314,14 +332,22 @@ fn main() {
                 tray_host_available(),
             ) {
                 ensure_window(handle)?;
+            } else {
+                let handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    if handle.get_webview_window("main").is_none() {
+                        trim_working_set();
+                    }
+                });
             }
             if options.smoke {
                 smoke::start(handle);
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
                 let app = window.app_handle();
                 let bridge = app.state::<Arc<CoreBridge>>();
                 if bridge.quitting.load(Ordering::Acquire) {
@@ -339,10 +365,22 @@ fn main() {
                     drop(geometry);
                     // Destroy the WebView; the core and tray have independent lifetimes.
                     let _ = window.destroy();
+                    trim_working_set();
+                    let handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                        if handle.get_webview_window("main").is_none() {
+                            trim_working_set();
+                        }
+                    });
                 } else {
                     let _ = quit(app, 0);
                 }
             }
+            WindowEvent::Resized(_) if window.is_minimized().unwrap_or(false) => {
+                trim_working_set();
+            }
+            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("启动桌面客户端失败");

@@ -1576,4 +1576,52 @@ async fn nosense_actions_and_auto_renew_config_persist_and_update_snapshot() {
             .map(|(m, s, _)| (m.as_str(), s.as_str())),
         Some(("02-00-00-00-00-02", "中国联通"))
     );
+
+    runtime
+        .request(
+            "action",
+            json!({"name": "self_service", "value": "20260002"}),
+        )
+        .await
+        .unwrap();
+    worker.execute(Action::SelfService).await.unwrap();
+    let pool_self = runtime.snapshot();
+    assert_eq!(pool_self["self_account"], json!("20260002"));
+    assert_eq!(pool_self["self_service"]["account"], json!("20260002"));
+    assert_eq!(
+        pool_self["self_service"]["localMac"],
+        json!("02-00-00-00-00-01")
+    );
+
+    let secondary_id = pool_self["accounts"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["username"] == "20260002")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    runtime
+        .request("delete_account", json!({"id": secondary_id}))
+        .await
+        .unwrap();
+    let after_delete = runtime.snapshot();
+    assert_eq!(after_delete["self_account"], json!(""));
+    assert!(after_delete["self_service"].is_null());
+
+    runtime
+        .request(
+            "action",
+            json!({"name": "self_service", "value": "current"}),
+        )
+        .await
+        .unwrap();
+    worker.execute(Action::SelfService).await.unwrap();
+    let current_self = runtime.snapshot();
+    assert_eq!(current_self["self_account"], json!(""));
+    assert_eq!(
+        current_self["self_service"]["account"],
+        current_self["config"]["username"]
+    );
 }

@@ -183,3 +183,21 @@ async fn actual_callback_document_challenges_still_stop_before_service_actions()
         assert_eq!(fixture.count("/eportal/network/userOnline"), 0);
     }
 }
+
+#[test]
+fn cas_form_prefers_salt_inside_selected_password_form() {
+    let http = Transport::new(&Config::default(), false).unwrap();
+    let page = http.cas_endpoint("authserver/login").unwrap();
+    let html = concat!(
+        "<form id='phoneFromId'><input name='username'><input name='execution' value='phone-exec'>",
+        "<input id='pwdEncryptSalt' value='wrong-other-salt'></form>",
+        "<form id='pwdFromId' action='/authserver/login'><input name='username'><input name='password'>",
+        "<input name='execution' value='pwd-exec'><input value='0123456789abcdef' id='pwdEncryptSalt'></form>"
+    );
+    let parsed = LoginForm::parse(html, &page, &http).unwrap();
+    assert_eq!(parsed.salt, "0123456789abcdef");
+    assert_eq!(
+        parsed.fields.get("execution").map(String::as_str),
+        Some("pwd-exec")
+    );
+}

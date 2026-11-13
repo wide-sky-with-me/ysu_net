@@ -65,10 +65,12 @@ impl CoreBridge {
             Arc::new(move |value| {
                 if let Some(bridge) = weak.upgrade() {
                     bridge.accept_snapshot(&app, &value);
-                    let _ = app.emit(
-                        "core-event",
-                        serde_json::json!({"kind":"event", "name":"snapshot", "payload":value}),
-                    );
+                    if app.get_webview_window("main").is_some() {
+                        let _ = app.emit(
+                            "core-event",
+                            serde_json::json!({"kind":"event", "name":"snapshot", "payload":value}),
+                        );
+                    }
                 }
             }),
         )?;

@@ -10,6 +10,8 @@ ACTION = ".github/actions/setup-delta-tools"
 ACTION_REF = f"./{ACTION}"
 ARCHIVE_URL = "https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz"
 ARCHIVE_SHA256 = "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73"
+QBSDIFF_CRATE_URL = "https://static.crates.io/crates/qbsdiff/qbsdiff-1.4.4.crate"
+QBSDIFF_CRATE_SHA256 = "fdc7f24528be166f08f2c7becaca5618865499b6ded2565d5afcd795cc0d7596"
 CALLERS = (
     ("test.yml", "test", "python -m unittest discover -s tests -v"),
     ("tauri.yml", "build", "Frontend and native build entry checks"),
@@ -78,8 +80,14 @@ class DeltaToolConfigurationTests(unittest.TestCase):
     def test_qbsdiff_uses_an_exact_requirement_and_checks_both_binaries(self):
         script = self.steps[2]["run"]
         installs = [line for line in script.splitlines() if line.startswith("cargo install ")]
-        self.assertEqual(installs, ["cargo install qbsdiff --version '=1.4.4' --features cmd"])
+        self.assertEqual(installs, ['cargo install --path "$src" --features cmd'])
         self.assertNotIn("--locked", installs[0])
+        self.assertIn(QBSDIFF_CRATE_URL, script)
+        self.assertIn(QBSDIFF_CRATE_SHA256, script)
+        self.assertIn("--proto '=https' --proto-redir '=https' --tlsv1.2 --fail", script)
+        self.assertLess(script.index("sha256sum -c -"), script.index("tar -xzf"))
+        self.assertLess(script.index("tar -xzf"), script.index('rm -f "$src/Cargo.lock"'))
+        self.assertLess(script.index('rm -f "$src/Cargo.lock"'), script.index("cargo install "))
         self.assertIn("self-dependency to 1.4.3", script)
         for tool in ("qbsdiff", "qbspatch"):
             self.assertIn(f'test "$({tool} --version)" = \'{tool} 1.4.4\'', script)

@@ -261,3 +261,27 @@ fn adapter_mac_parser_prefers_physical_adapter_over_virtual() {
         Some("AA-BB-CC-DD-EE-FF")
     );
 }
+
+#[test]
+fn adapter_mac_parser_ignores_vpn_descriptions() {
+    let sample = concat!(
+        "未知适配器 Tailscale:\r\n",
+        "   描述. . . . . . . . . . . . . . . : Tailscale Tunnel\r\n",
+        "   物理地址. . . . . . . . . . . . . : 11-22-33-44-55-66\r\n",
+        "   IPv4 地址 . . . . . . . . . . . . : 100.86.67.127\r\n",
+        "\r\n",
+        "未知适配器 Mihomo:\r\n",
+        "   描述. . . . . . . . . . . . . . . : Meta Tunnel\r\n",
+        "   物理地址. . . . . . . . . . . . . : 11-22-33-44-55-77\r\n",
+        "   IPv4 地址 . . . . . . . . . . . . : 192.168.50.2\r\n",
+        "\r\n",
+        "无线局域网适配器 WLAN:\r\n",
+        "   描述. . . . . . . . . . . . . . . : Intel(R) Wi-Fi 6 AX201\r\n",
+        "   物理地址. . . . . . . . . . . . . : E8-B0-C5-9B-BA-2C\r\n",
+        "   IPv4 地址 . . . . . . . . . . . . : 192.168.1.100\r\n",
+    );
+    assert_eq!(
+        parse_adapter_mac_from_text(sample).as_deref(),
+        Some("E8-B0-C5-9B-BA-2C")
+    );
+}

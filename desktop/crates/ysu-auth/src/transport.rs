@@ -11,7 +11,7 @@ use std::{
     future::Future,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     time::Duration,
 };
@@ -91,6 +91,32 @@ impl Reply {
     }
 }
 
+static VERIFIED_CLIENT: OnceLock<Result<reqwest::Client, ()>> = OnceLock::new();
+static UNVERIFIED_CLIENT: OnceLock<Result<reqwest::Client, ()>> = OnceLock::new();
+
+fn shared_client(verify_tls: bool) -> Result<reqwest::Client, AuthError> {
+    let slot = if verify_tls {
+        &VERIFIED_CLIENT
+    } else {
+        &UNVERIFIED_CLIENT
+    };
+    slot.get_or_init(|| {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .dns_resolver(Arc::new(crate::dns::CampusResolver))
+            .danger_accept_invalid_certs(!verify_tls)
+            .user_agent("Mozilla/5.0 YSU-Native-Auth/0.1")
+            .connect_timeout(Duration::from_secs(10))
+            .pool_max_idle_per_host(1)
+            .pool_idle_timeout(Some(Duration::from_secs(15)))
+            .build()
+            .map_err(|_| ())
+    })
+    .clone()
+    .map_err(|()| AuthError::query("HTTP 客户端初始化失败"))
+}
+
 #[derive(Clone)]
 pub(crate) struct Transport {
     client: reqwest::Client,
@@ -108,16 +134,7 @@ impl Transport {
                 .map_err(|_| AuthError::query("认证地址格式异常"))
         };
         let jar = Arc::new(Jar::default());
-        let client = reqwest::Client::builder()
-            .cookie_provider(jar.clone())
-            .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
-            .dns_resolver(Arc::new(crate::dns::CampusResolver))
-            .danger_accept_invalid_certs(!config.verify_tls)
-            .user_agent("Mozilla/5.0 YSU-Native-Auth/0.1")
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|_| AuthError::query("HTTP 客户端初始化失败"))?;
+        let client = shared_client(config.verify_tls)?;
         Ok(Self {
             client,
             jar,
@@ -239,7 +256,7 @@ impl Transport {
         client: &reqwest::Client,
         method: Method,
         url: Url,
-        headers: HeaderMap,
+        mut headers: HeaderMap,
         body: Option<Vec<u8>>,
         op: &Operation,
     ) -> Result<Reply, AuthError> {
@@ -254,6 +271,11 @@ impl Transport {
         );
         let mut trace = op.trace.request(endpoint, method == Method::POST);
         let result = async {
+            if !headers.contains_key(COOKIE) {
+                if let Some(cookie) = self.jar.cookies(&url) {
+                    headers.insert(COOKIE, cookie);
+                }
+            }
             if headers
                 .iter()
                 .map(|(key, value)| key.as_str().len() + value.as_bytes().len())
@@ -291,6 +313,10 @@ impl Transport {
                 .is_some_and(|n| n > RESPONSE_LIMIT as u64)
             {
                 return Err(AuthError::query("门户响应超过大小限制"));
+            }
+            {
+                let mut set_cookies = headers.get_all(SET_COOKIE).iter();
+                self.jar.set_cookies(&mut set_cookies, &url);
             }
             if url.origin() == self.base.origin() {
                 for value in headers.get_all(SET_COOKIE) {

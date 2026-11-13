@@ -35,6 +35,7 @@ export function demoSnapshot(search = ''): Snapshot {
       fields: scenario === 'online-details' ? [['账号', '20260001'], ['用户', '演示用户'], ['IP 地址', '2001:db8::42'], ['SSID', 'Campus Demo'], ['当前服务', '中国移动']] : [['账号', '20260001'], ['当前服务', '中国移动'], ['IP 地址', '10.24.16.82']],
       items: [['套餐', '中国移动校园套餐'], ['剩余流量', '80.00 GB']] } : null,
     info_error: scenario === 'info-error' ? '账户信息获取失败，请稍后重试' : '',
+    self_account: '',
     nosense: { auto_renew: false, target_mac: '', service: '', accounts: {}, message: '无感自动续约已关闭' },
     logs: [
       { timestamp: '08:42:03', level: 'info', message: '离线模拟已启动；所有数据和操作均为演示' },
@@ -54,28 +55,58 @@ export function createDemoTransport(search = ''): Transport {
   let switchTimer: ReturnType<typeof setTimeout> | undefined;
   let infoTimer: ReturnType<typeof setTimeout> | undefined;
   let nextId = 1;
-  let nosenseMac = '';
-  let nosenseService = '套餐默认服务';
-  let nosenseExpires = '';
+  const LOCAL_DEMO_MAC = '02-00-00-00-00-01';
+  const SECONDARY_DEMO_MAC = '02-00-00-00-00-02';
+  const nosenseByUser = new Map<string, { mac: string; service: string; expires: string }>();
+  const secondaryOffline = new Set<string>();
+  const resolveSelfAccount = () => {
+    const requested = state.self_account?.trim();
+    if (requested && requested !== state.config.username) {
+      const hit = state.accounts.items.find((item) => item.username === requested && item.password_set);
+      if (hit) return hit.username;
+    }
+    return state.config.username;
+  };
+  const selfNoSense = (username: string) => {
+    let entry = nosenseByUser.get(username);
+    if (!entry) {
+      entry = { mac: '', service: '套餐默认服务', expires: '' };
+      nosenseByUser.set(username, entry);
+    }
+    return entry;
+  };
   const buildSelfService = () => {
-    const baseDevices = state.status?.online ? [{
-      deviceName: '我的设备', deviceType: '电脑', userMac: '02-00-00-00-00-01', userIpv4: state.status.ip,
-      onlineDuration: '0时12分', authType: nosenseMac === '02-00-00-00-00-01' ? '无线无感知认证' : '无线标准Portal接入',
-      currentDevice: true, unifiedAuthentication: true, online: true,
-      bindNoSense: nosenseMac === '02-00-00-00-00-01',
-      noSenseExpires: nosenseMac === '02-00-00-00-00-01' ? nosenseExpires : '',
-      defaultService: nosenseMac === '02-00-00-00-00-01' ? nosenseService : '套餐默认服务',
+    const acct = resolveSelfAccount();
+    const ns = selfNoSense(acct);
+    const isCurrentAcct = acct === state.config.username;
+    const onlineDeviceMac = isCurrentAcct ? LOCAL_DEMO_MAC : SECONDARY_DEMO_MAC;
+    const online = isCurrentAcct ? !!state.status?.online : !secondaryOffline.has(acct);
+    const baseDevices = online ? [{
+      deviceName: isCurrentAcct ? '我的设备' : '实验室设备',
+      deviceType: '电脑',
+      userMac: onlineDeviceMac,
+      userIpv4: isCurrentAcct ? state.status!.ip : '222.30.145.21',
+      onlineDuration: isCurrentAcct ? '0时12分' : '3时20分',
+      authType: ns.mac === onlineDeviceMac ? '无线无感知认证' : (isCurrentAcct ? '无线标准Portal接入' : '有线Web认证'),
+      currentDevice: isCurrentAcct,
+      unifiedAuthentication: true,
+      online: true,
+      bindNoSense: ns.mac === onlineDeviceMac,
+      noSenseExpires: ns.mac === onlineDeviceMac ? ns.expires : '',
+      defaultService: ns.mac === onlineDeviceMac ? ns.service : '套餐默认服务',
     }] : [];
-    const extraDevices = nosenseMac && nosenseMac !== '02-00-00-00-00-01' ? [{
-      deviceName: '', deviceType: '手机', userMac: nosenseMac, userIpv4: null,
+    const extraDevices = ns.mac && ns.mac !== onlineDeviceMac ? [{
+      deviceName: '', deviceType: '手机', userMac: ns.mac, userIpv4: null,
       onlineDuration: '', authType: '无线无感知认证',
       currentDevice: false, unifiedAuthentication: false, online: false,
-      bindNoSense: true, noSenseExpires: nosenseExpires, defaultService: nosenseService,
+      bindNoSense: true, noSenseExpires: ns.expires, defaultService: ns.service,
     }] : [];
     return {
+      account: acct,
+      localMac: LOCAL_DEMO_MAC,
       devices: [...baseDevices, ...extraDevices],
-      online: state.status?.online ? 1 : 0,
-      package: { package: '硕士研究生60G', rule: '0.00—60.00GB内免费', period: '2026-11-01 至 2026-11-30', used: '国内下行流量:10 GB 46.53 MB /60 GB 0.00 MB', percent: 16.74, balance: '0.00' },
+      online: baseDevices.length,
+      package: { package: isCurrentAcct ? '硕士研究生60G' : '博士研究生100G', rule: isCurrentAcct ? '0.00—60.00GB内免费' : '0.00—100.00GB内免费', period: '2026-11-01 至 2026-11-30', used: '国内下行流量:10 GB 46.53 MB /60 GB 0.00 MB', percent: 16.74, balance: '0.00' },
       flow: [{ name: '国内下行流量', total: '60 GB 0.00 MB', left: '49 GB 977.47 MB', percent: 16.7 }],
       remember: { remembered: false, service: '', expires: '' },
     };
@@ -138,7 +169,7 @@ export function createDemoTransport(search = ''): Transport {
               for (const item of state.accounts.items) item.current = item.id === target.id;
               Object.assign(state.config, { username: target.username, service: target.service, backend: target.backend, password_set: target.password_set });
               state.status = { online: true, service: target.service, user: target.username, ip: '10.24.16.83', message: '模拟：独立查询已确认目标账号在线' };
-              state.info = null; state.info_error = ''; state.self_service = null; state.self_error = ''; state.self_notice = ''; state.accounts.quota = { state: 'unknown', message: '目标账号剩余流量待核心确认' };
+              state.info = null; state.info_error = ''; state.self_service = null; state.self_account = ''; state.self_error = ''; state.self_notice = ''; state.accounts.quota = { state: 'unknown', message: '目标账号剩余流量待核心确认' };
               state.accounts.message = `已确认切换到${target.label || target.username}`; log('目标账号切换与核验完成');
             }
             state.busy = false; state.busy_message = ''; publish();
@@ -158,19 +189,29 @@ export function createDemoTransport(search = ''): Transport {
           state.auto = { state: 'off', message: '自动重连已关闭' }; state.prefs.auto_reconnect = false; state.info = null; state.info_error = ''; state.self_service = null; state.self_error = ''; state.self_notice = ''; state.accounts.auto_switch = false;
         }
         if (name === 'self_service') {
+          if (value !== undefined) {
+            const acct = String(value).trim();
+            state.self_account = !acct || acct.toLowerCase() === 'current' || acct === state.config.username ? '' : acct;
+          }
           if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
+          const resolved = resolveSelfAccount();
+          if (state.self_account && state.self_account !== resolved) state.self_account = resolved === state.config.username ? '' : resolved;
           state.self_service = buildSelfService();
           state.self_error = '';
           state.self_notice = '';
         }
         if (name === 'self_kick') {
           if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
+          const acct = resolveSelfAccount();
           const before = state.self_service?.online ?? 0;
           if (!before) throw new Error('模拟：设备编号超出范围');
           const count = value === 'all' ? before : 1;
+          if (acct !== state.config.username) secondaryOffline.add(acct);
           // Mirrors the desktop core: kick, then re-read the full snapshot.
           state.self_notice = `已下线 ${count} 台设备：在线 ${before} → ${before - count} 台`;
           state.self_service = {
+            account: state.self_service!.account,
+            localMac: state.self_service!.localMac,
             devices: [], online: before - count,
             package: state.self_service!.package, flow: state.self_service!.flow, remember: state.self_service!.remember,
           };
@@ -178,44 +219,51 @@ export function createDemoTransport(search = ''): Transport {
         }
         if (name === 'self_nosense_enable' || name === 'self_nosense_renew') {
           if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
+          const acct = resolveSelfAccount();
+          const ns = selfNoSense(acct);
+          const defaultMac = acct === state.config.username ? LOCAL_DEMO_MAC : SECONDARY_DEMO_MAC;
           const [rawTarget = 'current', rawService = ''] = String(value ?? 'current').split('|');
           const target = rawTarget.trim() || 'current';
-          let mac = '02-00-00-00-00-01';
+          let mac = defaultMac;
           if (target !== 'current' && target !== '1') {
             const parsed = normalizeMac(target);
             if (!parsed) throw new Error('请输入有效的设备 MAC 地址');
             mac = parsed;
           }
-          const svc = rawService.trim() || (name === 'self_nosense_renew' ? (state.nosense?.service || nosenseService || state.config.service) : '套餐默认服务');
+          const svc = rawService.trim() || (name === 'self_nosense_renew' ? (state.nosense?.service || ns.service || state.config.service) : '套餐默认服务');
           if (!NOSENSE_SERVICES.includes(svc as NoSenseService) && svc !== '校园网') throw new Error('请选择有效的缺省服务');
-          nosenseMac = mac;
-          nosenseService = svc === '校园网' ? '套餐默认服务' : svc;
-          nosenseExpires = '2026-11-17 20:00:00';
+          ns.mac = mac;
+          ns.service = svc === '校园网' ? '套餐默认服务' : svc;
+          ns.expires = '2026-11-17 20:00:00';
           state.self_service = buildSelfService();
           state.self_error = '';
-          state.self_notice = `${name === 'self_nosense_renew' ? '已续约' : '已开启'}无感认证：${nosenseMac} · 缺省服务 ${nosenseService} · 到期 ${nosenseExpires}`;
+          state.self_notice = `${name === 'self_nosense_renew' ? '已续约' : '已开启'}无感认证：${ns.mac} · 缺省服务 ${ns.service} · 到期 ${ns.expires}`;
         }
         if (name === 'self_nosense_disable') {
           if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
-          if (!nosenseMac) throw new Error('模拟：当前没有已开启无感认证的设备');
-          const oldMac = nosenseMac;
-          nosenseMac = '';
-          nosenseExpires = '';
-          nosenseService = '套餐默认服务';
+          const acct = resolveSelfAccount();
+          const ns = selfNoSense(acct);
+          if (!ns.mac) throw new Error('模拟：当前没有已开启无感认证的设备');
+          const oldMac = ns.mac;
+          ns.mac = '';
+          ns.expires = '';
+          ns.service = '套餐默认服务';
           state.self_service = buildSelfService();
           state.self_error = '';
           state.self_notice = `已关闭无感认证：${oldMac}`;
         }
         if (name === 'self_device_service') {
           if (!state.config.username || !state.config.password_set) throw new Error('模拟：请先设置账号密码');
+          const acct = resolveSelfAccount();
+          const ns = selfNoSense(acct);
           const [, rawService = ''] = String(value ?? '').split('|');
           const svc = rawService.trim();
           if (!NOSENSE_SERVICES.includes(svc as NoSenseService) && svc !== '校园网') throw new Error('请选择有效的缺省服务');
-          if (!nosenseMac) throw new Error('门户仅保留无感认证设备的缺省服务，请先开启无感认证');
-          nosenseService = svc === '校园网' ? '套餐默认服务' : svc;
+          if (!ns.mac) throw new Error('门户仅保留无感认证设备的缺省服务，请先开启无感认证');
+          ns.service = svc === '校园网' ? '套餐默认服务' : svc;
           state.self_service = buildSelfService();
           state.self_error = '';
-          state.self_notice = `已更新设备缺省服务：${nosenseMac} → ${nosenseService}`;
+          state.self_notice = `已更新设备缺省服务：${ns.mac} → ${ns.service}`;
         }
         if (name === 'set_auto') {
           state.auto = { state: value ? 'on' : 'off', message: value ? '正在监测连接，断线后自动登录' : '自动重连已关闭' }; state.prefs.auto_reconnect = !!value;
@@ -299,7 +347,14 @@ export function createDemoTransport(search = ''): Transport {
         const item = state.accounts.items.find((account) => account.id === (args as CoreCommands['delete_account']).id);
         if (!item || item.current) throw new Error('模拟：当前账号保留，请先切换到其他账号');
         if (scenario === 'delete-failure') throw new Error('模拟：删除失败，账号已保留');
-        state.accounts.items = state.accounts.items.filter((account) => account.id !== item.id); log('账号已删除');
+        state.accounts.items = state.accounts.items.filter((account) => account.id !== item.id);
+        if (state.self_account === item.username) {
+          state.self_account = '';
+          state.self_service = null;
+          state.self_error = '';
+          state.self_notice = '';
+        }
+        log('账号已删除');
       } else if (command === 'rotation') {
         const { enabled } = args as CoreCommands['rotation'];
         if (enabled) {
@@ -314,7 +369,7 @@ export function createDemoTransport(search = ''): Transport {
         const oldCurrent = current();
         state.config = { ...state.config, ...changes, password_set: password ? true : state.config.password_set };
         if (!oldCurrent || oldCurrent.username !== state.config.username) {
-          state.info = null; state.info_error = ''; state.self_service = null; state.self_error = ''; state.self_notice = '';
+          state.info = null; state.info_error = ''; state.self_service = null; state.self_account = ''; state.self_error = ''; state.self_notice = '';
           if (oldCurrent) {
             if (oldCurrent.id === 'current') oldCurrent.id = (nextId++).toString(16).padStart(32, '0');
             oldCurrent.current = false;

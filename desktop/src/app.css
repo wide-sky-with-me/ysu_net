@@ -485,6 +485,13 @@
   .account-editor-actions { margin-left: auto; }
   .account-editor-actions > button { min-width: 0; }
   .device-content { min-width: 0; }
+  .self-account-card { padding: 14px 20px; }
+  .self-account-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+  .self-account-label { font-size: 13px; font-weight: 550; color: var(--muted); flex-shrink: 0; }
+  .self-account-name { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+  .self-account-select { flex: 1 1 220px; min-width: 0; max-width: 380px; }
+  .self-account-row .inline-label { margin-left: 0; }
+  .self-mismatch { color: var(--warning); background: var(--warning-soft); }
   .device-heading-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
   .device-heading-title .inline-label { margin-left: 0; }
   .device-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -502,7 +509,7 @@
   .device-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
   .device-main strong { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
   .device-name { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-  .device-meta { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 16px; margin: 0; padding-top: 12px; border-top: 1px solid var(--border); }
+  .device-meta { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; margin: 0; padding-top: 12px; border-top: 1px solid var(--border); }
   .device-meta > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .device-meta dt { color: var(--muted); font-size: 12px; }
   .device-meta dd { margin: 0; font-size: 13px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -605,6 +612,7 @@
     .account-list > li { gap: 8px 10px; }
     .account-editor { padding: 14px; }
     .account-editor .form-row { grid-template-columns: 84px minmax(0, 1fr); gap: 10px; }
+    .self-account-select { max-width: none; }
     .device-row-actions { grid-column: 1 / -1; grid-row: auto; justify-self: start; }
     .device-meta, .device-meta.summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }

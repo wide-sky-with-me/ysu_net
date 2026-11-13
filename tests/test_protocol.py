@@ -298,6 +298,93 @@ class ProtocolTests(OfflineTestCase):
             runpy.run_path(str(api.__file__), run_name="__main__")
         self.assertEqual(exc.exception.code, 3)
 
+    def test_open_portal_upgrades_redirect_jsp_legacy_http_target_and_keeps_query(self):
+        sess = self.session()
+        https_target = (
+            "https://auth1.ysu.edu.cn/portal/portal-main"
+            "?sessionId=sid123&userIp=192.0.2.10&ssid=YSU-WLAN&customPageId=cp1"
+        )
+        legacy_target = https_target.replace("https://", "http://", 1)
+        sess.get.side_effect = [
+            SimpleNamespace(status_code=200, headers={}, history=[], url=api.URLS.entry_index, text="no sid"),
+            SimpleNamespace(status_code=302, headers={"Location": legacy_target}, history=[], url=api.URLS.entry_redirect, text=""),
+            SimpleNamespace(status_code=200, headers={}, history=[], url=https_target, text="portal"),
+        ]
+        context = api.open_portal_get_session(False)
+        self.assertEqual(context.session_id, "sid123")
+        self.assertEqual(context.last_url, https_target)
+        self.assertEqual(sess.get.call_args_list[2].args[0], https_target)
+
+    def test_cas_risk_page_helper_ignores_script_dictionaries(self):
+        safe_html = "<script>const x='/noSupport';</script><style>.noSupport{}</style><template>安全验证</template><div>ok</div>"
+        self.assertFalse(api._is_cas_risk_page(safe_html))
+        self.assertTrue(api._is_cas_risk_page("<title>IP被冻结</title>"))
+        self.assertTrue(api._is_cas_risk_page("<div>风险<span>验证</span></div>"))
+
+    def test_cas_get_risk_page_requires_interaction(self):
+        sess = self.session()
+        login_url = "https://cer.ysu.edu.cn/authserver/login?service=mock"
+        sess.get.side_effect = [
+            SimpleNamespace(url="https://auth1.ysu.edu.cn/cas-sso/clientredirect", is_redirect=True, headers={"Location": login_url}),
+            SimpleNamespace(content="<h1>IP被冻结</h1>".encode(), url=login_url),
+        ]
+        with self.assertRaises(InteractionRequired):
+            api.cas_login(sess, "mock-user", "plain-password", False)
+        sess.post.assert_not_called()
+
+    def test_cas_tgc_reuse_risk_page_clears_session_and_requires_interaction(self):
+        sess = self.session()
+        login_url = "https://cer.ysu.edu.cn/authserver/login?service=mock"
+        sess.get.side_effect = [
+            SimpleNamespace(url="https://auth1.ysu.edu.cn/cas-sso/clientredirect", is_redirect=True, headers={"Location": login_url}),
+            SimpleNamespace(content="<div>风险<span>验证</span></div>".encode(), url="https://auth1.ysu.edu.cn/portal/entry/pc/authenticate?ticket=t"),
+        ]
+        clear = self.mock("ysu_net.auth.selfservice.clear_session")
+        with self.assertRaises(InteractionRequired):
+            api.cas_login(sess, "mock-user", "plain-password", False)
+        clear.assert_called_once()
+        sess.post.assert_not_called()
+
+    def test_cas_callback_risk_page_requires_interaction(self):
+        sess = self.cas_fixture()
+        login_url = "https://cer.ysu.edu.cn/authserver/login?service=mock"
+        sess.get.side_effect = [
+            SimpleNamespace(url="https://auth1.ysu.edu.cn/cas-sso/clientredirect", is_redirect=True, headers={"Location": login_url}),
+            SimpleNamespace(
+                content=b'<form action="/authserver/login"><input name="username"><input name="password"><input name="execution" value="e"><input id="pwdEncryptSalt" value="0123456789abcdef"></form>',
+                url=login_url,
+            ),
+            SimpleNamespace(status_code=200, headers={}, url="https://auth1.ysu.edu.cn/finish", content="<h1>安全验证</h1>".encode()),
+        ]
+        with self.assertRaises(InteractionRequired):
+            api.cas_login(sess, "mock-user", "plain-password", False)
+
+    def test_cas_pwd_salt_prefers_selected_form_and_validates_length(self):
+        html = (
+            '<form id="phoneFromId"><input name="username"><input id="pwdEncryptSalt" value="short"></form>'
+            '<form id="pwdFromId" action="/authserver/login"><input name="username"><input name="password">'
+            '<input name="execution" value="pwd-exec"><input value="0123456789abcdef" id="pwdEncryptSalt"></form>'
+        )
+        form = api._extract_login_form(html)
+        self.assertEqual(api._extract_pwd_salt(form), "0123456789abcdef")
+        self.assertIsNone(api._extract_pwd_salt('<input id="pwdEncryptSalt" value="tooshort">'))
+
+        sess = self.session()
+        login_url = "https://cer.ysu.edu.cn/authserver/login?service=mock"
+        sess.get.side_effect = [
+            SimpleNamespace(url="https://auth1.ysu.edu.cn/cas-sso/clientredirect", is_redirect=True, headers={"Location": login_url}),
+            SimpleNamespace(content=b'<form><input name="username"><input name="password"><input id="pwdEncryptSalt" value="bad"></form>', url=login_url),
+        ]
+        with self.assertRaises(InteractionRequired):
+            api.cas_login(sess, "mock-user", "plain-password", False)
+
+    def test_cas_nested_error_msg_and_captcha_retry_filters(self):
+        nested = '<span id="msg"><span>无效的验证码</span></span>'
+        self.assertEqual(api._extract_cas_error_msg(nested), "无效的验证码")
+        self.assertTrue(api._cas_rejected_by_captcha(nested))
+        self.assertFalse(api._cas_rejected_by_captcha('<span id="msg">访问频繁，请稍后重试验证码</span>'))
+        self.assertFalse(api._cas_rejected_by_captcha('<h1>安全验证</h1><span id="msg">无效的验证码</span>'))
+
 
 class BrowserTests(OfflineTestCase):
     def setUp(self):

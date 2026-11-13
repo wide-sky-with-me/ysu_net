@@ -446,10 +446,20 @@ impl AuthClient {
             let _guard = at(DiagnosticStage::Queue, op.run(self.lock.lock())).await?;
             let service = selfservice::SelfService::open(&self.config, self.local, &op).await?;
             let result = service.snapshot(&op).await;
-            if result.is_err() {
-                selfservice::forget_session(&self.config, self.local).await;
+            match result {
+                Ok(mut snapshot) => {
+                    snapshot.account = self.config.username.clone();
+                    snapshot.local_mac = tokio::task::spawn_blocking(selfservice::detect_local_mac)
+                        .await
+                        .ok()
+                        .flatten();
+                    Ok(snapshot)
+                }
+                Err(error) => {
+                    selfservice::forget_session(&self.config, self.local).await;
+                    Err(error)
+                }
             }
-            result
         })
         .await
     }

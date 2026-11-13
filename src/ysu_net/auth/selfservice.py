@@ -552,17 +552,22 @@ def session_state(session: requests.Session) -> dict:
 
 
 def snapshot(base: str, cas_host: str, username: str, password: str,
-             debug: bool = False, fresh: bool = False) -> dict:
+             debug: bool = False, fresh: bool = False,
+             *, local_mac: str | None = None) -> dict:
     """Read-only snapshot: devices, package, remaining flow, remembered service."""
     session = open_session(base, cas_host, username, password, debug=debug, fresh=fresh)
     try:
-        return {
+        out = {
+            "account": username,
             "session": session_state(session),
             "devices": parse_devices(fetch(session, base, DEVICES)),
             "package": parse_package(fetch(session, base, PACKAGE_OVERVIEW)),
             "flow": parse_flow(fetch(session, base, PACKAGE_FLOW)),
             "remember": parse_remember(fetch(session, base, REMEMBER_CURRENT)),
         }
+        if local_mac:
+            out["localMac"] = normalize_mac(local_mac) or local_mac
+        return out
     except Exception:
         clear_session()
         raise
@@ -571,6 +576,8 @@ def snapshot(base: str, cas_host: str, username: str, password: str,
 def format_snapshot(snap: dict) -> str:
     """Human-readable block for the CLI; portal wording only, no derived values."""
     lines = ["自助服务（门户原文）"]
+    if snap.get("account"):
+        lines.append(f"账号：{snap['account']}")
     state = snap.get("session") or {}
     if state.get("cached"):
         left = state.get("expires_in")
@@ -579,6 +586,7 @@ def format_snapshot(snap: dict) -> str:
     elif state.get("cached") is False:
         lines.append("会话：本次新登录")
     dev = snap.get("devices") or {}
+    local_mac = normalize_mac(snap.get("localMac"))
     lines.append(f"在线设备：{dev.get('online', 0)} 台 / 共 {dev.get('total', 0)} 条")
     for index, row in enumerate(dev.get("rows") or [], 1):
         bits = [f"{k}={row[k]}" for k in ("类型", "MAC", "IP", "在线时长", "接入方式")
@@ -594,6 +602,8 @@ def format_snapshot(snap: dict) -> str:
             tags.append("在线")
         if row.get("本机") == "是":
             tags.append("本机")
+        elif local_mac and normalize_mac(row.get("MAC")) == local_mac:
+            tags.append("本机网卡")
         head = f"  {index}. {row.get('设备名称') or '未命名'}"
         if tags:
             head += f"（{'，'.join(tags)}）"
@@ -631,7 +641,8 @@ def format_snapshot(snap: dict) -> str:
 
 def cmd_self(username: str, password: str, base: str, cas_host: str,
              raw: bool, debug: bool, fresh: bool = False) -> str:
-    snap = snapshot(base, cas_host, username, password, debug=debug, fresh=fresh)
+    snap = snapshot(base, cas_host, username, password, debug=debug, fresh=fresh,
+                    local_mac=detect_local_mac())
     if raw:
         import json
         return json.dumps(snap, ensure_ascii=False, indent=2)
@@ -757,7 +768,8 @@ def format_kick(result: dict) -> str:
 
 _VIRTUAL_IFACE_KEYWORDS = (
     "wsl", "hyper-v", "vmware", "virtualbox", "bluetooth", "蓝牙",
-    "loopback", "tunnel", "tap", "wintun", "clash", "mihomo",
+    "loopback", "tunnel", "tap", "wintun", "clash", "mihomo", "meta tunnel",
+    "tailscale", "zerotier", "wireguard", "sing-box", "tun2socks",
     "本地连接*", "veth", "docker", "virbr", "br-", "utun", "awdl", "llw",
 )
 
@@ -771,8 +783,13 @@ def parse_adapter_mac_from_text(text: str) -> str | None:
         lines = block.splitlines()
         if not lines:
             continue
-        head = lines[0].lower()
-        is_virtual = any(k in head for k in _VIRTUAL_IFACE_KEYWORDS) or head.startswith("lo")
+        header_and_desc = [lines[0].lower()]
+        for line in lines[1:]:
+            lower = line.lower()
+            if "描述" in lower or "description" in lower:
+                header_and_desc.append(lower)
+        meta = "\n".join(header_and_desc)
+        is_virtual = any(k in meta for k in _VIRTUAL_IFACE_KEYWORDS) or lines[0].lower().startswith("lo")
         raw_macs = re.findall(
             r"\b([0-9A-Fa-f]{2}(?:[:-][0-9A-Fa-f]{2}){5})\b", block
         )
