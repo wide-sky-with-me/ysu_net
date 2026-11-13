@@ -359,7 +359,7 @@ fn main() {
             if options.smoke {
                 smoke::start(handle);
             } else if !bridge.demo {
-                updater::start_startup_check(handle, bridge.clone());
+                updater::start_startup_check(handle.clone(), bridge.clone());
             }
             Ok(())
         })

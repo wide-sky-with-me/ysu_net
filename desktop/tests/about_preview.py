@@ -586,7 +586,7 @@ def main():
         page.evaluate("window.__aboutUpdater.hold('install')")
         dialog.get_by_role('button', name='立即更新', exact=True).click()
         page.wait_for_function("window.__aboutUpdater.pending('install')")
-        page.evaluate("window.__aboutUpdater.publish({phase:'downloading',download_mode:'delta',downloaded:512,total:1024})")
+        page.evaluate("window.__aboutUpdater.publish({phase:'downloading',release:{version:'0.2.4',notes:''},download_mode:'delta',downloaded:512,total:1024})")
         expect(dialog.locator('.update-progress progress')).to_be_visible()
         page.evaluate("window.__aboutUpdater.complete('install',{phase:'restart_required',release:{version:'0.2.4',notes:''},error:null})")
         expect(dialog).to_contain_text('更新已就绪 v0.2.4')
