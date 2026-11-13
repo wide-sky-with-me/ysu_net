@@ -271,15 +271,11 @@ impl UpdateManager {
     }
 
     fn set_startup_prompt(&self, app: &AppHandle, prompt: StartupUpdatePrompt) {
-        if self
-            .dismissed_prompt_version
-            .lock()
-            .unwrap()
-            .as_deref()
-            == Some(prompt.version.as_str())
-        {
+        let dismissed = self.dismissed_prompt_version.lock().unwrap();
+        if dismissed.as_deref() == Some(prompt.version.as_str()) {
             return;
         }
+        drop(dismissed);
         *self.startup_prompt.lock().unwrap() = Some(prompt.clone());
         let _ = app.emit("updater-startup-prompt", &prompt);
     }
