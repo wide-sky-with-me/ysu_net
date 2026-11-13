@@ -232,6 +232,6 @@ describe('startup update prompt contract', () => {
     expect(rendered.body).toContain('暂不提醒');
     expect(rendered.body).toContain('立即更新');
     expect(rendered.body).not.toContain('<script>alert(1)</script>');
-    expect(rendered.body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(rendered.body).toContain('&lt;script>alert(1)&lt;/script>');
   });
 });

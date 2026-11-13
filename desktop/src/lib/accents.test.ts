@@ -22,7 +22,10 @@ describe('accent preferences', () => {
   it.each([undefined, null, false, 42, {}, [], 'future', 'BLUE', ' blue ', ''])('falls back without losing valid preferences: %j', (accent) => {
     const original = demoSnapshot('?theme=dark&scenario=no-auto');
     const prefs = { ...original.prefs, accent, close_to_tray: false };
-    expect(parseSnapshot({ ...original, prefs }).prefs).toEqual({ theme: 'dark', accent: 'blue', close_to_tray: false, auto_reconnect: false, autostart_minimized: true });
+    expect(parseSnapshot({ ...original, prefs }).prefs).toEqual({
+      theme: 'dark', accent: 'blue', close_to_tray: false, auto_reconnect: false, autostart_minimized: true,
+      auto_check_update: true, auto_install_update: false, ignored_update_version: '',
+    });
     expect(prefs.accent).toBe(accent);
   });
 
@@ -37,6 +40,7 @@ describe('accent preferences', () => {
     await transport.request('save_prefs', { close_to_tray: false });
     expect(parseSnapshot(await transport.request('snapshot', {})).prefs).toEqual({
       theme: 'dark', accent: 'teal', close_to_tray: false, auto_reconnect: true, autostart_minimized: true,
+      auto_check_update: true, auto_install_update: false, ignored_update_version: '',
     });
   });
 
