@@ -318,8 +318,7 @@ impl Session {
                         op,
                     )
                     .await?;
-                r.ensure_success()?;
-                check_action(&r, &r.json()?)
+                check_action_reply(&r)
             })
             .await?;
             // A concurrent login must not be overwritten between selection and activation.
@@ -339,8 +338,7 @@ impl Session {
                         op,
                     )
                     .await?;
-                r.ensure_success()?;
-                check_action(&r, &r.json()?)
+                check_action_reply(&r)
             })
             .await?;
         } else if !matches!(node.as_str(), "finish" | "online" | "userOnline") {
@@ -400,8 +398,7 @@ impl Session {
                 .http
                 .once(Method::POST, url, headers, Some(body), op)
                 .await?;
-            r.ensure_success()?;
-            check_action(&r, &r.json()?)
+            check_action_reply(&r)
         })
         .await?;
         at(Stage::Verification, async {
@@ -1172,6 +1169,16 @@ fn is_terminal_auth_rejection(compact: &str) -> bool {
     ]
     .iter()
     .any(|term| compact.contains(term))
+}
+
+pub(crate) fn check_action_reply(r: &Reply) -> Result<(), AuthError> {
+    if r.status == 429 {
+        return Err(
+            AuthError::interaction("门户请求过于频繁，请稍后重试").because(Reason::HttpRejected)
+        );
+    }
+    r.ensure_success()?;
+    check_action(r, &r.json()?)
 }
 
 pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {

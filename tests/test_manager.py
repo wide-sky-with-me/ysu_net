@@ -706,8 +706,9 @@ class WatchEnhancementsTests(OfflineTestCase):
         config.save_schedule(path, night_pause=True, start="23:30", end="06:00")
 
         # Two transient failures followed by a 3rd successful login must clear protection cleanly.
+        daytime = datetime(2026, 11, 18, 14, 0, tzinfo=tz)
         runner = Mock(side_effect=[Result(1), Result(3), Result(1), Result(3), Result(1), Result(0)])
-        w = daemon.Reconnector(runner, jitter=lambda *_: 0, path=path)
+        w = daemon.Reconnector(runner, jitter=lambda *_: 0, path=path, now_fn=lambda: daytime)
         w.step(cfg)
         w.step(cfg)
         _, msg = w.step(cfg)

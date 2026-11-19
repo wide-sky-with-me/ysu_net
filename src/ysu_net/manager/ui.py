@@ -19,10 +19,15 @@ def is_terminal(stream=None):
     return bool(getattr(stream or sys.stdout, "isatty", lambda: False)())
 
 
+_TERMINAL_ESCAPE = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))|\x9b[0-?]*[ -/]*[@-~]"
+)
+
+
 def clean(value):
     # Do not interpret terminal controls contained in paths or server responses.
-    value = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", str(value))
-    return "".join(c for c in value if c in "\n\t" or (ord(c) >= 32 and ord(c) != 127))
+    value = _TERMINAL_ESCAPE.sub("", str(value))
+    return "".join(c for c in value if c in "\n\t" or (ord(c) >= 32 and not (0x7F <= ord(c) <= 0x9F)))
 
 
 def display_width(text):
@@ -104,8 +109,10 @@ def menu_help():
         ("13 账户与剩余流量", "联网查询账户、设备和门户提供的额度；不下线、不改配置。门户未返回额度时显示未提供，不代表零或不限量。"),
         ("14 联网诊断 doctor", "在本地检查基础上查询网络及实际运营商；不登录、不下线、不自动修复。"),
         ("15 选项说明", "显示本页；也可输入 h 或 ?。"),
-        ("16 多账号与自动换号", "管理保存的账号、核验热切换及自动换号；换号会短暂断网，后台运行时交给其串行处理。自动换号默认关闭，仅连续明确零剩余流量时触发，未知额度保持原账号。"),
+        ("16 多账号与自动换号", "管理保存的账号、核验热切换及自动换号；换号会短暂断网，后台运行时交给其串行处理。自动换号默认关闭，仅在连续确认零剩余流量或认证设备数达上限时触发，未知额度保持原账号。"),
         ("17 我的设备与自助服务", "登录自助服务查看在线设备、套餐与剩余流量；支持下线设备、无感认证、缺省服务与自动续约（ysu self --help）。"),
+        ("18 开启夜间保护", "开启宿舍夜间停网静默保护（默认周日至周四 23:30–06:00 暂停重连与续约，06:00 自动恢复）；自定义时段可用 ysu night --help。"),
+        ("19 关闭夜间保护", "关闭夜间停网静默保护；后台守护将在下一轮按常规间隔检查连接。"),
         ("0 退出", "仅退出菜单；已启动的后台服务会继续运行，网络连接保持不变。"),
     )
     for label, description in descriptions:

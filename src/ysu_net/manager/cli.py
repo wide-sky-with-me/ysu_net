@@ -271,6 +271,7 @@ def menu(args, path):
         "5": ["config", "account"], "6": ["service"], "7": ["doctor"], "8": ["logs"],
         "9": ["stop"], "10": ["boot", "on"], "11": ["boot", "off"], "12": ["config", "show"],
         "13": ["info"], "14": ["doctor", "--network"], "16": ["accounts"], "17": ["self"],
+        "18": ["night", "on"], "19": ["night", "off"],
     }
     while True:
         ui.heading("YSU · 燕山大学校园网")
@@ -286,7 +287,7 @@ def menu(args, path):
         ui.section("连接管理")
         ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连", "13  账户与剩余流量", "17  我的设备与自助服务"])
         ui.section("配置与维护")
-        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", "14  联网诊断 doctor", " 8  查看日志", "12  查看配置", "10  开启自启", "11  关闭自启", "16  多账号与自动换号", "15  选项说明（用途与影响）"])
+        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", "14  联网诊断 doctor", " 8  查看日志", "12  查看配置", "10  开启自启", "11  关闭自启", "18  开启夜间保护", "19  关闭夜间保护", "16  多账号与自动换号", "15  选项说明（用途与影响）"])
         print()
         ui.choices([" 0  退出"])
         print()
@@ -400,6 +401,7 @@ def dispatch(args):
                     update_config(path, service=args.name)
                 except (OSError, ValueError):
                     raise RuntimeError(f"已切换到{args.name}，但配置保存失败，请检查目录权限") from None
+                clear_protection(path)
         ui.message(result.message, "success" if result.code == 0 else "error")
         return result.code
     if command in ("service", "backend"):

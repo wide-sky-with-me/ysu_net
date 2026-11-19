@@ -69,7 +69,8 @@ ysu info                         # 查看套餐与剩余流量
 
 ```bash
 # 为本机开启 7 天无感认证，并开启到期前 24 小时后台自动续约
-ysu self nosense current --service 中国联通 --auto-renew
+ysu self nosense current --service 中国联通
+ysu self renew on --service 中国联通
 ```
 
 ### 5. 断开连接

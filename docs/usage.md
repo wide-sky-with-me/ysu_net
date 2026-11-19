@@ -50,19 +50,20 @@ ysu on                   # 立即登录并开启后台自动重连
 
 | 命令 | 作用 |
 | --- | --- |
-| `ysu` | 在交互式终端打开文本菜单；非交互环境输出状态摘要 |
-| `ysu on` | 立即登录校园网，并启动、启用后台自动重连服务 |
-| `ysu off` | 停止、禁用后台自动重连服务，并主动下线当前校园网连接 |
+| `ysu` | 在交互式终端打开文本菜单；非交互环境输出帮助说明 |
+| `ysu on` | 启动后台自动重连服务（离线时由守护自动发起登录） |
+| `ysu off` | 停止后台自动重连服务，并主动下线当前校园网连接 |
 | `ysu login` | 仅执行一次登录（不修改后台服务开关） |
-| `ysu logout` | 仅执行一次下线（若后台自动重连仍在运行，建议先 `ysu stop` 或直接用 `ysu off`） |
-| `ysu status [--json]` | 查询校园网实际在线状态（学号、运营商、IP）及后台守护状态 |
-| `ysu info [--raw] [--json]` | 查询当前账号套餐、计费周期、剩余流量与连接详情 |
-| `ysu service [运营商]` | 查看或切换运营商（`校园网`、`中国移动`、`中国联通`、`中国电信`）；若当前已在线会先下线再按新运营商重连 |
+| `ysu logout` | 停止后台重连并下线当前校园网连接 |
+| `ysu status [--raw]` | 查询校园网实际在线状态（学号、运营商、IP） |
+| `ysu info [--raw]` | 查询当前账号套餐、计费周期、剩余流量与连接详情 |
+| `ysu service [运营商]` | 查看或配置下次登录使用的运营商（`校园网`、`中国移动`、`中国联通`、`中国电信`） |
+| `ysu switch <运营商>` | 立即切换当前在线运营商并核验结果，失败时自动尝试恢复原连接（需先 `ysu stop`） |
 | `ysu start` / `ysu stop` / `ysu restart` | 启动 / 停止 / 重启后台自动重连服务（`stop` 不会断开已建立的校园网连接） |
-| `ysu enable` / `ysu disable` | 开启 / 关闭开机自启 |
+| `ysu boot [on\|off\|status]` | 开启、关闭或查看开机自启状态 |
 | `ysu night [on\|off\|status]` | 配置宿舍夜间停网静默保护与晨间自动恢复（支持 `--start HH:MM`、`--end HH:MM`、`--dorm` / `--everyday`、`--raw`） |
 | `ysu logs [-n 行数] [-f]` | 查看后台守护日志（`-f` 持续跟随输出） |
-| `ysu doctor [--network] [--json]` | 检查本地配置、锁文件与依赖；加 `--network` 可额外测试门户连通性 |
+| `ysu doctor [--network]` | 检查本地配置、权限与依赖；加 `--network` 可额外测试门户连通性与实际运营商 |
 
 ---
 
@@ -70,13 +71,13 @@ ysu on                   # 立即登录并开启后台自动重连
 
 `ysu self` 直连校园网自助服务系统（`https://auth1.ysu.edu.cn/self`），用于管理在线设备、7 天 MAC 无感认证、默认上网服务与到期前自动续约。
 
-所有 `ysu self` 子命令均支持 `--account <标识>` 参数，用于指定操作[账号池](accounts.md)中的某个已保存账号；不指定时默认操作当前活动主账号。
+所有 `ysu self` 子命令均支持 `--account <标识>` 参数，用于指定操作[账号池](accounts.md)中的某个已保存账号（填用户名或账号 `id`）；不指定时默认操作当前活动主账号。
 
 ### 1. 查看在线设备与无感状态
 
 ```bash
 ysu self                      # 查看当前账号的在线设备、套餐流量、无感认证记录与自动续约状态
-ysu self list --json          # 以 JSON 格式输出完整快照
+ysu self list --raw           # 以 JSON 格式输出完整快照
 ysu self list --account backup # 查看账号池中指定账号的自助服务状态
 ```
 
@@ -95,18 +96,19 @@ ysu self list --account backup # 查看账号池中指定账号的自助服务�
 # 为本机开启 7 天无感认证（优先匹配本机在线设备，若当前账号无在线设备则自动探测本机物理网卡 MAC）
 ysu self nosense current
 
-# 开启无感认证的同时指定默认上网服务，并一并开启到期前自动续约
-ysu self nosense current --service 中国联通 --auto-renew
+# 开启无感认证的同时指定默认上网服务，并开启到期前自动续约
+ysu self nosense current --service 中国联通
+ysu self renew on --service 中国联通
 
 # 为指定序号或指定 MAC 的设备开启无感认证
-ysu self nosense 1 --name "我的笔记本"
-ysu self nosense AA-BB-CC-DD-EE-FF --name "路由器" --service 中国移动
+ysu self nosense 1
+ysu self nosense AA-BB-CC-DD-EE-FF --service 中国移动
 
 # 取消本机、指定序号、指定 MAC 或全部无感认证记录
 ysu self unbind current
 ysu self unbind 1
 ysu self unbind AA-BB-CC-DD-EE-FF
-ysu self unbind all -y
+ysu self unbind all
 ```
 
 ### 3. 修改无感默认上网服务
@@ -127,14 +129,14 @@ ysu self service AA-BB-CC-DD-EE-FF --service 校园网
 ysu self renew on --service 中国联通
 
 # 为账号池中的指定账号与指定设备 MAC 开启独立自动续约
-ysu self renew on --account backup --mac AA-BB-CC-DD-EE-FF --name "宿舍路由器" --service 中国移动
+ysu self renew on --account backup --mac AA-BB-CC-DD-EE-FF --service 中国移动
 
-# 查看自动续约配置与上次续约结果
+# 查看自动续约配置
 ysu self renew status
 
-# 立即触发一次续约检查（加 --force 可忽略 24 小时窗口立即重绑刷新 7 天有效期）
-ysu self renew now
-ysu self renew now --force
+# 立即触发一次续约检查（加 --yes 可忽略 24 小时窗口立即重绑刷新 7 天有效期）
+ysu self renew
+ysu self renew --yes
 
 # 关闭自动续约
 ysu self renew off
@@ -146,8 +148,8 @@ ysu self renew off
 
 ```bash
 ysu self kick 1               # 下线列表中的第 1 台设备（交互确认）
-ysu self kick current -y      # 跳过确认，直接下线本机
-ysu self kick all -y          # 下线该账号下的全部在线设备
+ysu self kick current --yes   # 跳过确认，直接下线本机
+ysu self kick all --yes       # 下线该账号下的全部在线设备
 ```
 
 ---
@@ -157,11 +159,14 @@ ysu self kick all -y          # 下线该账号下的全部在线设备
 ### 交互与命令配置
 
 ```bash
-ysu config show               # 查看当前生效配置（密码自动隐藏）
+ysu config show               # 查看当前生效配置（密码自动隐藏；加 --raw 输出 JSON）
 ysu config account            # 修改主账号学号与密码
-ysu config service 中国移动    # 修改默认运营商
-ysu config backend api        # 切换认证方式：api（默认）或 browser
-ysu config timer --check-interval 15 --retry-interval 30 --max-retry-interval 900 --operation-timeout 180
+ysu service 中国移动          # 修改下次登录使用的默认运营商
+ysu backend api               # 切换认证方式：api（默认）或 browser
+ysu config set check_interval 15
+ysu config set retry_interval 30
+ysu config set max_retry_interval 900
+ysu config set operation_timeout 180
 ysu config path               # 查看配置文件所在路径
 ```
 

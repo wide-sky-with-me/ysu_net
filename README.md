@@ -128,19 +128,20 @@ ysu on                           # 立即登录并启动后台自动重连
 
 | 场景 | 命令 | 说明 |
 | --- | --- | --- |
-| **日常连接** | `ysu on` / `ysu off` | 登录并启动后台守护 / 停止守护并下线 |
-| | `ysu status` / `ysu info` | 查看连接与守护状态 / 查看套餐与剩余流量 |
-| | `ysu service 中国联通` | 切换到指定运营商并更新配置 |
+| **日常连接** | `ysu on` / `ysu off` | 启动后台自动重连 / 停止守护并下线 |
+| | `ysu status` / `ysu info` | 查看连接状态 / 查看套餐与剩余流量 |
+| | `ysu service 中国联通` / `ysu switch 中国联通` | 配置下次登录运营商 / 立即核验切换当前连接 |
 | | `ysu night on` / `ysu night off` | 开启或关闭宿舍夜间停网静默保护（默认周日–周四 `23:30–06:00`） |
 | | `ysu start` / `ysu stop` | 仅启动或停止后台自动重连（不下线当前连接） |
 | **无感认证与续约** | `ysu self` | 查看在线设备、套餐流量、7 天无感认证与自动续约状态 |
 | | `ysu self nosense current --service 中国联通` | 为本机开启 7 天无感认证并设置默认上网服务 |
 | | `ysu self renew on` | 开启本机无感认证到期前 24 小时自动续约 |
 | | `ysu self unbind current` | 取消本机（或指定序号/MAC、`all`）的无感认证 |
-| | `ysu self kick 2` / `ysu self kick all` | 下线指定设备或全部在线设备 |
-| **多账号池** | `ysu account add` / `ysu account list` | 添加备用账号 / 查看账号池与流量状态 |
-| | `ysu account use <标识>` | 热切换到指定账号（自动同步解绑/重绑本机无感认证） |
-| | `ysu account auto on` | 开启剩余流量归零时自动切换到下一可用账号 |
+| | `ysu self kick 2 --yes` / `ysu self kick all --yes` | 下线指定设备或全部在线设备 |
+| **多账号池** | `ysu accounts` / `ysu accounts list` | 打开多账号交互菜单 / 查看账号池状态 |
+| | `ysu accounts save <学号> --service 中国联通` | 添加备用账号到账号池（交互隐藏输入密码） |
+| | `ysu accounts switch <id>` | 热切换到指定账号（自动同步解绑/重绑本机无感认证） |
+| | `ysu accounts rotation on` | 开启零流量或设备数达上限时自动切换到下一可用账号 |
 | **排障与维护** | `ysu doctor` / `ysu logs -f` | 检查本地配置与运行环境 / 实时查看守护日志 |
 
 完整参数、配置文件路径与高级用法请参阅 [命令与配置手册](docs/usage.md) 和 [多账号与无感联动说明](docs/accounts.md)。

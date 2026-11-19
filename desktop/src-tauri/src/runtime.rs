@@ -1959,6 +1959,8 @@ impl Worker {
                         self.runtime
                             .save_config(json!({"service":target}).as_object().unwrap().clone())
                             .await?;
+                        self.reconnect = Reconnect::default();
+                        self.runtime.store.clear_protection();
                     }
                     self.runtime.update(|state| {
                         if matches!(action, Action::Logout) {

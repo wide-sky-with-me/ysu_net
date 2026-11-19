@@ -207,6 +207,7 @@ struct State {
     state_failure_at: Option<usize>,
     offline_ack_only: bool,
     rejected_service: Option<String>,
+    select_http: u16,
     select_override: Option<Value>,
     bootstrap_index_empty: bool,
     observed_action_envelopes: bool,
@@ -248,6 +249,7 @@ impl Default for State {
             state_failure_at: None,
             offline_ack_only: false,
             rejected_service: None,
+            select_http: 200,
             select_override: None,
             bootstrap_index_empty: false,
             observed_action_envelopes: false,
@@ -534,6 +536,13 @@ fn respond(s: &mut State, r: Request) -> Response {
                 .cookie("JSESSIONID=portal-cookie; Path=/; HttpOnly")
         }
         "/eportal/network/serviceLogin" => {
+            if s.select_http != 200 {
+                return Response::body(
+                    s.select_http,
+                    b"Too Many Requests".to_vec(),
+                    "text/plain;charset=utf-8",
+                );
+            }
             if let Some(payload) = &s.select_override {
                 return Response::json(payload.clone());
             }
@@ -818,7 +827,7 @@ async fn cas_captcha_and_risk_never_submit() {
 }
 #[tokio::test]
 async fn cas_rejection_is_redacted_and_retryable_http_is_query_error() {
-    for (http, code) in [(200, INTERACTION_ERROR), (503, QUERY_ERROR)] {
+    for (http, code) in [(200, INTERACTION_ERROR), (429, INTERACTION_ERROR), (503, QUERY_ERROR)] {
         let f = Fixture::new();
         f.mutate(|s| {
             s.cas_required = true;
@@ -1430,6 +1439,23 @@ fn check_action_classifies_bras_mac_collision_fullwidth_and_device_limits() {
         assert_eq!(err.code, INTERACTION_ERROR);
         assert_eq!(err.diagnostic().reason, DiagnosticReason::DeviceLimit);
     }
+}
+
+#[tokio::test]
+async fn login_classifies_portal_http_429_and_device_limit_through_public_client() {
+    let f = Fixture::new();
+    f.mutate(|s| s.select_http = 429);
+    let rate_err = f.client().login().await.unwrap_err();
+    assert_eq!(rate_err.code, INTERACTION_ERROR);
+    assert_eq!(rate_err.diagnostic().reason, DiagnosticReason::HttpRejected);
+
+    let f2 = Fixture::new();
+    f2.mutate(|s| {
+        s.select_override = Some(json!({"result": "fail", "errorMsg": "DeviceLimit"}));
+    });
+    let limit_err = f2.client().login().await.unwrap_err();
+    assert_eq!(limit_err.code, INTERACTION_ERROR);
+    assert_eq!(limit_err.diagnostic().reason, DiagnosticReason::DeviceLimit);
 }
 
 #[path = "diagnostic_tests.rs"]
