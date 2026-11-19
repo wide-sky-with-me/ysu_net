@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { demoSnapshot } from './demo';
 import { parseSnapshot } from './protocol';
-import { confirmAutostart, confirmedPreferences, parseDesktopSettings, preferenceNotice, SETTING_UNCONFIRMED, settingBusyMessage, settingError } from './settings';
+import { confirmAutostart, confirmedPreferences, confirmedSchedule, parseDesktopSettings, preferenceNotice, SETTING_UNCONFIRMED, settingBusyMessage, settingError } from './settings';
 import type { Setting } from './settings';
 
 describe('confirmed desktop settings', () => {
@@ -44,6 +44,12 @@ describe('confirmed desktop settings', () => {
     const data = demoSnapshot();
     const confirmed = confirmedPreferences({ ...data, config: { ...data.config, password: 'fixture-secret' } }, { autostart_minimized: true });
     expect(confirmed.config).not.toHaveProperty('password');
+  });
+  it('confirms schedule writes only when night_pause matches the requested state', () => {
+    const data = demoSnapshot();
+    expect(() => confirmedSchedule(data, true)).toThrow(SETTING_UNCONFIRMED);
+    const enabled = { ...data, schedule: { night_pause: true, start: '23:30', end: '06:00', weekdays: [0, 1, 2, 3, 6] } };
+    expect(confirmedSchedule(enabled, true).schedule?.night_pause).toBe(true);
   });
 });
 

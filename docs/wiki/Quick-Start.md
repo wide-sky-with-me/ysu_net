@@ -1,8 +1,8 @@
-# 快速开始
+# 燕山大学校园网快速开始（桌面客户端与 Linux 命令行）
 
 [返回导航](Home.md) · [桌面客户端](Desktop-Client.md) · [命令行速查](CLI-Reference.md) · [常见问题排障](Troubleshooting.md)
 
-**YSU Net** 提供 **桌面客户端（Windows / Ubuntu / macOS）** 和 **Linux Shell 命令行（`ysu`）** 双版本。在开始前，请先确认设备已接入燕山大学校园网有线或无线网络（能够访问校园网门户 `auth1.ysu.edu.cn`）。
+**YSU Net** 提供 **桌面客户端（Windows / Ubuntu / macOS）** 和 **Linux Shell 命令行（`ysu`）** 双版本，用于燕山大学（YSU）宿舍/实验室有线网与 **`iYanDa`** 无线网的自动登录与断网重连。开始前请确认设备已接入校园网，能够访问认证门户 `auth1.ysu.edu.cn`。
 
 ---
 

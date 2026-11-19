@@ -1,8 +1,8 @@
-# 命令行速查
+# 燕山大学校园网 Linux 命令行（ysu）速查
 
 [返回导航](Home.md) · [快速开始](Quick-Start.md) · [桌面客户端](Desktop-Client.md) · [常见问题排障](Troubleshooting.md)
 
-本页汇总 Linux 命令行 `ysu` 的常用指令。完整参数、配置文件与环境变量说明见 [docs/usage.md](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)。
+本页汇总燕山大学校园网 Linux 命令行工具 `ysu` 的高频指令，适用于课题组服务器、Ubuntu / Debian、WSL 与无桌面 SSH 环境的自动登录、`systemd` 断网重连、7 天无感认证自动续约及多账号池切换。完整参数、配置文件与环境变量说明见 [docs/usage.md](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/usage.md)。
 
 ## 日常连接与守护
 
@@ -17,6 +17,7 @@
 | `ysu service [运营商]` | 查看或切换运营商（`校园网` / `中国移动` / `中国联通` / `中国电信`） |
 | `ysu start` / `ysu stop` / `ysu restart` | 启动 / 停止 / 重启后台自动重连服务 |
 | `ysu enable` / `ysu disable` | 开启 / 关闭开机自启 |
+| `ysu night [on\|off\|status]` | 开启、关闭或查看宿舍夜间停网静默保护（支持 `--start 23:30 --end 06:00 --everyday`） |
 | `ysu logs [-n 50] [-f]` | 查看或实时跟随后台守护日志 |
 | `ysu doctor [--network]` | 检查本地配置与运行环境（加 `--network` 测试门户连通性） |
 

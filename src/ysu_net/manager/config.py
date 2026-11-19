@@ -1,8 +1,12 @@
 from dataclasses import asdict, dataclass
+from datetime import datetime, time as dt_time, timedelta
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
+import time
 from urllib.parse import urlparse
 
 
@@ -231,3 +235,188 @@ def save_nosense(path, *, auto_renew=None, target_mac=None, service=None,
         finally:
             Path(temporary).unlink(missing_ok=True)
         return validated
+
+
+DEFAULT_NIGHT_WEEKDAYS = (0, 1, 2, 3, 6)
+_TIME_HHMM = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+_HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def schedule_path(path):
+    return Path(path).with_suffix(".schedule.json")
+
+
+def _default_schedule():
+    return {
+        "version": 1,
+        "night_pause": False,
+        "start": "23:30",
+        "end": "06:00",
+        "weekdays": list(DEFAULT_NIGHT_WEEKDAYS),
+    }
+
+
+def _validate_schedule(data):
+    if not isinstance(data, dict) or set(data) - {"version", "night_pause", "start", "end", "weekdays"}:
+        raise ValueError("停网时段配置字段无效")
+    version = data.get("version", 1)
+    if type(version) is not int or version != 1:
+        raise ValueError("停网时段配置版本无效")
+    night_pause = data.get("night_pause", False)
+    if type(night_pause) is not bool:
+        raise ValueError("night_pause 须为布尔值")
+    start = data.get("start", "23:30")
+    end = data.get("end", "06:00")
+    if not isinstance(start, str) or not isinstance(end, str):
+        raise ValueError("时间须为 HH:MM 字符串")
+    start = start.strip()
+    end = end.strip()
+    if not _TIME_HHMM.fullmatch(start) or not _TIME_HHMM.fullmatch(end) or start == end:
+        raise ValueError("起止时间须为有效的 HH:MM 且不能相同")
+    raw_days = data.get("weekdays", list(DEFAULT_NIGHT_WEEKDAYS))
+    if (not isinstance(raw_days, (list, tuple)) or not raw_days or len(raw_days) > 7
+            or any(type(d) is not int or not 0 <= d <= 6 for d in raw_days)):
+        raise ValueError("星期范围须为 0–6 的非空整数列表")
+    weekdays = sorted(set(raw_days))
+    return {
+        "version": 1,
+        "night_pause": night_pause,
+        "start": start,
+        "end": end,
+        "weekdays": weekdays,
+    }
+
+
+def load_schedule(path):
+    file = schedule_path(path)
+    if not file.exists() and not file.is_symlink():
+        return _default_schedule()
+    if file.is_symlink():
+        raise ValueError("停网时段配置路径为符号链接")
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        raise ValueError("无法读取停网时段配置") from exc
+    return _validate_schedule(data)
+
+
+def save_schedule(path, *, night_pause=None, start=None, end=None, weekdays=None):
+    from .locking import configuration_write
+
+    file = schedule_path(path)
+    with configuration_write(path):
+        try:
+            current = load_schedule(path)
+        except ValueError:
+            current = _default_schedule()
+        if night_pause is not None:
+            current["night_pause"] = night_pause
+        if start is not None:
+            current["start"] = start
+        if end is not None:
+            current["end"] = end
+        if weekdays is not None:
+            current["weekdays"] = list(weekdays)
+        validated = _validate_schedule(current)
+        file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, temporary = tempfile.mkstemp(prefix=".schedule-", dir=file.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(validated, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            os.replace(temporary, file)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return validated
+
+
+def night_pause_until(now: datetime, schedule: dict) -> datetime | None:
+    if not schedule or not schedule.get("night_pause"):
+        return None
+    sh, sm = map(int, schedule["start"].split(":"))
+    eh, em = map(int, schedule["end"].split(":"))
+    days = set(schedule["weekdays"])
+    if (sh, sm) > (eh, em):
+        for origin in (now.date(), now.date() - timedelta(days=1)):
+            if origin.weekday() not in days:
+                continue
+            win_start = datetime.combine(origin, dt_time(sh, sm), tzinfo=now.tzinfo)
+            win_end = datetime.combine(origin + timedelta(days=1), dt_time(eh, em), tzinfo=now.tzinfo)
+            if win_start <= now < win_end:
+                return win_end
+        return None
+    if now.date().weekday() in days:
+        win_start = datetime.combine(now.date(), dt_time(sh, sm), tzinfo=now.tzinfo)
+        win_end = datetime.combine(now.date(), dt_time(eh, em), tzinfo=now.tzinfo)
+        if win_start <= now < win_end:
+            return win_end
+    return None
+
+
+def protection_path(path):
+    return Path(path).with_suffix(".protection.json")
+
+
+def credential_identity_hash(config: Config) -> str:
+    raw = f"{config.username}\0{config.password}\0{config.service}\0{config.backend}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def load_protection(path):
+    file = protection_path(path)
+    if not file.exists() and not file.is_symlink():
+        return {"version": 1, "identity": "", "login_failures": 0, "blocked": False, "code4": False, "corrupted": False}
+    if file.is_symlink():
+        return {"version": 1, "identity": "", "login_failures": 3, "blocked": True, "code4": True, "corrupted": True}
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {"version": 1, "identity": "", "login_failures": 3, "blocked": True, "code4": True, "corrupted": True}
+    valid = (
+        isinstance(data, dict)
+        and set(data) <= {"version", "identity", "login_failures", "blocked", "code4", "updated_at"}
+        and type(data.get("version")) is int and data["version"] == 1
+        and isinstance(data.get("identity"), str)
+        and (data["identity"] == "" or _HEX_SHA256.fullmatch(data["identity"]) is not None)
+        and type(data.get("login_failures")) is int and 0 <= data["login_failures"] <= 20
+        and type(data.get("blocked")) is bool
+        and type(data.get("code4", False)) is bool
+    )
+    if not valid:
+        return {"version": 1, "identity": "", "login_failures": 3, "blocked": True, "code4": True, "corrupted": True}
+    return {
+        "version": 1,
+        "identity": data["identity"],
+        "login_failures": data["login_failures"],
+        "blocked": data["blocked"],
+        "code4": data.get("code4", False),
+        "corrupted": False,
+    }
+
+
+def save_protection(path, *, identity: str, login_failures: int, blocked: bool, code4: bool = False):
+    file = protection_path(path)
+    payload = {
+        "version": 1,
+        "identity": identity,
+        "login_failures": max(0, min(int(login_failures), 20)),
+        "blocked": bool(blocked),
+        "code4": bool(code4),
+        "updated_at": int(time.time()),
+    }
+    file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, temporary = tempfile.mkstemp(prefix=".protection-", dir=file.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+        os.replace(temporary, file)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def clear_protection(path):
+    try:
+        protection_path(path).unlink(missing_ok=True)
+    except OSError:
+        pass

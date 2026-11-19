@@ -14,8 +14,9 @@ from .backend import run_backend
 from .accounts import (accounts_path, delete_account, environment_override, load_accounts,
                        public_accounts, save_account, set_rotation)
 from .account_switching import switch_account
-from .config import (Config, NOSENSE_SERVICES, SERVICES, config_path, load_config,
-                     load_nosense, public_config, save_nosense, update_config)
+from .config import (Config, DEFAULT_NIGHT_WEEKDAYS, NOSENSE_SERVICES, SERVICES, clear_protection,
+                     config_path, load_config, load_nosense, load_schedule, public_config,
+                     save_nosense, save_schedule, update_config)
 from .control import request_control
 from .daemon import run_daemon
 from .locking import exclusive_config
@@ -81,6 +82,14 @@ def parser():
     p.add_argument("name", nargs="?", choices=("api", "browser"))
     p = sub.add_parser("boot", help="管理开机自启")
     p.add_argument("action", choices=("on", "off", "status"), default="status", nargs="?")
+    p = sub.add_parser("night", help="配置宿舍夜间停网静默保护与晨间自动恢复")
+    p.add_argument("action", choices=("on", "off", "status"), default="status", nargs="?")
+    p.add_argument("--start", default=None, help="暂停开始时间 HH:MM（默认 23:30）")
+    p.add_argument("--end", default=None, help="次日恢复时间 HH:MM（默认 06:00）")
+    days_group = p.add_mutually_exclusive_group()
+    days_group.add_argument("--dorm", action="store_true", help="周日至周四夜间生效（默认）")
+    days_group.add_argument("--everyday", action="store_true", help="每天夜间生效")
+    p.add_argument("--raw", action="store_true", help="输出 JSON")
     p = sub.add_parser("logs", aliases=["log"], help="查看守护进程日志")
     p.add_argument("--follow", "-f", action="store_true")
     p.add_argument("--lines", "-n", type=int, default=50)
@@ -363,6 +372,24 @@ def dispatch(args):
         return account_command(args, path)
     if command == "doctor":
         return doctor(args, path)
+    if command == "night":
+        weekdays = list(range(7)) if args.everyday else list(DEFAULT_NIGHT_WEEKDAYS) if args.dorm else None
+        if args.action == "status" and args.start is None and args.end is None and weekdays is None:
+            sched = load_schedule(path)
+        else:
+            night_pause = True if args.action == "on" else False if args.action == "off" else None
+            sched = save_schedule(path, night_pause=night_pause, start=args.start, end=args.end, weekdays=weekdays)
+        if args.raw:
+            print(json.dumps(sched, ensure_ascii=False, indent=2))
+        else:
+            day_label = "每天" if sched["weekdays"] == list(range(7)) else "周日至周四" if sched["weekdays"] == list(DEFAULT_NIGHT_WEEKDAYS) else ",".join(str(d + 1) for d in sched["weekdays"])
+            if args.action in ("on", "off"):
+                ui.message("夜间停网静默保护已开启。" if sched["night_pause"] else "夜间停网静默保护已关闭。", "success")
+            else:
+                ui.heading("夜间停网静默保护")
+            ui.row("状态", "已开启" if sched["night_pause"] else "已关闭")
+            ui.row("时段", f"{day_label} {sched['start']} – {sched['end']}")
+        return 0
     if command == "switch":
         with exclusive_config(path):
             config = load_config(path)
@@ -521,6 +548,8 @@ def dispatch(args):
                 raw=getattr(args, "raw", False),
                 args=args,
             )
+            if action == "login" and result.code == 0:
+                clear_protection(path)
         if raw and result.output and result.code in (0, 1):
             print(result.output, end="" if result.output.endswith("\n") else "\n")
         elif raw and result.code:

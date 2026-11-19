@@ -289,4 +289,18 @@ describe('diagnostics and bounded logs', () => {
     expect(formatLogTime('08:42:03')).toBe('08:42:03');
     expect(formatLogTime('2026-99-99Tinvalid')).toBe('2026-99-99Tinvalid');
   });
+  it('parses and updates night pause schedule while keeping older snapshots compatible', async () => {
+    const base = demoSnapshot();
+    const { schedule: _, ...older } = base;
+    expect(parseSnapshot(older).schedule).toEqual({
+      night_pause: false,
+      start: '23:30',
+      end: '06:00',
+      weekdays: [0, 1, 2, 3, 6],
+    });
+    expect(() => parseSnapshot({ ...base, schedule: { night_pause: true, start: '23:30', end: '23:30', weekdays: [0] } })).toThrow('停网时段');
+    const transport = createDemoTransport();
+    const updated = parseSnapshot(await transport.request('schedule', { night_pause: true }));
+    expect(updated.schedule?.night_pause).toBe(true);
+  });
 });

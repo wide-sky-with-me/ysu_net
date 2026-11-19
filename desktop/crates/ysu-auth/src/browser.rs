@@ -762,7 +762,11 @@ impl Browser {
             }
         }
         if cas_post && !matches!(r.status, 301 | 302 | 303) {
-            if matches!(r.status, 429 | 500..=599) {
+            if r.status == 429 {
+                return Err(AuthError::interaction("统一认证请求过于频繁，请稍后重试")
+                    .because(Reason::HttpRejected));
+            }
+            if (500..=599).contains(&r.status) {
                 return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试"));
             }
             return Err(AuthError::interaction(

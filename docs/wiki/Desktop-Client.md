@@ -1,10 +1,10 @@
-# 桌面客户端指南
+# 燕山大学校园网桌面客户端指南（Windows / Linux / macOS）
 
 [返回导航](Home.md) · [快速开始](Quick-Start.md) · [命令行速查](CLI-Reference.md) · [常见问题排障](Troubleshooting.md)
 
-桌面客户端基于 Tauri 2 + Svelte 5 + Rust 原生构建，在 Windows、Linux 与 macOS 上提供统一的圆润卡片界面、状态感知柔光、弹性微交互动效与后台守护体验，支持快捷键 `Ctrl+1` 至 `Ctrl+6` 快速切换页面。
+**YSU Net 桌面客户端**基于 Tauri 2 + Svelte 5 + Rust 原生构建，面向燕山大学有线校园网与 **`iYanDa`** 无线网，在 Windows 10/11、Ubuntu/Debian Linux 与 macOS 上提供统一的圆润卡片界面、系统托盘后台重连、在线设备管理与 7 天无感认证续约体验，支持快捷键 `Ctrl+1` 至 `Ctrl+6` 快速切换页面。
 
-![桌面客户端连接页浅色界面](https://raw.githubusercontent.com/wide-sky-with-me/ysu_net/main/docs/screenshots/desktop-connection-light.png)
+![YSU Net 燕山大学校园网桌面客户端连接页（浅色主题）](https://raw.githubusercontent.com/wide-sky-with-me/ysu_net/main/docs/screenshots/desktop-connection-light.png)
 
 ---
 
@@ -37,10 +37,10 @@
 ### 4. 设置页（`Ctrl+3`）
 
 - **账号**：设置主账号凭据，或新增、编辑、排序、启停和删除多账号池条目（详见 [多账号说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/accounts.md)）。
-- **认证与重试**：调整状态检查间隔、重试间隔、操作超时、门户地址及认证方式（默认 `API`，可选本机 Edge/Chrome `浏览器` 模式），并可在「验证码识别」区域一键下载离线验证码模型。
-- **外观与启动**：切换浅色/深色/跟随系统主题与 6 种强调色，配置 **开机自启**、**自启后进入托盘** 与 **关闭窗口最小化到托盘**。
+- **认证与重试**：调整状态检查间隔、重试间隔、操作超时、门户地址及认证方式（默认 `API`，可选本机 Edge/Chrome `浏览器` 模式），开启或关闭**夜间停网暂停重连**（周日至周四 `23:30–06:00` 暂停自动重连与续约，晨间 `06:00` 自动恢复），并可在「验证码识别」区域一键下载离线验证码模型。
+- **外观与启动**：切换浅色/深色/跟随系统主题与 6 种强调色，配置 **开机自启**、**自启后进入托盘**、**关闭窗口最小化到托盘**，以及 **自动更新 / 自动下载安装更新**（Windows 与 macOS 支持启动时后台检查更新并弹窗提醒，可选择立即更新、暂不提醒或忽略当前版本；Linux `.deb` 保持手动升级）。
 
 ### 5. 日志页（`Ctrl+4`）与关于页（`Ctrl+5`）
 
 - **日志**：按级别筛选或搜索运行日志；遇到复杂网络故障时可开启 **开始调试记录**，将脱敏诊断信息写入本地目录以便排障（详见 [链路调试说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/debug-recording.md)）。
-- **关于**：查看当前版本更新日志、项目仓库与贡献者名单；Windows 与 macOS 用户可在此点击 **检查更新**，验证签名后直接完成软件内升级（详见 [软件更新说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)）。
+- **关于**：查看当前版本更新日志、项目仓库与贡献者名单；Windows 与 macOS 用户可在此手动点击 **检查更新**，验证 Minisign 签名后完成软件内升级（详见 [软件更新说明](https://github.com/wide-sky-with-me/ysu_net/blob/main/docs/updates.md)）。

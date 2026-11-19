@@ -7,7 +7,16 @@ from unittest.mock import Mock, patch
 
 import requests
 from ysu_net.auth import api
-from ysu_net.auth.common import InteractionRequired, OperationFailed, QueryError, online_service, online_state
+from ysu_net.auth.common import (
+    DeviceLimitError,
+    InteractionRequired,
+    OperationFailed,
+    QueryError,
+    check_action,
+    online_service,
+    online_state,
+    sanitize_text,
+)
 from tests.helpers import OFFLINE, ONLINE, OfflineTestCase
 
 
@@ -505,3 +514,45 @@ class BrowserTests(OfflineTestCase):
         self.mock("ysu_net.auth.browser.api_post_json", return_value=(200, {}))
         self.browser.cmd_logout(False, 5, False)
         self.assertIn("已下线", self.output.getvalue())
+
+
+class HardeningProtocolTests(OfflineTestCase):
+    def test_portal_session_bypasses_environment_proxies(self):
+        with patch.dict("os.environ", {"HTTPS_PROXY": "http://127.0.0.1:7890", "HTTP_PROXY": "http://127.0.0.1:7890"}):
+            sess = api._new_portal_session()
+            try:
+                self.assertFalse(sess.trust_env)
+            finally:
+                sess.close()
+
+    def test_check_action_recognizes_bras_mac_collision_and_fullwidth_fields(self):
+        for payload in (
+            {"code": 400, "errorMsg": "brac error: create session failed(mac collision)!"},
+            {"result": "fail", "reason": "ＩＰ被冻结，请稍后再试"},
+            {"result": "fail", "data": {"description": "认证过于频繁，请稍后再试"}},
+            {"result": "fail", "errorCode": "TooManyLoginAttempts"},
+            {"result": "fail", "message": "终端MAC地址已被列入黑名单"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(InteractionRequired):
+                check_action(200, payload, "serviceLogin")
+
+    def test_check_action_http_429_is_interaction_required(self):
+        with self.assertRaises(InteractionRequired):
+            check_action(429, {"message": "too many requests"}, "serviceLogin")
+
+    def test_check_action_distinguishes_device_limit_subclass(self):
+        for payload in (
+            {"result": "fail", "message": "认证设备数量已达到上限"},
+            {"result": "fail", "errorMsg": "登录设备达到最大数量"},
+            {"result": "fail", "authMessage": "同时在线用户数量上限"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(DeviceLimitError) as ctx:
+                check_action(200, payload, "serviceLogin")
+            self.assertEqual(ctx.exception.exit_code, 4)
+
+    def test_sanitize_text_strips_ansi_and_control_sequences(self):
+        dirty = "错误\x1b[31m提示\x1b[0m\x1b]0;evil-title\x07\r\n下一行\x00\x9b2J"
+        clean = sanitize_text(dirty)
+        self.assertEqual(clean, "错误提示 下一行")
+        html = '<span id="msg">密码错误\x1b[31m请重试\x1b[0m\x07</span>'
+        self.assertEqual(api._extract_cas_error_msg(html), "密码错误请重试")

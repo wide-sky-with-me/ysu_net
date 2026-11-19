@@ -584,6 +584,69 @@ impl Worker {
         }
         true
     }
+
+    pub(super) async fn rotate_on_device_limit(&mut self, config: &Config) -> bool {
+        if !self.runtime.rotation_enabled.load(Ordering::Acquire)
+            || !self.runtime.desired.load(Ordering::Acquire)
+            || self.runtime.store.environment_override()
+        {
+            return false;
+        }
+        let store = self.runtime.store.clone();
+        let config_copy = config.clone();
+        let Ok(book) = self
+            .runtime
+            .blocking(move || store.load_accounts(&config_copy))
+            .await
+        else {
+            return false;
+        };
+        if !book.auto_switch {
+            return false;
+        }
+        let position = book
+            .accounts
+            .iter()
+            .position(|account| account.username == config.username)
+            .unwrap_or(book.accounts.len().saturating_sub(1));
+        let target = (1..=book.accounts.len())
+            .filter_map(|offset| book.accounts.get((position + offset) % book.accounts.len()))
+            .find(|account| {
+                account.enabled
+                    && !account.password.is_empty()
+                    && account.username != config.username
+                    && self.rotation.eligible(&account.config(config))
+            })
+            .cloned();
+        let Some(target) = target else {
+            self.runtime.update(|state| {
+                state.accounts["message"] = "当前账号在线设备数已达上限，无可用备用账号".into();
+            });
+            return false;
+        };
+        self.rotation.cool(config);
+        self.runtime.update(|state| {
+            state.accounts["message"] = "当前账号在线设备数已达上限，正在切换备用账号".into();
+        });
+        match self
+            .switch_account_bound(&target.id, true, Some(config.clone()))
+            .await
+        {
+            Ok(()) => {
+                self.reconnect = Reconnect::default();
+                self.runtime.store.clear_protection();
+                true
+            }
+            Err(error) => {
+                self.rotation.cool(&target.config(config));
+                self.runtime.update(|state| {
+                    state.accounts["message"] = "备用账号切换未确认，已进入冷却".into();
+                    state.log("error", &error);
+                });
+                false
+            }
+        }
+    }
 }
 
 impl Backend {

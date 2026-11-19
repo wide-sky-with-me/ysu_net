@@ -37,6 +37,7 @@ export function demoSnapshot(search = ''): Snapshot {
     info_error: scenario === 'info-error' ? '账户信息获取失败，请稍后重试' : '',
     self_account: '',
     nosense: { auto_renew: false, target_mac: '', service: '', accounts: {}, message: '无感自动续约已关闭' },
+    schedule: { night_pause: false, start: '23:30', end: '06:00', weekdays: [0, 1, 2, 3, 6] },
     logs: [
       { timestamp: '08:42:03', level: 'info', message: '离线模拟已启动；所有数据和操作均为演示' },
       { timestamp: '08:42:04', level: 'success', message: '模拟：校园网状态查询完成' },
@@ -364,6 +365,21 @@ export function createDemoTransport(search = ''): Transport {
         }
         state.accounts.auto_switch = enabled;
         state.accounts.message = enabled ? '自动换号已开启，额度观测由核心处理' : '自动换号已关闭'; log(state.accounts.message);
+      } else if (command === 'schedule') {
+        const changes = args as CoreCommands['schedule'];
+        if (changes.night_pause !== undefined && typeof changes.night_pause !== 'boolean') throw new Error('模拟：停网保护参数无效');
+        const currentSched = state.schedule || { night_pause: false, start: '23:30', end: '06:00', weekdays: [0, 1, 2, 3, 6] };
+        const nextStart = changes.start?.trim() ?? currentSched.start;
+        const nextEnd = changes.end?.trim() ?? currentSched.end;
+        if (nextStart === nextEnd) throw new Error('模拟：起止时间不能相同');
+        state.schedule = {
+          night_pause: changes.night_pause ?? currentSched.night_pause,
+          start: nextStart,
+          end: nextEnd,
+          weekdays: changes.weekdays ? [...new Set(changes.weekdays)].sort((a, b) => a - b) : currentSched.weekdays,
+        };
+        log(state.schedule.night_pause ? `夜间停网保护已开启（${state.schedule.start}–${state.schedule.end}）` : '夜间停网保护已关闭');
+        publish(); return snapshot();
       } else if (command === 'save_config') {
         const { password, ...changes } = args as ConfigChanges;
         const oldCurrent = current();

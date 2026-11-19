@@ -971,7 +971,11 @@ pub(crate) async fn api_cas_login_with_tgc(
             let reply = http
                 .once(Method::POST, action.clone(), headers, Some(body), op)
                 .await?;
-            if matches!(reply.status, 429 | 500..=599) {
+            if reply.status == 429 {
+                return Err(AuthError::interaction("统一认证请求过于频繁，请稍后重试")
+                    .because(Reason::HttpRejected));
+            }
+            if (500..=599).contains(&reply.status) {
                 return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试")
                     .because(Reason::HttpRejected));
             }
@@ -1031,65 +1035,194 @@ pub(crate) async fn api_cas_login_with_tgc(
     .await
 }
 
+const AUTH_MESSAGE_KEYS: [&str; 9] = [
+    "message",
+    "authMessage",
+    "errorMessage",
+    "errorMsg",
+    "reason",
+    "description",
+    "errorCode",
+    "authCode",
+    "errCode",
+];
+
+fn normalize_auth_text(input: &str) -> String {
+    input
+        .chars()
+        .filter_map(|ch| {
+            let mapped = match ch as u32 {
+                0xFF01..=0xFF5E => char::from_u32(ch as u32 - 0xFEE0).unwrap_or(ch),
+                0x3000 => ' ',
+                _ => ch,
+            };
+            (!mapped.is_whitespace()).then_some(mapped)
+        })
+        .collect::<String>()
+        .to_lowercase()
+}
+
+fn is_device_limit(compact: &str) -> bool {
+    if [
+        "同时在线用户数量上限",
+        "并发用户数量上限",
+        "并发数上限",
+        "认证设备数量",
+        "认证设备数",
+        "认证终端数量",
+        "认证终端数",
+        "设备数量上限",
+        "设备数上限",
+        "在线设备数量上限",
+        "在线设备数上限",
+        "终端数量上限",
+        "终端数上限",
+        "达到设备上限",
+        "设备已达上限",
+        "设备达到上限",
+        "最大认证设备",
+        "authenticationdevicelimit",
+        "maximumauthenticationdevices",
+        "devicecountlimit",
+        "maximumnumberofdevices",
+        "devicelimit",
+    ]
+    .iter()
+    .any(|marker| compact.contains(marker))
+    {
+        return true;
+    }
+    let has_device = ["设备", "终端", "device", "terminal"]
+        .iter()
+        .any(|w| compact.contains(w));
+    let has_limit = [
+        "上限", "最大", "限制", "超过", "已满", "limit", "maximum", "max", "exceed",
+    ]
+    .iter()
+    .any(|w| compact.contains(w));
+    let has_auth = [
+        "认证",
+        "登录",
+        "在线",
+        "数量",
+        "设备数",
+        "terminal",
+        "authentication",
+        "login",
+        "count",
+    ]
+    .iter()
+    .any(|w| compact.contains(w));
+    has_device && has_limit && has_auth
+}
+
+fn is_terminal_auth_rejection(compact: &str) -> bool {
+    static MAC_BLOCK_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?:mac(?:address|地址)?|物理地址|设备|终端|device)(?:[:：（(]?(?:[0-9a-f]{12}|(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2})[）)]?)?[:：=_-]?(?:已经被列入|已被列入|被列入|已经被|已经|已被|被|已|处于|列入|加入|is|was|hasbeen)?[:：=_-]?(?:冻结|封禁|锁定|黑名单|禁止认证|禁止登录|不允许认证|受限|限制认证|frozen|blocked|banned|blacklisted|locked|restricted|denied)|(?:blocked|frozen|blacklisted|banned)(?:mac(?:address)?|device)",
+        )
+        .expect("constant regex")
+    });
+    if compact.contains("maccollision")
+        || compact.contains("mac冲突")
+        || compact.contains("mac地址冲突")
+        || MAC_BLOCK_RE.is_match(compact)
+    {
+        return true;
+    }
+    [
+        "认证过于频繁",
+        "认证太频繁",
+        "登录过于频繁",
+        "操作过于频繁",
+        "请求过于频繁",
+        "认证频率过高",
+        "toomanyauthenticationattempts",
+        "toomanyloginattempts",
+        "toomanyrequests",
+        "ratelimitexceeded",
+        "authenticationtoofrequent",
+        "账号密码错误",
+        "用户名或密码",
+        "用户名错误",
+        "用户或密码",
+        "账号或密码",
+        "帐号或密码",
+        "账户或密码",
+        "密码错误",
+        "密码不正确",
+        "口令错误",
+        "凭据无效",
+        "invalidcredentials",
+        "wrongpassword",
+        "验证码",
+        "风控",
+        "ip被冻结",
+        "冻结",
+        "锁定",
+        "欠费",
+        "停机",
+        "余额不足",
+        "未绑定",
+        "无绑定",
+        "绑定关系",
+        "用户不存在",
+        "账号不存在",
+        "黑名单",
+    ]
+    .iter()
+    .any(|term| compact.contains(term))
+}
+
 pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
+    if r.status == 429 {
+        return Err(
+            AuthError::interaction("门户请求过于频繁，请稍后重试").because(Reason::HttpRejected)
+        );
+    }
     if !v.is_object() {
         return Err(AuthError::operation("门户操作响应格式异常").because(Reason::ResponseInvalid));
     }
-    for item in [v, &v["data"]] {
-        if !item.is_object() {
-            continue;
-        }
-        let messages = [item["message"].as_str(), item["authMessage"].as_str()];
-        for msg in messages.into_iter().flatten() {
-            if msg.contains("同时在线用户数量上限") {
-                return Err(AuthError::interaction(
-                    "运营商同时在线数量已达上限，请先在其他终端下线",
-                ));
-            }
-            if [
-                "账号密码错误",
-                "用户名或密码错误",
-                "密码错误",
-                "验证码",
-                "风控",
-                "IP被冻结",
-                "冻结",
-                "锁定",
-                "欠费",
-                "停机",
-                "余额不足",
-                "未绑定",
-                "无绑定",
-                "绑定关系",
-                "用户不存在",
-                "账号不存在",
-                "黑名单",
-            ]
-            .iter()
-            .any(|term| msg.contains(term))
-            {
-                return Err(AuthError::interaction(
-                    "运营商认证需要人工处理，请检查账号绑定、密码、验证码或风控状态",
-                ));
-            }
-        }
-        let rejected_online = item["online"] == false
-            && messages
-                .into_iter()
-                .flatten()
-                .any(|msg| msg.contains("认证失败"));
-        if matches!(
+    let items: Vec<&Value> = [v, &v["data"]]
+        .into_iter()
+        .filter(|item| item.is_object())
+        .collect();
+    let compacts: Vec<String> = items
+        .iter()
+        .flat_map(|item| {
+            AUTH_MESSAGE_KEYS.iter().filter_map(move |key| {
+                let cleaned = text(&item[*key]);
+                (!cleaned.is_empty()).then(|| normalize_auth_text(&cleaned))
+            })
+        })
+        .collect();
+    let explicit_failure = compacts.iter().any(|c| {
+        c.contains("认证失败") || is_device_limit(c) || is_terminal_auth_rejection(c)
+    });
+    let failed = items.iter().any(|item| {
+        matches!(
             item["result"].as_str(),
             Some("fail" | "failed" | "failure" | "error")
         ) || item
             .get("authResult")
             .is_some_and(|value| value != "success")
             || item["success"] == false
-            || rejected_online
+            || (item["online"] == false && explicit_failure)
             || item["code"].as_i64().is_some_and(|c| c != 0 && c != 200)
-        {
-            return Err(AuthError::operation("门户操作未被确认").because(Reason::BusinessRejected));
+    });
+    if failed {
+        if compacts.iter().any(|c| is_device_limit(c)) {
+            return Err(AuthError::interaction(
+                "运营商同时在线数量已达上限，请先在其他终端下线",
+            )
+            .because(Reason::DeviceLimit));
         }
+        if compacts.iter().any(|c| is_terminal_auth_rejection(c)) {
+            return Err(AuthError::interaction(
+                "运营商认证需要人工处理，请检查账号绑定、密码、验证码或风控状态",
+            ));
+        }
+        return Err(AuthError::operation("门户操作未被确认").because(Reason::BusinessRejected));
     }
     if r.status != 200 {
         return Err(AuthError::operation("门户操作请求未被确认").because(Reason::HttpRejected));

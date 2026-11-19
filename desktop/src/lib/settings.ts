@@ -2,7 +2,7 @@ import { parseSnapshot } from './protocol';
 import type { CoreCommands, DesktopSettings, Snapshot } from './protocol';
 import { parseStartupUpdatePrompt } from './updater';
 
-export type Setting = 'autostart' | 'startup' | 'tray' | 'theme' | 'accent' | 'auto_check_update' | 'auto_install_update' | 'ignore_update';
+export type Setting = 'autostart' | 'startup' | 'tray' | 'theme' | 'accent' | 'auto_check_update' | 'auto_install_update' | 'ignore_update' | 'night_pause';
 export const SETTING_UNCONFIRMED = '保存结果尚未确认，请重试。';
 export const settingBusyMessage: Record<Setting, string> = {
   autostart: '正在更新系统自启…', startup: '正在保存启动方式…',
@@ -10,6 +10,7 @@ export const settingBusyMessage: Record<Setting, string> = {
   auto_check_update: '正在保存自动更新设置…',
   auto_install_update: '正在保存自动下载安装设置…',
   ignore_update: '正在忽略此版本…',
+  night_pause: '正在保存停网保护设置…',
 };
 const failures: Record<Setting, string> = {
   autostart: '系统自启设置未保存，请检查当前用户权限后重试。',
@@ -18,6 +19,7 @@ const failures: Record<Setting, string> = {
   auto_check_update: '自动更新设置未保存，请稍后重试。',
   auto_install_update: '自动下载安装设置未保存，请稍后重试。',
   ignore_update: '忽略版本未保存，请稍后重试。',
+  night_pause: '停网保护设置未保存，请稍后重试。',
 };
 
 export function settingError(setting: Setting, error: unknown): string {
@@ -51,6 +53,12 @@ export function confirmedPreferences(value: unknown, changes: CoreCommands['save
   if (!entries.length || !data?.prefs || entries.some(([key, expected]) =>
     !['theme', 'accent', 'close_to_tray', 'autostart_minimized', 'auto_check_update', 'auto_install_update', 'ignored_update_version'].includes(key) ||
     !Object.prototype.hasOwnProperty.call(data.prefs, key) || data.prefs![key] !== expected)) throw new Error(SETTING_UNCONFIRMED);
+  return parseSnapshot(value);
+}
+
+export function confirmedSchedule(value: unknown, expectedNightPause: boolean): Snapshot {
+  const data = value as { schedule?: Record<string, unknown> } | null;
+  if (!data?.schedule || data.schedule.night_pause !== expectedNightPause) throw new Error(SETTING_UNCONFIRMED);
   return parseSnapshot(value);
 }
 

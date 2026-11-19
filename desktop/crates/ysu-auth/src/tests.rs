@@ -1397,6 +1397,41 @@ async fn chromium_cdp_captcha_and_no_fallback_fixture() {
     assert_eq!(f.selections().len(), 0);
 }
 
+#[test]
+fn check_action_classifies_bras_mac_collision_fullwidth_and_device_limits() {
+    let reply = |status: u16| crate::transport::Reply {
+        url: url::Url::parse("https://auth1.ysu.edu.cn/eportal/network/serviceLogin").unwrap(),
+        status,
+        headers: reqwest::header::HeaderMap::new(),
+        body: Vec::new(),
+        chain: Vec::new(),
+    };
+    for payload in [
+        json!({"code": 400, "errorMsg": "brac error: create session failed(mac collision)!"}),
+        json!({"result": "fail", "reason": "ＩＰ被冻结，请稍后再试"}),
+        json!({"result": "fail", "data": {"description": "认证过于频繁，请稍后再试"}}),
+        json!({"result": "fail", "errorCode": "TooManyLoginAttempts"}),
+        json!({"result": "fail", "message": "终端MAC地址已被列入黑名单"}),
+    ] {
+        let err = crate::protocol::check_action(&reply(200), &payload).unwrap_err();
+        assert_eq!(err.code, INTERACTION_ERROR);
+    }
+    let rate_err =
+        crate::protocol::check_action(&reply(429), &json!({"message": "busy"})).unwrap_err();
+    assert_eq!(rate_err.code, INTERACTION_ERROR);
+    assert_eq!(rate_err.diagnostic().reason, DiagnosticReason::HttpRejected);
+
+    for payload in [
+        json!({"result": "fail", "message": "认证设备数量已达到上限"}),
+        json!({"result": "fail", "errorMsg": "登录设备达到最大数量"}),
+        json!({"result": "fail", "authMessage": "同时在线用户数量上限"}),
+    ] {
+        let err = crate::protocol::check_action(&reply(200), &payload).unwrap_err();
+        assert_eq!(err.code, INTERACTION_ERROR);
+        assert_eq!(err.diagnostic().reason, DiagnosticReason::DeviceLimit);
+    }
+}
+
 #[path = "diagnostic_tests.rs"]
 mod diagnostics;
 #[path = "info_observation_integration_tests.rs"]

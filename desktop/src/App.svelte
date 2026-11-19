@@ -13,7 +13,7 @@
   import AboutPage from './components/AboutPage.svelte';
   import FeedbackDock from './components/FeedbackDock.svelte';
   import DebugRecording from './components/DebugRecording.svelte';
-  import { confirmAutostart, confirmedPreferences, preferenceNotice, settingBusyMessage, settingError } from './lib/settings';
+  import { confirmAutostart, confirmedPreferences, confirmedSchedule, preferenceNotice, settingBusyMessage, settingError } from './lib/settings';
   import type { Setting } from './lib/settings';
   import { ambientMotion, pageMotion, stateMotion } from './lib/motion';
   import { DEFAULT_ACCENT } from './lib/accents';
@@ -508,6 +508,12 @@
     }, preferenceNotice({ auto_install_update: enabled }));
   }
 
+  function changeNightPause(enabled: boolean) {
+    void executeSetting('night_pause', async () => {
+      receive(confirmedSchedule(await transport.request('schedule', { night_pause: enabled }), enabled));
+    }, enabled ? '夜间停网保护已开启' : '夜间停网保护已关闭');
+  }
+
   function dismissUpdatePrompt(version: string) {
     dismissedUpdateVersion = version;
     updatePrompt = null;
@@ -907,6 +913,16 @@
                 <div class="form-actions parameter-actions">{#if hasParameterChanges}<span class="muted">有未保存的修改</span>{/if}<button type="submit" class="primary-button">保存参数</button></div>
               </fieldset>
             </form>
+            <section class="settings-section">
+              <div class="section-heading"><h2>停网保护</h2></div>
+              <div class="setting-row">
+                <div>
+                  <span>夜间停网暂停重连</span>
+                  <p>周日至周四 {snapshot?.schedule?.start || '23:30'}–{snapshot?.schedule?.end || '06:00'} 暂停重连与续约，晨间自动恢复。</p>
+                </div>
+                <Toggle checked={Boolean(snapshot?.schedule?.night_pause)} busy={pendingSetting === 'night_pause'} disabled={locked || external} label="夜间停网暂停重连" onchange={changeNightPause} />
+              </div>
+            </section>
             <section class="settings-section">
               <div class="section-heading"><h2>验证码识别</h2></div>
               <div class="setting-row captcha-setting">

@@ -382,6 +382,43 @@ class AccountRotation:
         except (_Failure, OSError, ValueError, StopIteration):
             return self._unknown("流量检查未确认，等待后续检查")
 
+    def fallback_on_limit(self, expected_config):
+        if self.disabled or environment_override():
+            return None
+        try:
+            latest = load_config(self.path, environ={})
+            if source_signature(latest) != source_signature(expected_config):
+                return None
+            book = load_accounts(self.path, config=latest)
+            if not book["auto_switch"]:
+                return None
+            entries = book["accounts"]
+            current = next((entry for entry in entries if entry["username"] == latest.username), None)
+            if current is None:
+                return None
+            now = self.clock()
+            self.cooldowns[_cooldown_key(current)] = now + self.COOLDOWN
+            index = entries.index(current)
+            ordered = entries[index + 1:] + entries[:index]
+            target = next((entry for entry in ordered
+                           if entry["enabled"] and entry["password"]
+                           and entry["username"] != latest.username
+                           and self.cooldowns.get(_cooldown_key(entry), 0) <= now), None)
+            if target is None:
+                return None
+            outcome = self.switcher(self.path, target["id"], runner=self.runner,
+                                    clock=self.clock, stop_event=self.stop_event,
+                                    expected_source=expected_config)
+            if outcome.code != 0:
+                self.cooldowns[_cooldown_key(target)] = self.clock() + self.COOLDOWN
+                return None
+            self.quota = {"state": "unknown", "message": "已切换，等待新账号流量报告"}
+            self.quota_key = None
+            self.next_check = self.clock() + self.MIN_INTERVAL
+            return f"当前账号在线设备数已达上限，已切换备用账号（{outcome.message}）"
+        except (OSError, ValueError):
+            return None
+
 
 class AccountController:
     """Serial control handler run by the daemon that owns the configuration."""

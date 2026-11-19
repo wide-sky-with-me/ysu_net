@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime
 import json
 import logging
 from pathlib import Path
@@ -11,7 +12,16 @@ from types import SimpleNamespace
 from .accounts import load_accounts
 from .account_switching import AccountController
 from .backend import run_backend
-from .config import load_config, load_nosense
+from .config import (
+    clear_protection,
+    credential_identity_hash,
+    load_config,
+    load_nosense,
+    load_protection,
+    load_schedule,
+    night_pause_until,
+    save_protection,
+)
 from .control import ControlServer
 from .locking import exclusive_config
 
@@ -140,37 +150,137 @@ class NoSenseRenewer:
 class Reconnector:
     MAX_LOGIN_FAILURES = 3
 
-    def __init__(self, runner=run_backend, jitter=random.uniform):
+    def __init__(self, runner=run_backend, jitter=random.uniform, *, path=None, now_fn=None, fallback_fn=None):
         self.runner = runner
         self.jitter = jitter
+        self.path = Path(path) if path is not None else None
+        self.now_fn = now_fn or (lambda: datetime.now().astimezone())
+        self.fallback_fn = fallback_fn
         self.failures = 0
         self.login_failures = 0
         self.login_credentials = None
         self.blocked_credentials = None
+        self.blocked_by_code4 = False
+        self._was_paused = False
+        self._hydrated = False
+
+    def _sync_from_disk(self, config, credentials):
+        if self.path is None or self._hydrated:
+            return False
+        self._hydrated = True
+        persisted = load_protection(self.path)
+        if persisted.get("corrupted"):
+            return True
+        if persisted["identity"] == credential_identity_hash(config):
+            self.login_credentials = credentials
+            self.login_failures = persisted["login_failures"]
+            if persisted["blocked"]:
+                self.blocked_credentials = credentials
+                self.blocked_by_code4 = persisted.get("code4", False)
+        return False
+
+    def _persist(self, config, *, blocked, code4):
+        if self.path is None:
+            return
+        try:
+            save_protection(
+                self.path,
+                identity=credential_identity_hash(config),
+                login_failures=self.login_failures,
+                blocked=blocked,
+                code4=code4,
+            )
+        except OSError:
+            pass
+
+    def _active_night_pause(self):
+        if self.path is None:
+            return None, None
+        try:
+            sched = load_schedule(self.path)
+        except ValueError:
+            return None, None
+        now = self.now_fn()
+        return now, night_pause_until(now, sched)
 
     def step(self, config):
+        credentials = (config.username, config.password, config.service, config.backend)
+        now, pause_until = self._active_night_pause()
+        if pause_until is not None:
+            self._was_paused = True
+            wait = min(config.max_retry_interval, max(1.0, (pause_until - now).total_seconds()))
+            return wait, f"夜间停网保护中（{pause_until:%H:%M} 恢复自动重连）"
+
+        if self.path is not None:
+            persisted = load_protection(self.path)
+            if persisted.get("corrupted"):
+                self.runner(config, "status")
+                return config.max_retry_interval, "认证保护状态异常，已暂停自动提交；执行 ysu login 恢复"
+            self._sync_from_disk(config, credentials)
+
+        if self._was_paused:
+            self._was_paused = False
+            self.failures = 0
+            self.login_failures = 0
+            if not self.blocked_by_code4:
+                self.blocked_credentials = None
+                self._persist(config, blocked=False, code4=False)
+
         result = self.runner(config, "status")
         if result.code == 0:
             self.failures = 0
             self.login_failures = 0
             self.login_credentials = None
             self.blocked_credentials = None
+            self.blocked_by_code4 = False
+            if self.path is not None:
+                clear_protection(self.path)
             return config.check_interval, "在线"
         if result.code == 1:
-            credentials = (config.username, config.password, config.service, config.backend)
             if self.blocked_credentials == credentials:
                 return config.max_retry_interval, "认证已暂停：修改配置或手动登录后恢复"
             if self.login_credentials != credentials:
                 self.login_credentials = credentials
                 self.login_failures = 0
+                self.blocked_by_code4 = False
+            prev_failures = self.login_failures
+            self.login_failures = prev_failures + 1
+            self._persist(
+                config,
+                blocked=self.login_failures >= self.MAX_LOGIN_FAILURES,
+                code4=False,
+            )
             result = self.runner(config, "login")
             if result.code == 0:
                 self.failures = 0
                 self.login_failures = 0
+                self.blocked_credentials = None
+                self.blocked_by_code4 = False
+                if self.path is not None:
+                    clear_protection(self.path)
                 return config.check_interval, "重连成功"
-            self.login_failures += 1
+            now_after, pause_after = self._active_night_pause()
+            if pause_after is not None and result.code != 4:
+                self._was_paused = True
+                self.login_failures = prev_failures
+                self._persist(config, blocked=False, code4=False)
+                wait = min(config.max_retry_interval, max(1.0, (pause_after - now_after).total_seconds()))
+                return wait, f"夜间停网保护中（{pause_after:%H:%M} 恢复自动重连）"
+            if result.code == 4 and result.reason == "session_limit" and self.fallback_fn is not None:
+                switched_msg = self.fallback_fn(config)
+                if switched_msg:
+                    self.failures = 0
+                    self.login_failures = 0
+                    self.login_credentials = None
+                    self.blocked_credentials = None
+                    self.blocked_by_code4 = False
+                    if self.path is not None:
+                        clear_protection(self.path)
+                    return config.check_interval, switched_msg
             if result.code == 4 or self.login_failures >= self.MAX_LOGIN_FAILURES:
                 self.blocked_credentials = credentials
+                self.blocked_by_code4 = (result.code == 4)
+                self._persist(config, blocked=True, code4=self.blocked_by_code4)
                 message = result.message if result.code == 4 else (
                     f"{result.message}；连续重连失败已达 {self.MAX_LOGIN_FAILURES} 次，自动重连已暂停，请检查账号或网络后手动登录"
                 )
@@ -192,8 +302,12 @@ def run_daemon(config_file, *, once=False):
         for sig in (signal.SIGTERM, signal.SIGINT):
             previous[sig] = signal.signal(sig, lambda *_: stop.set())
         runner = lambda config, action, **kwargs: run_backend(config, action, stop_event=stop, **kwargs)
-        worker = Reconnector(runner=runner)
         accounts = AccountController(config_file, runner=runner, stop_event=stop)
+        worker = Reconnector(
+            runner=runner,
+            path=config_file,
+            fallback_fn=accounts.rotation.fallback_on_limit,
+        )
         nosense = NoSenseRenewer(config_file, runner=runner)
         control = ControlServer(config_file, accounts.handle)
         last_message = None
@@ -209,12 +323,13 @@ def run_daemon(config_file, *, once=False):
                 try:
                     current = load_config(config_file)
                     delay, message = worker.step(current)
-                    rotation_message = accounts.rotation.step()
-                    if rotation_message:
-                        message += "；" + rotation_message
-                    nosense_message = nosense.step(current)
-                    if nosense_message:
-                        message += "；" + nosense_message
+                    if not worker._was_paused:
+                        rotation_message = accounts.rotation.step()
+                        if rotation_message:
+                            message += "；" + rotation_message
+                        nosense_message = nosense.step(current)
+                        if nosense_message:
+                            message += "；" + nosense_message
                 except (ValueError, OSError):
                     delay, message = 30, "配置不可用，等待修复（未发起登录）"
                 if message != last_message:

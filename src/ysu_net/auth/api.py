@@ -41,6 +41,7 @@ from ysu_net.auth.common import (
     managed_resources,
     online_state,
     require_online_service,
+    sanitize_text,
     track_resource,
     flow_node,
 )
@@ -584,7 +585,8 @@ def _extract_cas_error_msg(html: str) -> str | None:
     parser._flush(0)
     if not parser.found:
         return None
-    return min(parser.found, key=lambda x: (x[0], x[1]))[2]
+    cleaned = sanitize_text(min(parser.found, key=lambda x: (x[0], x[1]))[2])
+    return cleaned or None
 
 
 def _cas_rejected_by_captcha(html: str) -> bool:
@@ -822,7 +824,10 @@ def cas_login(
         if r2.status_code in (301, 302, 303, 307, 308) and loc:
             break
 
-        if r2.status_code == 429 or r2.status_code >= 500:
+        if r2.status_code == 429:
+            selfservice.clear_session(URLS.base, username)
+            raise InteractionRequired("统一认证请求过于频繁（HTTP 429），已暂停自动提交")
+        if r2.status_code >= 500:
             raise QueryError(f"CAS 服务暂时不可用（HTTP {r2.status_code}），稍后重试")
 
         body = (r2.content or b"").decode("utf-8", errors="replace")
@@ -919,6 +924,7 @@ def _new_portal_session() -> requests.Session:
     from ysu_net.auth.dns_fallback import install_fallback
 
     sess = requests.Session()
+    sess.trust_env = False
     install_fallback(sess)
     track_resource(sess.close)
     sess.verify = VERIFY_TLS

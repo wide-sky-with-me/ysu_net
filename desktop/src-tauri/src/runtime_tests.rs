@@ -1655,3 +1655,136 @@ async fn update_preferences_validate_and_persist_in_runtime_snapshot() {
     assert_eq!(saved["prefs"]["auto_install_update"], true);
     assert_eq!(saved["prefs"]["ignored_update_version"], "0.3.5");
 }
+
+#[tokio::test]
+async fn persistent_protection_survives_worker_restarts_and_clears_on_manual_login() {
+    let (runtime, receiver) = fixture();
+    runtime.desired.store(true, Ordering::Release);
+    demo(&runtime).lock().unwrap().operation_error = Some(3);
+    {
+        let mut w1 = Worker::new(runtime.clone(), receiver);
+        w1.guard = Some(runtime.store.acquire_run().unwrap());
+        w1.tick().await;
+        w1.tick().await;
+    }
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 2);
+
+    // Second worker hydrates 2 prior failures, so one more failure trips the breaker.
+    let (_tx2, rx2) = mpsc::channel(4);
+    {
+        let mut w2 = Worker::new(runtime.clone(), rx2);
+        w2.guard = Some(runtime.store.acquire_run().unwrap());
+        w2.tick().await;
+        assert!(w2.reconnect.blocked.is_some());
+    }
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
+
+    // Third worker wakes up already blocked and does not attempt login.
+    let (_tx3, rx3) = mpsc::channel(4);
+    let mut w3 = Worker::new(runtime.clone(), rx3);
+    w3.guard = Some(runtime.store.acquire_run().unwrap());
+    w3.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
+
+    // Manual login clears persistent protection.
+    demo(&runtime).lock().unwrap().operation_error = None;
+    w3.execute(Action::Login).await.unwrap();
+    assert!(!runtime.store.load_protection().blocked);
+}
+
+#[tokio::test]
+async fn night_pause_skips_reconnect_and_morning_recovery_resets_transient_breaker() {
+    let (runtime, receiver) = fixture();
+    runtime.desired.store(true, Ordering::Release);
+    runtime
+        .request("schedule", json!({"night_pause": true}))
+        .await
+        .unwrap();
+    assert_eq!(runtime.snapshot()["schedule"]["night_pause"], true);
+
+    let clock_slot = Arc::new(Mutex::new((2u8, 23u32, 20u32, 0u32)));
+    let clock_reader = clock_slot.clone();
+    let mut worker = Worker::new(runtime.clone(), receiver);
+    worker.night_clock = Some(Arc::new(move || *clock_reader.lock().unwrap()));
+    worker.guard = Some(runtime.store.acquire_run().unwrap());
+
+    demo(&runtime).lock().unwrap().operation_error = Some(3);
+    worker.tick().await;
+    worker.tick().await;
+    worker.tick().await;
+    assert!(worker.reconnect.blocked.is_some());
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
+
+    // 23:40 Wed: in night pause, zero status/login calls.
+    let status_before = demo(&runtime).lock().unwrap().status_calls;
+    *clock_slot.lock().unwrap() = (2, 23, 40, 0);
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().status_calls, status_before);
+    assert!(runtime.snapshot()["auto"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("夜间停网保护"));
+
+    // 06:00 Thu morning: transient breaker resets; already online -> no login call.
+    demo(&runtime).lock().unwrap().operation_error = None;
+    demo(&runtime).lock().unwrap().online = true;
+    demo(&runtime).lock().unwrap().user = "20260001".into();
+    demo(&runtime).lock().unwrap().service = Some("校园网".into());
+    *clock_slot.lock().unwrap() = (3, 6, 0, 0);
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
+    assert!(worker.reconnect.blocked.is_none());
+
+    // Subsequent drop at 06:05 reconnects normally.
+    demo(&runtime).lock().unwrap().online = false;
+    *clock_slot.lock().unwrap() = (3, 6, 5, 0);
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 4);
+    assert_eq!(runtime.snapshot()["status"]["online"], true);
+}
+
+#[tokio::test]
+async fn device_limit_during_reconnect_rotates_to_next_enabled_account() {
+    let (runtime, receiver) = fixture();
+    runtime
+        .request(
+            "save_account",
+            json!({
+                "label": "备用账号",
+                "username": "20260002",
+                "password": "backup-password",
+                "service": "中国联通",
+                "backend": "api",
+                "enabled": true
+            }),
+        )
+        .await
+        .unwrap();
+    runtime
+        .request("rotation", json!({"enabled": true}))
+        .await
+        .unwrap();
+    {
+        let fixture = demo(&runtime);
+        let mut fixture = fixture.lock().unwrap();
+        fixture.login_failures.insert("20260001".into(), 4);
+        fixture.login_diagnostics.insert(
+            "20260001".into(),
+            AuthDiagnostic {
+                operation: DiagnosticOperation::Login,
+                stage: DiagnosticStage::ServiceSelect,
+                reason: DiagnosticReason::DeviceLimit,
+                navigation: None,
+            },
+        );
+    }
+    let mut worker = Worker::new(runtime.clone(), receiver);
+    worker.guard = Some(runtime.store.acquire_run().unwrap());
+    worker.tick().await;
+
+    let snap = runtime.snapshot();
+    assert_eq!(snap["config"]["username"], "20260002");
+    assert_eq!(snap["status"]["online"], true);
+    assert_eq!(snap["status"]["user"], "20260002");
+    assert!(worker.reconnect.blocked.is_none());
+}

@@ -1,9 +1,20 @@
 [project]
 name = "ysu-net-login"
 version = "0.3.5"
-description = "燕山大学校园网登录脚本"
+description = "燕山大学（YSU / iYanDa）校园网自动登录、断网重连、7天无感认证自动续约与多账号管理工具"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.12"
+keywords = [
+    "yanshan-university",
+    "ysu",
+    "iyanda",
+    "campus-network",
+    "captive-portal",
+    "eportal",
+    "燕山大学",
+    "校园网",
+]
 dependencies = [
     "requests>=2.28",
     "urllib3>=1.26",
@@ -16,6 +27,13 @@ captcha = ["ddddocr>=1.6"]
 
 [project.scripts]
 ysu = "ysu_net.manager.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/wide-sky-with-me/ysu_net"
+Repository = "https://github.com/wide-sky-with-me/ysu_net"
+Documentation = "https://github.com/wide-sky-with-me/ysu_net/wiki"
+Changelog = "https://github.com/wide-sky-with-me/ysu_net/blob/main/packaging/release-notes.md"
+Issues = "https://github.com/wide-sky-with-me/ysu_net/issues"
 
 [dependency-groups]
 desktop-test = ["playwright>=1.40", "psutil>=7,<8"]

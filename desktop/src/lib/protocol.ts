@@ -68,6 +68,12 @@ export interface NoSenseState {
   accounts?: Record<string, NoSenseAccountRule>;
   message: string;
 }
+export interface ScheduleState {
+  night_pause: boolean;
+  start: string;
+  end: string;
+  weekdays: number[];
+}
 export interface SelfService {
   account?: string;
   localMac?: string | null;
@@ -95,6 +101,7 @@ export interface Snapshot {
   self_error?: string;
   self_notice?: string;
   nosense?: NoSenseState;
+  schedule?: ScheduleState;
   logs: { timestamp: string; level: LogLevel; message: string }[];
   environment: {
     version: string; rust: string; runtime: 'rust'; platform: string;
@@ -108,6 +115,7 @@ export interface CoreCommands {
   observe: Record<string, never>;
   action: { name: 'status' | 'info' | 'login' | 'logout' | 'switch' | 'set_service' | 'set_auto' | 'switch_account' | 'self_service' | 'self_kick' | 'self_nosense_enable' | 'self_nosense_disable' | 'self_device_service' | 'self_nosense_renew'; value?: string | boolean };
   nosense: { account?: string; remove?: boolean; auto_renew?: boolean; target_mac?: string; service?: string };
+  schedule: { night_pause?: boolean; start?: string; end?: string; weekdays?: number[] };
   save_config: ConfigChanges;
   save_account: SaveAccount;
   delete_account: { id: string };
@@ -251,6 +259,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     }
   }
   if (!Array.isArray(value.logs) || !value.logs.every((log) => object(log) && text(log.timestamp) && enumValue(log.level, ['info', 'success', 'error']) && text(log.message))) throw new Error('桌面核心日志格式异常');
+  const sch = value.schedule;
+  const hhmm = (v: unknown): v is string => text(v) && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(v);
+  if (sch !== undefined && (!object(sch) || !bool(sch.night_pause) || !hhmm(sch.start) || !hhmm(sch.end) || sch.start === sch.end ||
+      !Array.isArray(sch.weekdays) || sch.weekdays.length < 1 || sch.weekdays.length > 7 ||
+      sch.weekdays.some((d) => !Number.isInteger(d) || Number(d) < 0 || Number(d) > 6))) throw new Error('桌面核心停网时段配置格式异常');
   if (!object(e) || ![e.version, e.rust, e.platform].every(text) || e.runtime !== 'rust' || ![e.browser_available, e.browser_component_available].every(bool)) throw new Error('桌面核心环境信息格式异常');
   // Select the public contract so an accidental extra password field never enters UI state.
   return {
@@ -280,6 +293,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     self_error: value.self_error === undefined ? '' : value.self_error as string,
     self_notice: value.self_notice === undefined ? '' : value.self_notice as string,
     nosense: n === undefined ? { auto_renew: false, target_mac: '', service: '', accounts: {}, message: '' } : { auto_renew: n.auto_renew as boolean, target_mac: n.target_mac as string, service: n.service as string, accounts: nosenseAccounts, message: n.message as string },
+    schedule: sch === undefined ? { night_pause: false, start: '23:30', end: '06:00', weekdays: [0, 1, 2, 3, 6] } : { night_pause: sch.night_pause as boolean, start: sch.start as string, end: sch.end as string, weekdays: (sch.weekdays as number[]).map(Number) },
     logs: value.logs.map((log) => ({ timestamp: log.timestamp as string, level: log.level as LogLevel, message: log.message as string })),
     environment: { version: e.version as string, rust: e.rust as string, runtime: 'rust', platform: e.platform as string, browser_available: e.browser_available as boolean, browser_component_available: e.browser_component_available as boolean },
   };

@@ -1,8 +1,8 @@
-# 命令与配置完整手册
+# 燕山大学校园网 Linux 命令行与配置完整手册（ysu）
 
 [返回首页](../README.md) · [文档导航](README.md) · [多账号与无感联动](accounts.md) · [更新与卸载](migration.md)
 
-本页介绍 Linux 命令行工具 `ysu` 的安装方式、命令用法、设备自助服务与 7 天无感认证管理，以及配置文件与环境变量说明。若使用图形界面，请参阅 [桌面客户端指南](wiki/Desktop-Client.md)。
+本页说明燕山大学校园网（`auth1.ysu.edu.cn` / `cer.ysu.edu.cn` / `iYanDa`）Linux 命令行工具 `ysu` 的安装方式、命令用法、设备自助服务（`/self`）与 7 天无感认证自动续约管理，以及配置文件与 `systemd` 后台服务说明。若使用 Windows / Linux / macOS 图形界面，请参阅 [桌面客户端指南](wiki/Desktop-Client.md)。
 
 ---
 
