@@ -56,10 +56,20 @@ export function confirmedPreferences(value: unknown, changes: CoreCommands['save
   return parseSnapshot(value);
 }
 
-export function confirmedSchedule(value: unknown, expectedNightPause: boolean): Snapshot {
-  const data = value as { schedule?: Record<string, unknown> } | null;
-  if (!data?.schedule || data.schedule.night_pause !== expectedNightPause) throw new Error(SETTING_UNCONFIRMED);
-  return parseSnapshot(value);
+export function confirmedSchedule(value: unknown, changes: CoreCommands['schedule']): Snapshot {
+  const raw = (value as { schedule?: Record<string, unknown> } | null)?.schedule;
+  const entries = Object.entries(changes).filter(([, v]) => v !== undefined);
+  if (!entries.length || !raw) throw new Error(SETTING_UNCONFIRMED);
+  const parsed = parseSnapshot(value);
+  const sched = parsed.schedule!;
+  if (changes.night_pause !== undefined && sched.night_pause !== changes.night_pause) throw new Error(SETTING_UNCONFIRMED);
+  if (changes.start !== undefined && sched.start !== changes.start.trim()) throw new Error(SETTING_UNCONFIRMED);
+  if (changes.end !== undefined && sched.end !== changes.end.trim()) throw new Error(SETTING_UNCONFIRMED);
+  if (changes.weekdays !== undefined) {
+    const expected = [...new Set(changes.weekdays)].sort((a, b) => a - b);
+    if (sched.weekdays.length !== expected.length || sched.weekdays.some((d, i) => d !== expected[i])) throw new Error(SETTING_UNCONFIRMED);
+  }
+  return parsed;
 }
 
 export function preferenceNotice(changes: CoreCommands['save_prefs']): string {

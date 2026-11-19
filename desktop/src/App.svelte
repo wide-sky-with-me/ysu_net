@@ -508,10 +508,38 @@
     }, preferenceNotice({ auto_install_update: enabled }));
   }
 
-  function changeNightPause(enabled: boolean) {
+  const DORM_WEEKDAYS = [0, 1, 2, 3, 6];
+  const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
+
+  function scheduleMode(weekdays: number[] | undefined): 'dorm' | 'everyday' | 'custom' {
+    if (!weekdays || (weekdays.length === DORM_WEEKDAYS.length && weekdays.every((v, i) => v === DORM_WEEKDAYS[i]))) return 'dorm';
+    if (weekdays.length === ALL_WEEKDAYS.length && weekdays.every((v, i) => v === ALL_WEEKDAYS[i])) return 'everyday';
+    return 'custom';
+  }
+
+  function scheduleDaysLabel(weekdays: number[] | undefined): string {
+    const mode = scheduleMode(weekdays);
+    if (mode === 'dorm') return '周日至周四';
+    if (mode === 'everyday') return '每天';
+    const names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    return (weekdays || []).map((d) => names[d] || '').filter(Boolean).join('、');
+  }
+
+  function updateSchedule(changes: CoreCommands['schedule'], successNotice: string) {
+    const current = snapshot?.schedule ?? { night_pause: false, start: '23:30', end: '06:00', weekdays: DORM_WEEKDAYS };
+    const nextStart = changes.start ?? current.start;
+    const nextEnd = changes.end ?? current.end;
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(nextStart) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(nextEnd)) {
+      notice = { message: '请输入有效的时间（HH:MM）。', error: true };
+      return;
+    }
+    if (nextStart === nextEnd) {
+      notice = { message: '暂停开始与恢复时间不能相同。', error: true };
+      return;
+    }
     void executeSetting('night_pause', async () => {
-      receive(confirmedSchedule(await transport.request('schedule', { night_pause: enabled }), enabled));
-    }, enabled ? '夜间停网保护已开启' : '夜间停网保护已关闭');
+      receive(confirmedSchedule(await transport.request('schedule', changes), changes));
+    }, successNotice);
   }
 
   function dismissUpdatePrompt(version: string) {
@@ -915,13 +943,35 @@
             </form>
             <section class="settings-section">
               <div class="section-heading"><h2>停网保护</h2></div>
-              <div class="setting-row">
+              <div class="setting-row" aria-busy={pendingSetting === 'night_pause'}>
                 <div>
                   <span>夜间停网暂停重连</span>
-                  <p>周日至周四 {snapshot?.schedule?.start || '23:30'}–{snapshot?.schedule?.end || '06:00'} 暂停重连与续约，晨间自动恢复。</p>
+                  <p>{scheduleDaysLabel(snapshot?.schedule?.weekdays)} {snapshot?.schedule?.start || '23:30'}–{snapshot?.schedule?.end || '06:00'} 暂停重连与续约，到点自动恢复。</p>
                 </div>
-                <Toggle checked={Boolean(snapshot?.schedule?.night_pause)} busy={pendingSetting === 'night_pause'} disabled={locked || external} label="夜间停网暂停重连" onchange={changeNightPause} />
+                <Toggle checked={Boolean(snapshot?.schedule?.night_pause)} busy={pendingSetting === 'night_pause'} disabled={locked || external} label="夜间停网暂停重连" onchange={(enabled) => updateSchedule({ night_pause: enabled }, enabled ? '夜间停网保护已开启' : '夜间停网保护已关闭')} />
               </div>
+              {#if snapshot?.schedule?.night_pause}
+                <label class="setting-row">
+                  <div><span>生效周期</span></div>
+                  <select aria-label="生效周期" value={scheduleMode(snapshot.schedule.weekdays)} disabled={locked || external || pendingSetting === 'night_pause'} onchange={(event) => {
+                    const value = event.currentTarget.value;
+                    if (value === 'dorm') updateSchedule({ weekdays: DORM_WEEKDAYS }, '停网保护周期已更新');
+                    else if (value === 'everyday') updateSchedule({ weekdays: ALL_WEEKDAYS }, '停网保护周期已更新');
+                  }}>
+                    <option value="dorm">周日至周四</option>
+                    <option value="everyday">每天</option>
+                    {#if scheduleMode(snapshot.schedule.weekdays) === 'custom'}<option value="custom">{scheduleDaysLabel(snapshot.schedule.weekdays)}</option>{/if}
+                  </select>
+                </label>
+                <div class="setting-row">
+                  <div><span>暂停时段</span></div>
+                  <div class="schedule-time-range">
+                    <input type="time" aria-label="暂停开始时间" value={snapshot.schedule.start} disabled={locked || external || pendingSetting === 'night_pause'} onchange={(event) => updateSchedule({ start: event.currentTarget.value }, '停网保护时段已更新')} />
+                    <span>至</span>
+                    <input type="time" aria-label="恢复重连时间" value={snapshot.schedule.end} disabled={locked || external || pendingSetting === 'night_pause'} onchange={(event) => updateSchedule({ end: event.currentTarget.value }, '停网保护时段已更新')} />
+                  </div>
+                </div>
+              {/if}
             </section>
             <section class="settings-section">
               <div class="section-heading"><h2>验证码识别</h2></div>

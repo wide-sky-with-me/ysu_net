@@ -1788,3 +1788,25 @@ async fn device_limit_during_reconnect_rotates_to_next_enabled_account() {
     assert_eq!(snap["status"]["user"], "20260002");
     assert!(worker.reconnect.blocked.is_none());
 }
+
+#[tokio::test]
+async fn third_login_attempt_success_clears_pre_reserved_breaker() {
+    let (runtime, receiver) = fixture();
+    runtime.desired.store(true, Ordering::Release);
+    let mut worker = Worker::new(runtime.clone(), receiver);
+    worker.guard = Some(runtime.store.acquire_run().unwrap());
+
+    demo(&runtime).lock().unwrap().operation_error = Some(3);
+    worker.tick().await;
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 2);
+    assert!(worker.reconnect.blocked.is_none());
+
+    // Third attempt reserves slot 3 up front, then succeeds and clears blocked + disk protection.
+    demo(&runtime).lock().unwrap().operation_error = None;
+    worker.tick().await;
+    assert_eq!(demo(&runtime).lock().unwrap().logins, 3);
+    assert!(worker.reconnect.blocked.is_none());
+    assert!(!runtime.store.load_protection().blocked);
+    assert_eq!(runtime.snapshot()["status"]["online"], true);
+}

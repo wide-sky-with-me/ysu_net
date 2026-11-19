@@ -447,6 +447,7 @@ impl Worker {
             return Err(error);
         }
         self.reconnect = Reconnect::default();
+        self.runtime.store.clear_protection();
         self.rotation.zero = None;
         self.runtime.update(|state| {
             state.info = Value::Null;
@@ -632,11 +633,12 @@ impl Worker {
             .switch_account_bound(&target.id, true, Some(config.clone()))
             .await
         {
-            Ok(()) => {
+            Ok(true) => {
                 self.reconnect = Reconnect::default();
                 self.runtime.store.clear_protection();
                 true
             }
+            Ok(false) => false,
             Err(error) => {
                 self.rotation.cool(&target.config(config));
                 self.runtime.update(|state| {

@@ -1044,6 +1044,7 @@ struct Reconnect {
     login_identity: Option<String>,
     blocked: Option<String>,
     blocked_by_code4: bool,
+    clock_skew: bool,
     hydrated: bool,
 }
 impl Reconnect {
@@ -1056,20 +1057,38 @@ impl Reconnect {
         ))
         .expect("serializable credential identity")
     }
-    fn sync_from_store(&mut self, store: &Store, config: &Config) -> bool {
+    fn sync_from_store(
+        &mut self,
+        store: &Store,
+        config: &Config,
+        night_pause_enabled: bool,
+    ) -> bool {
         let persisted = store.load_protection();
         if persisted.corrupted {
             return true;
         }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        self.clock_skew = now > 0 && persisted.updated_at > now.saturating_add(300);
         if !self.hydrated {
             self.hydrated = true;
             if persisted.identity == credential_identity_hash(config) {
-                let current = Self::identity(config);
-                self.login_identity = Some(current.clone());
-                self.login_failures = persisted.login_failures;
-                if persisted.blocked {
-                    self.blocked = Some(current);
-                    self.blocked_by_code4 = persisted.code4;
+                if night_pause_enabled
+                    && !persisted.code4
+                    && !self.clock_skew
+                    && persisted.updated_at > 0
+                    && now >= persisted.updated_at.saturating_add(3_600)
+                {
+                    store.clear_protection();
+                } else {
+                    let current = Self::identity(config);
+                    self.login_identity = Some(current.clone());
+                    self.login_failures = persisted.login_failures;
+                    if persisted.blocked {
+                        self.blocked = Some(current);
+                        self.blocked_by_code4 = persisted.code4;
+                    }
                 }
             }
         }
@@ -1088,18 +1107,34 @@ impl Reconnect {
     fn reserve_on_store(&mut self, store: &Store, config: &Config) -> u32 {
         let current = Self::identity(config);
         if self.login_identity.as_ref() != Some(&current) {
-            self.login_identity = Some(current);
+            self.login_identity = Some(current.clone());
             self.login_failures = 0;
             self.blocked_by_code4 = false;
         }
-        let next = self.login_failures.saturating_add(1);
+        let prev = self.login_failures;
+        self.login_failures = prev.saturating_add(1);
+        if self.login_failures >= MAX_LOGIN_FAILURES {
+            self.blocked = Some(current);
+        }
         let _ = store.save_protection(
             &credential_identity_hash(config),
-            next,
-            next >= MAX_LOGIN_FAILURES,
+            self.login_failures,
+            self.login_failures >= MAX_LOGIN_FAILURES,
             false,
         );
-        self.login_failures
+        prev
+    }
+    fn finalize_reserved_failure(&mut self, config: &Config, code: i32) -> bool {
+        let current = Self::identity(config);
+        if code == 4 || self.login_failures >= MAX_LOGIN_FAILURES {
+            self.blocked = Some(current);
+            if code == 4 {
+                self.blocked_by_code4 = true;
+            }
+            true
+        } else {
+            false
+        }
     }
     fn paused(&mut self, config: &Config) -> bool {
         let current = Self::identity(config);
@@ -1140,10 +1175,10 @@ impl Reconnect {
         self.login_failures = 0;
         self.login_identity = None;
     }
-    fn reset_morning_transient(&mut self, store: &Store, config: &Config) {
+    fn reset_morning_transient(&mut self, store: &Store) {
         self.failures = 0;
         self.login_failures = 0;
-        if !self.blocked_by_code4 {
+        if !self.blocked_by_code4 && !self.clock_skew {
             self.blocked = None;
             store.clear_protection();
         }
@@ -2019,12 +2054,13 @@ impl Worker {
             self.schedule(wait, &msg);
             return;
         }
-        let corrupted = self.reconnect.sync_from_store(&self.runtime.store, &config);
+        let corrupted = self
+            .reconnect
+            .sync_from_store(&self.runtime.store, &config, sched.night_pause);
         if self.was_in_night_pause {
             self.was_in_night_pause = false;
             if !corrupted {
-                self.reconnect
-                    .reset_morning_transient(&self.runtime.store, &config);
+                self.reconnect.reset_morning_transient(&self.runtime.store);
             }
         }
         self.phase = DiagnosticStage::OnlineState;
@@ -2129,6 +2165,8 @@ impl Worker {
                     })
                 {
                     self.reconnect.clear_login_failures();
+                    self.reconnect.blocked = None;
+                    self.reconnect.blocked_by_code4 = false;
                     self.runtime.store.clear_protection();
                     (config.check_interval as f64, "重连已独立确认成功")
                 } else {
@@ -2137,6 +2175,8 @@ impl Worker {
                         if let Some(remaining) = self.night_pause_remaining(&sched) {
                             self.was_in_night_pause = true;
                             self.reconnect.login_failures = prev_failures;
+                            self.reconnect.blocked = None;
+                            self.reconnect.blocked_by_code4 = false;
                             let _ = self.runtime.store.save_protection(
                                 &credential_identity_hash(&config),
                                 prev_failures,
@@ -2150,7 +2190,7 @@ impl Worker {
                             return;
                         }
                     }
-                    let tripped = self.reconnect.record_login_failure(&config, code);
+                    let tripped = self.reconnect.finalize_reserved_failure(&config, code);
                     self.reconnect.persist(&self.runtime.store, &config);
                     if tripped {
                         (

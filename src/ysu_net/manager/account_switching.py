@@ -13,7 +13,7 @@ from .accounts import (CREDENTIAL_FIELDS, candidate_signature, commit_switch,
                        environment_override, load_accounts, prepare_switch,
                        source_signature, unchanged_switch)
 from .backend import run_backend
-from .config import load_config, load_nosense
+from .config import clear_protection, load_config, load_nosense
 
 
 @dataclass(frozen=True)
@@ -181,6 +181,7 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
         _unchanged(path, source, target, budget)
         if source.username == desired.username and previous == desired.service:
             commit_switch(path, source, target, timeout=budget.check(), stop_event=stop_event)
+            clear_protection(path)
             budget.check()
             return AccountSwitchResult(0, "已独立确认当前账号及服务，无需切换", previous,
                                        committed=True)
@@ -200,6 +201,7 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
             raise _Failure(3, "目标账号或服务核验不一致")
         _unchanged(path, source, target, budget)
         commit_switch(path, source, target, timeout=budget.check(), stop_event=stop_event)
+        clear_protection(path)
         budget.check()
         if source.username != desired.username:
             bind_spec = _target_nosense_bind(nosense, desired)

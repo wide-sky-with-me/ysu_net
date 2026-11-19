@@ -695,3 +695,41 @@ class WatchEnhancementsTests(OfflineTestCase):
         self.assertEqual(loaded["end"], "06:00")
         self.assertEqual(cli.main(["--config", str(path), "night", "off"]), 0)
         self.assertFalse(config.load_schedule(path)["night_pause"])
+
+    def test_clock_rollback_blocks_morning_reset_and_third_attempt_success_clears_protection(self):
+        from datetime import datetime, timezone, timedelta
+        import json as _json
+        tz = timezone(timedelta(hours=8))
+        path = self.tmp / "config.json"
+        cfg = config.Config(username="20260001", password="secret")
+        config.save_config(path, cfg)
+        config.save_schedule(path, night_pause=True, start="23:30", end="06:00")
+
+        # Two transient failures followed by a 3rd successful login must clear protection cleanly.
+        runner = Mock(side_effect=[Result(1), Result(3), Result(1), Result(3), Result(1), Result(0)])
+        w = daemon.Reconnector(runner, jitter=lambda *_: 0, path=path)
+        w.step(cfg)
+        w.step(cfg)
+        _, msg = w.step(cfg)
+        self.assertEqual(msg, "重连成功")
+        self.assertIsNone(w.blocked_credentials)
+        self.assertFalse(config.protection_path(path).exists())
+
+        # Clock rollback (updated_at far in the future relative to simulated morning clock) must keep transient block.
+        future_epoch = int(datetime(2026, 11, 20, 12, 0, tzinfo=tz).timestamp())
+        config.protection_path(path).write_text(_json.dumps({
+            "version": 1,
+            "identity": config.credential_identity_hash(cfg),
+            "login_failures": 3,
+            "blocked": True,
+            "code4": False,
+            "updated_at": future_epoch,
+        }), encoding="utf-8")
+        current_now = [datetime(2026, 11, 18, 23, 45, tzinfo=tz)]
+        skew_runner = Mock(return_value=Result(1))
+        w_skew = daemon.Reconnector(skew_runner, jitter=lambda *_: 0, path=path, now_fn=lambda: current_now[0])
+        w_skew.step(cfg)
+        current_now[0] = datetime(2026, 11, 19, 6, 0, tzinfo=tz)
+        _, skew_msg = w_skew.step(cfg)
+        self.assertIn("认证已暂停", skew_msg)
+        self.assertEqual([c.args[1] for c in skew_runner.call_args_list], ["status"])

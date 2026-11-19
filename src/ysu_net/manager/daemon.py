@@ -164,14 +164,20 @@ class Reconnector:
         self._was_paused = False
         self._hydrated = False
 
-    def _sync_from_disk(self, config, credentials):
+    def _sync_from_disk(self, config, credentials, *, night_pause_enabled=False, now_epoch=0):
         if self.path is None or self._hydrated:
             return False
         self._hydrated = True
         persisted = load_protection(self.path)
         if persisted.get("corrupted"):
             return True
+        updated_at = persisted.get("updated_at", 0)
+        clock_skew = now_epoch > 0 and updated_at > now_epoch + 300
         if persisted["identity"] == credential_identity_hash(config):
+            if (night_pause_enabled and not persisted.get("code4", False)
+                    and not clock_skew and updated_at > 0 and now_epoch >= updated_at + 3600):
+                clear_protection(self.path)
+                return False
             self.login_credentials = credentials
             self.login_failures = persisted["login_failures"]
             if persisted["blocked"]:
@@ -195,34 +201,42 @@ class Reconnector:
 
     def _active_night_pause(self):
         if self.path is None:
-            return None, None
+            return None, None, False
         try:
             sched = load_schedule(self.path)
         except ValueError:
-            return None, None
+            return None, None, False
         now = self.now_fn()
-        return now, night_pause_until(now, sched)
+        return now, night_pause_until(now, sched), bool(sched.get("night_pause"))
 
     def step(self, config):
         credentials = (config.username, config.password, config.service, config.backend)
-        now, pause_until = self._active_night_pause()
+        now, pause_until, night_enabled = self._active_night_pause()
         if pause_until is not None:
             self._was_paused = True
             wait = min(config.max_retry_interval, max(1.0, (pause_until - now).total_seconds()))
             return wait, f"夜间停网保护中（{pause_until:%H:%M} 恢复自动重连）"
 
+        now_epoch = int(now.timestamp()) if now is not None else 0
+        clock_skew = False
         if self.path is not None:
             persisted = load_protection(self.path)
             if persisted.get("corrupted"):
                 self.runner(config, "status")
                 return config.max_retry_interval, "认证保护状态异常，已暂停自动提交；执行 ysu login 恢复"
-            self._sync_from_disk(config, credentials)
+            clock_skew = now_epoch > 0 and persisted.get("updated_at", 0) > now_epoch + 300
+            self._sync_from_disk(
+                config,
+                credentials,
+                night_pause_enabled=night_enabled,
+                now_epoch=now_epoch,
+            )
 
         if self._was_paused:
             self._was_paused = False
             self.failures = 0
             self.login_failures = 0
-            if not self.blocked_by_code4:
+            if not self.blocked_by_code4 and not clock_skew:
                 self.blocked_credentials = None
                 self._persist(config, blocked=False, code4=False)
 
@@ -259,7 +273,7 @@ class Reconnector:
                 if self.path is not None:
                     clear_protection(self.path)
                 return config.check_interval, "重连成功"
-            now_after, pause_after = self._active_night_pause()
+            now_after, pause_after, _ = self._active_night_pause()
             if pause_after is not None and result.code != 4:
                 self._was_paused = True
                 self.login_failures = prev_failures

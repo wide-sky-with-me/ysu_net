@@ -381,15 +381,17 @@ def load_protection(path):
         and type(data.get("login_failures")) is int and 0 <= data["login_failures"] <= 20
         and type(data.get("blocked")) is bool
         and type(data.get("code4", False)) is bool
+        and type(data.get("updated_at", 0)) is int and data.get("updated_at", 0) >= 0
     )
     if not valid:
-        return {"version": 1, "identity": "", "login_failures": 3, "blocked": True, "code4": True, "corrupted": True}
+        return {"version": 1, "identity": "", "login_failures": 3, "blocked": True, "code4": True, "updated_at": 0, "corrupted": True}
     return {
         "version": 1,
         "identity": data["identity"],
         "login_failures": data["login_failures"],
         "blocked": data["blocked"],
         "code4": data.get("code4", False),
+        "updated_at": data.get("updated_at", 0),
         "corrupted": False,
     }
 

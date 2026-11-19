@@ -60,6 +60,7 @@ ysu on                   # 立即登录并开启后台自动重连
 | `ysu service [运营商]` | 查看或切换运营商（`校园网`、`中国移动`、`中国联通`、`中国电信`）；若当前已在线会先下线再按新运营商重连 |
 | `ysu start` / `ysu stop` / `ysu restart` | 启动 / 停止 / 重启后台自动重连服务（`stop` 不会断开已建立的校园网连接） |
 | `ysu enable` / `ysu disable` | 开启 / 关闭开机自启 |
+| `ysu night [on\|off\|status]` | 配置宿舍夜间停网静默保护与晨间自动恢复（支持 `--start HH:MM`、`--end HH:MM`、`--dorm` / `--everyday`、`--raw`） |
 | `ysu logs [-n 行数] [-f]` | 查看后台守护日志（`-f` 持续跟随输出） |
 | `ysu doctor [--network] [--json]` | 检查本地配置、锁文件与依赖；加 `--network` 可额外测试门户连通性 |
 
@@ -168,8 +169,8 @@ ysu config path               # 查看配置文件所在路径
 
 | 安装模式 | 主配置文件 | 辅助配置文件与会话缓存 |
 | --- | --- | --- |
-| 用户级（默认） | `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json` | 同目录下存放 `config.accounts.json`（多账号池）、`config.nosense.json`（无感自动续约规则）<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
-| 系统级（`--system`） | `/etc/ysu-net/config.json` | 同目录下存放 `config.accounts.json`、`config.nosense.json`<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
+| 用户级（默认） | `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json` | 同目录下存放 `config.accounts.json`（多账号池）、`config.nosense.json`（无感自动续约规则）、`config.schedule.json`（夜间停网保护时段）、`config.protection.json`（跨重启认证失败计数，不含明文凭据）<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
+| 系统级（`--system`） | `/etc/ysu-net/config.json` | 同目录下存放 `config.accounts.json`、`config.nosense.json`、`config.schedule.json`、`config.protection.json`<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
 
 所有含凭据或会话的配置文件均以 `0600` 权限创建，仅文件所有者可读写。
 
