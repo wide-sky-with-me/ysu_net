@@ -2019,9 +2019,7 @@ impl Worker {
             self.schedule(wait, &msg);
             return;
         }
-        let corrupted = self
-            .reconnect
-            .sync_from_store(&self.runtime.store, &config);
+        let corrupted = self.reconnect.sync_from_store(&self.runtime.store, &config);
         if self.was_in_night_pause {
             self.was_in_night_pause = false;
             if !corrupted {
@@ -2099,9 +2097,9 @@ impl Worker {
                 if let Err(error) = &result {
                     self.error(error);
                 }
-                let device_limit = result.as_ref().is_err_and(|error| {
-                    error.diagnostic().reason == DiagnosticReason::DeviceLimit
-                });
+                let device_limit = result
+                    .as_ref()
+                    .is_err_and(|error| error.diagnostic().reason == DiagnosticReason::DeviceLimit);
                 if device_limit && self.rotate_on_device_limit(&config).await {
                     self.schedule(
                         config.check_interval as f64,

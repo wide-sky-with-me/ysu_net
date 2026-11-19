@@ -1196,9 +1196,9 @@ pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
             })
         })
         .collect();
-    let explicit_failure = compacts.iter().any(|c| {
-        c.contains("认证失败") || is_device_limit(c) || is_terminal_auth_rejection(c)
-    });
+    let explicit_failure = compacts
+        .iter()
+        .any(|c| c.contains("认证失败") || is_device_limit(c) || is_terminal_auth_rejection(c));
     let failed = items.iter().any(|item| {
         matches!(
             item["result"].as_str(),
@@ -1212,10 +1212,10 @@ pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
     });
     if failed {
         if compacts.iter().any(|c| is_device_limit(c)) {
-            return Err(AuthError::interaction(
-                "运营商同时在线数量已达上限，请先在其他终端下线",
-            )
-            .because(Reason::DeviceLimit));
+            return Err(
+                AuthError::interaction("运营商同时在线数量已达上限，请先在其他终端下线")
+                    .because(Reason::DeviceLimit),
+            );
         }
         if compacts.iter().any(|c| is_terminal_auth_rejection(c)) {
             return Err(AuthError::interaction(

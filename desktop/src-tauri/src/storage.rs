@@ -190,9 +190,7 @@ impl ScheduleConfig {
                     .then(|| u64::from((86_400 - secs) + end))
             } else if secs < end {
                 let prev = (weekday_mon0 + 6) % 7;
-                self.weekdays
-                    .contains(&prev)
-                    .then(|| u64::from(end - secs))
+                self.weekdays.contains(&prev).then(|| u64::from(end - secs))
             } else {
                 None
             }
@@ -743,11 +741,7 @@ impl Store {
                 if !days.is_empty() && days.len() <= 7 {
                     let parsed: Option<Vec<u8>> = days
                         .iter()
-                        .map(|v| {
-                            v.as_u64()
-                                .filter(|d| *d <= 6)
-                                .map(|d| d as u8)
-                        })
+                        .map(|v| v.as_u64().filter(|d| *d <= 6).map(|d| d as u8))
                         .collect();
                     if let Some(mut list) = parsed {
                         list.sort_unstable();
@@ -821,7 +815,10 @@ impl Store {
 
     pub fn load_protection(&self) -> ProtectionState {
         let path = self.protection_path();
-        if path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        if path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
             return ProtectionState {
                 version: 1,
                 login_failures: 3,
@@ -851,17 +848,21 @@ impl Store {
             }
         };
         let keys_ok = parsed.keys().all(|k| {
-            ["version", "identity", "login_failures", "blocked", "code4", "updated_at"]
-                .contains(&k.as_str())
+            [
+                "version",
+                "identity",
+                "login_failures",
+                "blocked",
+                "code4",
+                "updated_at",
+            ]
+            .contains(&k.as_str())
         });
         let version_ok = parsed.get("version").and_then(Value::as_i64) == Some(1);
-        let identity = parsed
-            .get("identity")
-            .and_then(Value::as_str)
-            .filter(|s| {
-                s.is_empty()
-                    || (s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-            });
+        let identity = parsed.get("identity").and_then(Value::as_str).filter(|s| {
+            s.is_empty()
+                || (s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        });
         let failures = parsed
             .get("login_failures")
             .and_then(Value::as_u64)
@@ -889,8 +890,14 @@ impl Store {
             identity: identity.unwrap().to_owned(),
             login_failures: failures.unwrap() as u32,
             blocked: blocked.unwrap(),
-            code4: parsed.get("code4").and_then(Value::as_bool).unwrap_or(false),
-            updated_at: parsed.get("updated_at").and_then(Value::as_u64).unwrap_or(0),
+            code4: parsed
+                .get("code4")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            updated_at: parsed
+                .get("updated_at")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
             corrupted: false,
         }
     }
