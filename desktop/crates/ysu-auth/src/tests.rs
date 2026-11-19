@@ -827,7 +827,11 @@ async fn cas_captcha_and_risk_never_submit() {
 }
 #[tokio::test]
 async fn cas_rejection_is_redacted_and_retryable_http_is_query_error() {
-    for (http, code) in [(200, INTERACTION_ERROR), (429, INTERACTION_ERROR), (503, QUERY_ERROR)] {
+    for (http, code) in [
+        (200, INTERACTION_ERROR),
+        (429, INTERACTION_ERROR),
+        (503, QUERY_ERROR),
+    ] {
         let f = Fixture::new();
         f.mutate(|s| {
             s.cas_required = true;
