@@ -2054,9 +2054,9 @@ impl Worker {
             self.schedule(wait, &msg);
             return;
         }
-        let corrupted = self
-            .reconnect
-            .sync_from_store(&self.runtime.store, &config, sched.night_pause);
+        let corrupted =
+            self.reconnect
+                .sync_from_store(&self.runtime.store, &config, sched.night_pause);
         if self.was_in_night_pause {
             self.was_in_night_pause = false;
             if !corrupted {
