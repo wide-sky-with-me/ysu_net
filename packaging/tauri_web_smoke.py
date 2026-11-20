@@ -185,7 +185,8 @@ def main():
         expect(page.get_by_role("switch", name="关闭窗口时驻留托盘", exact=True)).to_be_disabled()
         expect(page.get_by_role("button", name="退出应用", exact=True)).to_be_disabled()
         page.get_by_role("tab", name="认证与重试", exact=True).click()
-        expect(page.get_by_role("button", name="下载模型", exact=True)).to_be_disabled()
+        expect(page.get_by_role("button", name="保存参数", exact=True)).to_be_disabled()
+        expect(page.get_by_role("button", name="下载模型", exact=True)).to_have_count(0)
         assert page.evaluate("localStorage.length + sessionStorage.length") == 0
         shot("web-no-core.png")
         browser.close()
