@@ -503,7 +503,7 @@ async fn public_identity_remains_round_trippable_when_passwords_equal_usernames(
 
 #[tokio::test]
 async fn candidate_changed_before_recovery_does_not_trigger_old_password_restore() {
-    let (runtime, worker, id) = fixture();
+    let (runtime, mut worker, id) = fixture();
     online(&runtime);
     let plan = runtime.store.prepare_account(&id).unwrap();
     let original = demo(&runtime).lock().unwrap().status();
