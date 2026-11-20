@@ -1,8 +1,8 @@
-# 文档导航
+# YSU Net 文档导航 · 燕山大学校园网客户端手册
 
 [返回首页](../README.md) · [快速开始](wiki/Quick-Start.md) · [桌面客户端](wiki/Desktop-Client.md) · [命令与配置](usage.md) · [排障指南](wiki/Troubleshooting.md)
 
-本目录汇总 **YSU Net** 的使用指南、功能说明与开发文档。
+本目录汇总 **YSU Net**（燕山大学有线校园网与 **`iYanDa`** 无线网自动登录、断网重连、7 天无感认证续约及多账号池管理工具）的使用指南、命令参考与架构开发文档。
 
 ## 用户指南
 

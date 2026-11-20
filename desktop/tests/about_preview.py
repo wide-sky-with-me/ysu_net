@@ -56,6 +56,11 @@ NATIVE_FIXTURE = r"""(() => {
     }
   };
   window.__aboutConnection = {
+    pause(message) {
+      core.auto = {state: 'on', message};
+      core.prefs.auto_reconnect = true;
+      this.observe(false, null);
+    },
     observe(online, service) {
       core.status = {online, service, user: online ? 'observed-fixture' : '', ip: online ? '192.0.2.10' : '', message: ''};
       window.__aboutBusy(false);
@@ -78,7 +83,6 @@ NATIVE_FIXTURE = r"""(() => {
       if (command === 'core_request' && args.command === 'observe' && Object.keys(args.args).length === 0) return structuredClone(core);
       if (command === 'core_request' && args.command === 'save_prefs') {core.sequence++; core.prefs = {...core.prefs, ...args.args}; return structuredClone(core);}
       if (command === 'get_desktop_settings') return {autostart: false, tray_available: true, version: '0.2.1', demo: false, updater_supported: true};
-      if (command === 'captcha_status') return {ready: false, path: null, bytes: 0, url: 'https://invalid.example/common.onnx', sha256: '0'.repeat(64)};
       if (command === 'updater_status') {
         if (window.__aboutUpdater.failNextStatus) {window.__aboutUpdater.failNextStatus = false; throw 'ipc';}
         return held.has('status') ? holdRequest('status') : structuredClone(update);
@@ -272,6 +276,20 @@ def main():
         expect(controls.get_by_role('button', name='中国联通', exact=True)).to_have_attribute('aria-pressed', 'true')
         page.screenshot(path=str(args.output / 'carrier-observation-sync.png'), full_page=True)
         update_checks.append({'name': 'online-carrier-title-and-selection-readonly-sync', 'ok': True, 'saved_account_and_prefs_unchanged': True, 'native_mutations': 0})
+        for message in ('在线设备数已达上限，认证已暂停；请在官方门户下线闲置设备，再手动连接',
+                        '认证已暂停；请在官方门户人工完成验证码，再手动连接'):
+            page.evaluate('message => window.__aboutConnection.pause(message)', message)
+            expect(page.get_by_text(message, exact=True)).to_be_visible()
+            expect(page.get_by_role('button', name='连接校园网', exact=True)).to_be_enabled()
+        page.get_by_role('button', name='设置', exact=True).click()
+        page.get_by_role('tab', name='认证与重试', exact=True).click()
+        expect(page.get_by_text('设备数达上限或 CAS 要求验证码时，自动登录暂停。', exact=True)).to_be_visible()
+        expect(page.get_by_text('请在校园网门户下线闲置设备或完成验证码，再回到「连接」页手动连接。', exact=True)).to_be_visible()
+        for name in ('下载模型', '重新下载'):
+            expect(page.get_by_role('button', name=name, exact=True)).to_have_count(0)
+        assert page.evaluate('window.__aboutUnexpected') == []
+        assert page.evaluate("__aboutCalls.filter(c=>c.command==='core_request'&&c.args.command==='action')") == []
+        update_checks.append({'name': 'portal-intervention-without-model-or-automatic-actions', 'ok': True})
         carrier.close()
 
         demo = context()
@@ -319,7 +337,9 @@ def main():
                 summary.focus()
                 page.keyboard.press('Enter')
                 expect(page.locator('.about-release pre').first).to_be_visible()
-                expect(page.locator('.about-release pre').first).to_contain_text('自动更新')
+                expect(page.locator('.about-release pre').first).to_contain_text('夜间停网保护')
+                previous = page.locator('.about-release').filter(has=page.get_by_text('YSU Net v0.3.5', exact=True))
+                expect(previous.locator('pre')).to_contain_text('自动更新')
                 legacy = page.locator('.about-release').filter(has=page.get_by_text('YSU Net v0.2.1', exact=True))
                 expect(legacy.locator('pre')).to_contain_text('签名完整包更新，不是二进制差分更新')
                 layout(page, f'changelog-{theme}-{width}')

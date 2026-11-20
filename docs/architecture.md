@@ -30,7 +30,7 @@ ysu_net/
 │       ├── account_switching.py # 账号热切换、零流量轮换与无感认证交接
 │       └── config.py            # 主配置、无感续约配置 (config.nosense.json) 与进程文件锁
 ├── desktop/                     # 跨平台 Tauri + Rust 桌面客户端
-│   ├── crates/ysu-auth/         # 纯 Rust 认证核心库（Portal/CAS、自助服务、无感认证、ONNX 验证码、CDP 浏览器）
+│   ├── crates/ysu-auth/         # 纯 Rust 认证核心库（Portal/CAS、自助服务、无感认证、CDP 浏览器）
 │   ├── src-tauri/               # Tauri 原生宿主（任务调度、自动重连、多账号轮换、无感续约、托盘、在线更新）
 │   └── src/                     # Svelte 5 + TypeScript 桌面界面
 └── packaging/                   # 云端构建、更新清单签名校验与冒烟验收脚本
@@ -43,8 +43,8 @@ ysu_net/
 ### 1. 门户登录与状态核验
 
 1. **预检与引导**：请求门户首页查询当前会话与在线状态；若由 `/eportal/redirect.jsp` 下发旧式 `http://auth1.ysu.edu.cn/portal/portal-main?...` 跳转，发送前本地升级为 `https://` 以保留 `customPageId`/`userIp`/`ssid`/`nasIp` 参数；若处于离线 Captive 引导状态，仅单次只读探测跳转目标后以 `sessionId` 驱动工作流节点（`authenticate → serviceSelection → finish`）。
-2. **统一身份认证（CAS）**：通过 `/cas-sso/clientredirect?client_name=sidadapter` 拉取 `cer.ysu.edu.cn` 登录页，可优先复用未过期的 `CASTGC` 会话（30 分钟有效）跳过账密提交；需要表单认证时仅围绕选中的密码表单解析 `#pwdEncryptSalt`（AES-128/192/256-CBC）与 `#captchaDiv` 并检测 DOM 可见风控文本；触发验证码且已配置本地模型时最多提交 2 次（首轮与 1 次换图重试），连续登录失败达 3 次或返回退出码 `4` 时自动暂停后台重连。
-3. **服务选择与上线**：CAS 回调门户后提交目标运营商（校园网 / 中国移动 / 中国联通 / 中国电信）完成上线；下线前预先获取 `/sam` 会话 Cookie 保证真实下线生效。
+2. **统一身份认证（CAS）**：通过 `/cas-sso/clientredirect?client_name=sidadapter` 拉取 `cer.ysu.edu.cn` 登录页，可优先复用未过期的 `CASTGC` 会话（30 分钟有效）。CAS 要求验证码时暂停认证，由用户在学校门户完成验证。
+3. **服务选择与上线**：CAS 回调门户后提交目标运营商（校园网 / 中国移动 / 中国联通 / 中国电信）完成上线；下线前预先获取 `/sam` 会话 Cookie 保证真实下线生效。若门户报告在线设备数达上限，暂停重连，用户在门户手动下线闲置设备后再连接。
 4. **独立复核**：每次登录、下线或切换运营商后，均通过新的无 Cookie 状态查询确认在线身份与服务是否一致。
 
 ### 2. 设备自助服务与 7 天无感认证

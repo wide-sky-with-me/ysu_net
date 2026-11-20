@@ -1,11 +1,6 @@
 //! Native Portal/CAS authentication. No sidecar, persisted sessions or credential logging.
 //! Decision: .agents/notes/proposals/desktop/2026-10-14-rust-desktop.md
 mod browser;
-mod captcha;
-pub use captcha::{
-    download, download_model, ready_model, status as model_status, ModelStatus, MODEL_FILE,
-    MODEL_SHA256, MODEL_URL,
-};
 #[cfg(windows)]
 mod browser_process;
 mod cdp_pipe;
@@ -210,6 +205,9 @@ impl AuthError {
     }
     pub(crate) fn interaction(message: &str) -> Self {
         Self::new(INTERACTION_ERROR, message).because(DiagnosticReason::InteractionRequired)
+    }
+    pub(crate) fn captcha() -> Self {
+        Self::interaction("认证需要验证码，请人工处理后重试").at(DiagnosticStage::Captcha)
     }
     pub(crate) fn timeout() -> Self {
         Self::query("操作超过时限，请重新查询连接状态").because(DiagnosticReason::Deadline)
@@ -614,9 +612,16 @@ impl AuthClient {
             .await;
             match result {
                 Ok(value) => Ok(value),
+                Err(error) if error.code == INTERACTION_ERROR => Err(error),
                 Err(mut error) => {
                     if let Some(previous) = previous {
-                        let restored = session.restore(&self.config, &previous, &op).await;
+                        let restored = match session.restore(&self.config, &previous, &op).await {
+                            Ok(()) => true,
+                            Err(challenge) if challenge.code == INTERACTION_ERROR => {
+                                return Err(challenge)
+                            }
+                            Err(_) => false,
+                        };
                         error.message.push_str(if restored {
                             "；已独立确认恢复原服务"
                         } else {

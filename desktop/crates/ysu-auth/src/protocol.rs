@@ -318,8 +318,7 @@ impl Session {
                         op,
                     )
                     .await?;
-                r.ensure_success()?;
-                check_action(&r, &r.json()?)
+                check_action_reply(&r)
             })
             .await?;
             // A concurrent login must not be overwritten between selection and activation.
@@ -339,8 +338,7 @@ impl Session {
                         op,
                     )
                     .await?;
-                r.ensure_success()?;
-                check_action(&r, &r.json()?)
+                check_action_reply(&r)
             })
             .await?;
         } else if !matches!(node.as_str(), "finish" | "online" | "userOnline") {
@@ -400,8 +398,7 @@ impl Session {
                 .http
                 .once(Method::POST, url, headers, Some(body), op)
                 .await?;
-            r.ensure_success()?;
-            check_action(&r, &r.json()?)
+            check_action_reply(&r)
         })
         .await?;
         at(Stage::Verification, async {
@@ -439,23 +436,24 @@ impl Session {
         })
         .await
     }
-    pub async fn restore(&mut self, config: &Config, previous: &str, op: &Operation) -> bool {
-        async {
-            let current = self.snapshot(op).await?;
-            current.require_owner(&config.username)?;
-            if current.status.service.as_deref() == Some(previous) {
-                return Ok::<_, AuthError>(true);
-            }
-            if current.status.online {
-                self.logout(config, op).await?;
-            }
-            self.login(config, previous, op).await?;
-            let verified = self.snapshot(op).await?;
-            verified.require_target(&config.username, previous)?;
-            Ok(true)
+    pub async fn restore(
+        &mut self,
+        config: &Config,
+        previous: &str,
+        op: &Operation,
+    ) -> Result<(), AuthError> {
+        let current = self.snapshot(op).await?;
+        current.require_owner(&config.username)?;
+        if current.status.service.as_deref() == Some(previous) {
+            return Ok(());
         }
-        .await
-        .unwrap_or(false)
+        if current.status.online {
+            self.logout(config, op).await?;
+        }
+        self.login(config, previous, op).await?;
+        self.snapshot(op)
+            .await?
+            .require_target(&config.username, previous)
     }
 }
 
@@ -591,30 +589,82 @@ pub(crate) struct LoginForm {
     pub action: Url,
     pub captcha: bool,
 }
+// The real page reuses challenge IDs across multiple login methods.
+fn password_form(html: &Html) -> Option<ElementRef<'_>> {
+    let inputs = selector("input");
+    let score = |e: ElementRef<'_>| {
+        e.select(&inputs)
+            .map(|i| match i.value().attr("name") {
+                Some("username" | "password") => 3,
+                Some("execution") => 2,
+                _ => 0,
+            })
+            .sum::<u32>()
+    };
+    html.select(&selector("form"))
+        .max_by_key(|e| score(*e))
+        .filter(|e| score(*e) >= 6)
+}
+
+fn hidden_element(e: ElementRef<'_>) -> bool {
+    let a = e.value();
+    let style = a
+        .attr("style")
+        .unwrap_or("")
+        .replace(char::is_whitespace, "")
+        .to_ascii_lowercase();
+    matches!(a.name(), "script" | "style" | "noscript" | "template")
+        || a.attr("hidden").is_some()
+        || a.attr("type")
+            .is_some_and(|t| t.eq_ignore_ascii_case("hidden"))
+        || a.attr("class")
+            .unwrap_or("")
+            .split_whitespace()
+            .any(|s| s.contains("hide") || s.contains("hidden"))
+        || style.contains("display:none")
+        || style.contains("visibility:hidden")
+}
+
+fn visible_captcha(html: &Html, password: Option<ElementRef<'_>>) -> bool {
+    let in_scope = |e: ElementRef<'_>| {
+        let mut chain = std::iter::once(e).chain(e.ancestors().filter_map(ElementRef::wrap));
+        !chain.any(|el| {
+            hidden_element(el)
+                || (el.value().name() == "form"
+                    && password.is_some_and(|form| form.id() != el.id()))
+        })
+    };
+    html.select(&selector(
+        "#captchaDiv, input[name=captcha i], input[name=otp i], input[name=smscode i]",
+    ))
+    .any(in_scope)
+        || html.root_element().descendants().any(|node| {
+            node.value()
+                .as_text()
+                .is_some_and(|t| t.contains("请输入验证码") || t.contains("请填写验证码"))
+                && node
+                    .parent()
+                    .and_then(ElementRef::wrap)
+                    .is_some_and(in_scope)
+        })
+}
+
 impl LoginForm {
     pub fn parse(body: &str, page: &Url, http: &Transport) -> Result<Self, AuthError> {
         if risk_page(body) {
             return Err(AuthError::interaction("统一认证触发风控，请人工处理后重试"));
         }
         let html = Html::parse_document(body);
-        let forms = selector("form");
         let inputs = selector("input");
-        let score = |e: ElementRef<'_>| {
-            e.select(&inputs)
-                .map(|i| match i.value().attr("name") {
-                    Some("username" | "password") => 3,
-                    Some("execution") => 2,
-                    _ => 0,
-                })
-                .sum::<u32>()
-        };
-        let form = html
-            .select(&forms)
-            .max_by_key(|e| score(*e))
-            .filter(|e| score(*e) >= 6)
-            .ok_or_else(|| {
-                AuthError::interaction("统一认证登录表单缺失，请检查验证码或风控状态")
-            })?;
+        let form = password_form(&html);
+        let captcha = visible_captcha(&html, form);
+        let form = form.ok_or_else(|| {
+            if captcha {
+                AuthError::captcha()
+            } else {
+                AuthError::interaction("统一认证登录表单缺失，请人工检查门户状态")
+            }
+        })?;
         let mut fields = BTreeMap::new();
         for input in form.select(&inputs) {
             let attr = input.value();
@@ -661,31 +711,6 @@ impl LoginForm {
                 action.query_pairs_mut().append_pair("service", &service);
             }
         }
-        // Other login methods reuse captchaDiv on the real CAS page.
-        // Decision: .agents/notes/implemented/desktop/2026-10-27-offline-captive-bootstrap.md
-        let captcha = html
-            .select(&selector("#captchaDiv"))
-            .filter(|e| {
-                e.ancestors()
-                    .filter_map(ElementRef::wrap)
-                    .find(|ancestor| ancestor.value().name() == "form")
-                    .is_none_or(|owner| owner.id() == form.id())
-            })
-            .any(|e| {
-                let attr = e.value();
-                !attr
-                    .attr("class")
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .any(|s| s.contains("hide") || s.contains("hidden"))
-                    && !attr
-                        .attr("style")
-                        .unwrap_or("")
-                        .replace(' ', "")
-                        .to_ascii_lowercase()
-                        .contains("display:none")
-                    && attr.attr("hidden").is_none()
-            });
         Ok(Self {
             fields,
             salt,
@@ -725,22 +750,37 @@ fn risk_page(body: &str) -> bool {
     .iter()
     .any(|s| content.contains(s))
 }
-fn bool_value(v: &Value) -> Option<bool> {
-    v.as_bool()
-        .or_else(|| match v.as_str()?.trim().to_ascii_lowercase().as_str() {
+fn captcha_flag(v: &Value) -> Option<bool> {
+    match v {
+        Value::Object(_) => ["isNeed", "needCaptcha", "isNeedCaptcha", "data", "result"]
+            .iter()
+            .filter_map(|key| v.get(*key).and_then(captcha_flag))
+            .max(),
+        Value::Number(n) => match n.as_u64()? {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        },
+        Value::Bool(b) => Some(*b),
+        Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
             "true" | "1" | "yes" => Some(true),
             "false" | "0" | "no" => Some(false),
             _ => None,
-        })
+        },
+        _ => None,
+    }
 }
-pub(crate) async fn captcha_required(
+pub(crate) async fn require_no_captcha(
     http: &Transport,
     page: &Url,
     username: &str,
     dom: bool,
     op: &Operation,
-) -> Result<bool, AuthError> {
+) -> Result<(), AuthError> {
     at(Stage::Captcha, async {
+        if dom {
+            return Err(AuthError::captcha());
+        }
         let mut u = http.cas_endpoint("authserver/checkNeedCaptcha.htl")?;
         u.query_pairs_mut()
             .append_pair("username", username)
@@ -754,22 +794,25 @@ pub(crate) async fn captcha_required(
                 op,
             )
             .await?;
+        if r.status == 429 {
+            return Err(
+                AuthError::interaction("验证码检查请求过于频繁，请稍后人工重试")
+                    .because(Reason::HttpRejected),
+            );
+        }
         r.ensure_success()?;
-        let v = r.json().ok();
-        let api = v.as_ref().and_then(|v| {
-            bool_value(v).or_else(|| {
-                ["isNeed", "needCaptcha", "isNeedCaptcha", "data", "result"]
-                    .iter()
-                    .find_map(|key| bool_value(&v[key]))
-            })
-        });
-        // A visible challenge takes precedence over a stale false response.
-        Ok(dom || api.unwrap_or(false))
+        match r.json().ok().as_ref().and_then(captcha_flag) {
+            Some(false) => Ok(()),
+            Some(true) => Err(AuthError::captcha()),
+            None if cas_rejected_by_captcha(&r.text()) => Err(AuthError::captcha()),
+            None => {
+                Err(AuthError::query("验证码状态未知，已停止提交").because(Reason::ResponseInvalid))
+            }
+        }
     })
     .await
 }
 
-const CAPTCHA_ATTEMPTS: u32 = 2;
 const CAS_TGC_TTL: std::time::Duration = std::time::Duration::from_secs(1_800);
 
 fn cas_tgc_cache(
@@ -806,16 +849,14 @@ fn store_cas_tgc(config: &Config, tgc: String) {
     }
 }
 
-#[cfg(test)]
 pub(crate) fn cas_rejected_by_captcha(body: &str) -> bool {
-    cas_rejected_by_captcha_inner(body)
-}
-
-fn cas_rejected_by_captcha_inner(body: &str) -> bool {
+    let html = Html::parse_document(body);
+    if visible_captcha(&html, password_form(&html)) {
+        return true;
+    }
     if risk_page(body) {
         return false;
     }
-    let html = Html::parse_document(body);
     let mut notice = String::new();
     for sel in [
         "#msg",
@@ -835,6 +876,12 @@ fn cas_rejected_by_captcha_inner(body: &str) -> bool {
         && !["密码", "用户名", "冻结", "锁定", "频繁", "不存在", "停用"]
             .iter()
             .any(|term| notice.contains(term))
+}
+
+pub(crate) fn is_challenge_field(name: &str) -> bool {
+    ["captcha", "otp", "smscode"]
+        .iter()
+        .any(|key| name.eq_ignore_ascii_case(key))
 }
 
 fn prepare_cas_form(
@@ -862,31 +909,8 @@ fn prepare_cas_form(
         .entry("dllt".into())
         .or_insert_with(|| "generalLogin".into());
     form.fields.entry("lt".into()).or_default();
-    if form.fields.get("captcha").is_some_and(String::is_empty) {
-        form.fields.remove("captcha");
-    }
+    form.fields.retain(|key, _| !is_challenge_field(key));
     Ok(form)
-}
-
-async fn fetch_captcha(
-    http: &Transport,
-    solver: &crate::captcha::CaptchaOcr,
-    op: &Operation,
-) -> Result<String, AuthError> {
-    at(Stage::Captcha, async {
-        let mut url = http.cas_endpoint("authserver/getCaptcha.htl")?;
-        url.query_pairs_mut().append_pair("ts", &timestamp());
-        let image = http.get(url.clone(), op).await?;
-        image.ensure_success()?;
-        let text = solver.recognize(&image.body)?;
-        if text.chars().count() < 3 {
-            return Err(
-                AuthError::interaction("验证码识别结果不可用，请人工处理后重试").at(Stage::Captcha),
-            );
-        }
-        Ok(text)
-    })
-    .await
 }
 
 pub(crate) async fn api_cas_login(
@@ -912,6 +936,10 @@ pub(crate) async fn api_cas_login_with_tgc(
         }
     }
     let page = at(Stage::CasNavigation, http.navigation_get(url.clone(), op)).await?;
+    if cas_rejected_by_captcha(&page.text()) {
+        clear_cas_tgc(config);
+        return Err(AuthError::captcha());
+    }
     page.ensure_success()
         .map_err(|e| e.at(Stage::CasNavigation))?;
     if page.chain.len() > 1
@@ -932,74 +960,40 @@ pub(crate) async fn api_cas_login_with_tgc(
         return Ok(true);
     }
     clear_cas_tgc(config);
-    let mut page_url = page.url.clone();
-    let mut form = prepare_cas_form(&page.text(), &page_url, http, config)?;
-    // The opt-in local model is only used when it is already on disk; nothing is
-    // downloaded from inside a login attempt.
-    let solver = if captcha_required(http, &page_url, &config.username, form.captcha, op).await? {
-        match crate::captcha::ready_model().and_then(|p| crate::captcha::CaptchaOcr::load(&p).ok())
-        {
-            Some(solver) => Some(solver),
-            None => {
-                return Err(
-                    AuthError::interaction("统一认证需要验证码，请人工处理后重试")
-                        .at(Stage::Captcha),
-                )
-            }
+    let page_url = &page.url;
+    let form = prepare_cas_form(&page.text(), page_url, http, config)?;
+    require_no_captcha(http, page_url, &config.username, form.captcha, op).await?;
+    let action = form.action;
+    let body = url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(form.fields.iter())
+        .finish()
+        .into_bytes();
+    let mut headers = http.api_headers(&action, Some(page_url));
+    headers.remove("isportal");
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/x-www-form-urlencoded"),
+    );
+    let r = at(Stage::CasSubmit, async {
+        let reply = http
+            .once(Method::POST, action, headers, Some(body), op)
+            .await?;
+        if cas_rejected_by_captcha(&reply.text()) {
+            return Err(AuthError::captcha());
         }
-    } else {
-        None
-    };
-    let mut solved = 0;
-    let r = loop {
-        if let Some(solver) = solver.as_ref() {
-            form.fields
-                .insert("captcha".into(), fetch_captcha(http, solver, op).await?);
+        match reply.status {
+            301 | 302 | 303 => Ok(reply),
+            429 => Err(AuthError::interaction("统一认证请求过于频繁，请稍后重试")
+                .because(Reason::HttpRejected)),
+            500..=599 => Err(AuthError::query("统一认证服务暂时不可用，请稍后重试")
+                .because(Reason::HttpRejected)),
+            _ => Err(
+                AuthError::interaction("统一认证未确认登录，请人工检查账号密码或风控状态")
+                    .because(Reason::BusinessRejected),
+            ),
         }
-        let action = form.action.clone();
-        let body = url::form_urlencoded::Serializer::new(String::new())
-            .extend_pairs(form.fields.iter())
-            .finish()
-            .into_bytes();
-        let mut headers = http.api_headers(&action, Some(&page_url));
-        headers.remove("isportal");
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/x-www-form-urlencoded"),
-        );
-        let reply = at(Stage::CasSubmit, async {
-            let reply = http
-                .once(Method::POST, action.clone(), headers, Some(body), op)
-                .await?;
-            if matches!(reply.status, 429 | 500..=599) {
-                return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试")
-                    .because(Reason::HttpRejected));
-            }
-            Ok(reply)
-        })
-        .await?;
-        if matches!(reply.status, 301 | 302 | 303) {
-            break reply;
-        }
-        // Only an explicit captcha notice is retried, and only with freshly parsed
-        // execution/salt tokens from the returned page so a wrong password never
-        // multiplies credential attempts or replays a consumed flow token.
-        let reply_text = reply.text();
-        if solver.is_some()
-            && cas_rejected_by_captcha_inner(&reply_text)
-            && solved < CAPTCHA_ATTEMPTS - 1
-        {
-            solved += 1;
-            page_url = reply.url.clone();
-            form = prepare_cas_form(&reply_text, &page_url, http, config)?;
-            continue;
-        }
-        return Err(
-            AuthError::interaction("统一认证未确认登录，请检查账号密码、验证码或风控状态")
-                .at(Stage::CasSubmit)
-                .because(Reason::BusinessRejected),
-        );
-    };
+    })
+    .await?;
     at(Stage::CasCallback, async {
         let next = r
             .headers
@@ -1010,6 +1004,9 @@ pub(crate) async fn api_cas_login_with_tgc(
                 AuthError::query("统一认证返回缺少有效跳转地址").because(Reason::ResponseInvalid)
             })?;
         let after = http.navigation_get(next, op).await?;
+        if cas_rejected_by_captcha(&after.text()) {
+            return Err(AuthError::captcha());
+        }
         after.ensure_success()?;
         if after.url.origin() != http.base.origin() {
             return Err(
@@ -1031,65 +1028,218 @@ pub(crate) async fn api_cas_login_with_tgc(
     .await
 }
 
+const AUTH_MESSAGE_KEYS: [&str; 9] = [
+    "message",
+    "authMessage",
+    "errorMessage",
+    "errorMsg",
+    "reason",
+    "description",
+    "errorCode",
+    "authCode",
+    "errCode",
+];
+
+fn normalize_auth_text(input: &str) -> String {
+    input
+        .chars()
+        .filter_map(|ch| {
+            let mapped = match ch as u32 {
+                0xFF01..=0xFF5E => char::from_u32(ch as u32 - 0xFEE0).unwrap_or(ch),
+                0x3000 => ' ',
+                _ => ch,
+            };
+            (!mapped.is_whitespace()).then_some(mapped)
+        })
+        .collect::<String>()
+        .to_lowercase()
+}
+
+fn is_device_limit(compact: &str) -> bool {
+    if [
+        "同时在线用户数量上限",
+        "并发用户数量上限",
+        "并发数上限",
+        "认证设备数量",
+        "认证设备数",
+        "认证终端数量",
+        "认证终端数",
+        "设备数量上限",
+        "设备数上限",
+        "在线设备数量上限",
+        "在线设备数上限",
+        "终端数量上限",
+        "终端数上限",
+        "达到设备上限",
+        "设备已达上限",
+        "设备达到上限",
+        "最大认证设备",
+        "authenticationdevicelimit",
+        "maximumauthenticationdevices",
+        "devicecountlimit",
+        "maximumnumberofdevices",
+        "devicelimit",
+    ]
+    .iter()
+    .any(|marker| compact.contains(marker))
+    {
+        return true;
+    }
+    let has_device = ["设备", "终端", "device", "terminal"]
+        .iter()
+        .any(|w| compact.contains(w));
+    let has_limit = [
+        "上限", "最大", "限制", "超过", "已满", "limit", "maximum", "max", "exceed",
+    ]
+    .iter()
+    .any(|w| compact.contains(w));
+    let has_auth = [
+        "认证",
+        "登录",
+        "在线",
+        "数量",
+        "设备数",
+        "terminal",
+        "authentication",
+        "login",
+        "count",
+    ]
+    .iter()
+    .any(|w| compact.contains(w));
+    has_device && has_limit && has_auth
+}
+
+fn is_terminal_auth_rejection(compact: &str) -> bool {
+    static MAC_BLOCK_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?:mac(?:address|地址)?|物理地址|设备|终端|device)(?:[:：（(]?(?:[0-9a-f]{12}|(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2})[）)]?)?[:：=_-]?(?:已经被列入|已被列入|被列入|已经被|已经|已被|被|已|处于|列入|加入|is|was|hasbeen)?[:：=_-]?(?:冻结|封禁|锁定|黑名单|禁止认证|禁止登录|不允许认证|受限|限制认证|frozen|blocked|banned|blacklisted|locked|restricted|denied)|(?:blocked|frozen|blacklisted|banned)(?:mac(?:address)?|device)",
+        )
+        .expect("constant regex")
+    });
+    if compact.contains("maccollision")
+        || compact.contains("mac冲突")
+        || compact.contains("mac地址冲突")
+        || MAC_BLOCK_RE.is_match(compact)
+    {
+        return true;
+    }
+    [
+        "认证过于频繁",
+        "认证太频繁",
+        "登录过于频繁",
+        "操作过于频繁",
+        "请求过于频繁",
+        "认证频率过高",
+        "toomanyauthenticationattempts",
+        "toomanyloginattempts",
+        "toomanyrequests",
+        "ratelimitexceeded",
+        "authenticationtoofrequent",
+        "账号密码错误",
+        "用户名或密码",
+        "用户名错误",
+        "用户或密码",
+        "账号或密码",
+        "帐号或密码",
+        "账户或密码",
+        "密码错误",
+        "密码不正确",
+        "口令错误",
+        "凭据无效",
+        "invalidcredentials",
+        "wrongpassword",
+        "验证码",
+        "captcha",
+        "verificationcode",
+        "风控",
+        "ip被冻结",
+        "冻结",
+        "锁定",
+        "欠费",
+        "停机",
+        "余额不足",
+        "未绑定",
+        "无绑定",
+        "绑定关系",
+        "用户不存在",
+        "账号不存在",
+        "黑名单",
+    ]
+    .iter()
+    .any(|term| compact.contains(term))
+}
+
+pub(crate) fn check_action_reply(r: &Reply) -> Result<(), AuthError> {
+    if r.status == 429 {
+        return Err(
+            AuthError::interaction("门户请求过于频繁，请稍后重试").because(Reason::HttpRejected)
+        );
+    }
+    r.ensure_success()?;
+    check_action(r, &r.json()?)
+}
+
 pub(crate) fn check_action(r: &Reply, v: &Value) -> Result<(), AuthError> {
+    if r.status == 429 {
+        return Err(
+            AuthError::interaction("门户请求过于频繁，请稍后重试").because(Reason::HttpRejected)
+        );
+    }
     if !v.is_object() {
         return Err(AuthError::operation("门户操作响应格式异常").because(Reason::ResponseInvalid));
     }
-    for item in [v, &v["data"]] {
-        if !item.is_object() {
-            continue;
-        }
-        let messages = [item["message"].as_str(), item["authMessage"].as_str()];
-        for msg in messages.into_iter().flatten() {
-            if msg.contains("同时在线用户数量上限") {
-                return Err(AuthError::interaction(
-                    "运营商同时在线数量已达上限，请先在其他终端下线",
-                ));
-            }
-            if [
-                "账号密码错误",
-                "用户名或密码错误",
-                "密码错误",
-                "验证码",
-                "风控",
-                "IP被冻结",
-                "冻结",
-                "锁定",
-                "欠费",
-                "停机",
-                "余额不足",
-                "未绑定",
-                "无绑定",
-                "绑定关系",
-                "用户不存在",
-                "账号不存在",
-                "黑名单",
-            ]
+    let items: Vec<&Value> = [v, &v["data"]]
+        .into_iter()
+        .filter(|item| item.is_object())
+        .collect();
+    if items.iter().any(|item| {
+        ["needCaptcha", "isNeedCaptcha"]
             .iter()
-            .any(|term| msg.contains(term))
-            {
-                return Err(AuthError::interaction(
-                    "运营商认证需要人工处理，请检查账号绑定、密码、验证码或风控状态",
-                ));
-            }
-        }
-        let rejected_online = item["online"] == false
-            && messages
-                .into_iter()
-                .flatten()
-                .any(|msg| msg.contains("认证失败"));
-        if matches!(
+            .any(|key| item.get(*key).and_then(captcha_flag) == Some(true))
+    }) {
+        return Err(AuthError::captcha());
+    }
+    let compacts: Vec<String> = items
+        .iter()
+        .flat_map(|item| {
+            AUTH_MESSAGE_KEYS.iter().filter_map(move |key| {
+                let cleaned = text(&item[*key]);
+                (!cleaned.is_empty()).then(|| normalize_auth_text(&cleaned))
+            })
+        })
+        .collect();
+    let explicit_failure = compacts
+        .iter()
+        .any(|c| c.contains("认证失败") || is_device_limit(c) || is_terminal_auth_rejection(c));
+    let failed = items.iter().any(|item| {
+        matches!(
             item["result"].as_str(),
             Some("fail" | "failed" | "failure" | "error")
         ) || item
             .get("authResult")
             .is_some_and(|value| value != "success")
             || item["success"] == false
-            || rejected_online
+            || (item["online"] == false && explicit_failure)
             || item["code"].as_i64().is_some_and(|c| c != 0 && c != 200)
-        {
-            return Err(AuthError::operation("门户操作未被确认").because(Reason::BusinessRejected));
+    });
+    if failed {
+        if compacts.iter().any(|c| is_device_limit(c)) {
+            return Err(AuthError::interaction(
+                "运营商同时在线设备数已达上限，请人工处理其他终端后重试",
+            )
+            .because(Reason::DeviceLimit));
         }
+        if compacts.iter().any(|c| {
+            c.contains("验证码") || c.contains("captcha") || c.contains("verificationcode")
+        }) {
+            return Err(AuthError::captcha());
+        }
+        if compacts.iter().any(|c| is_terminal_auth_rejection(c)) {
+            return Err(AuthError::interaction(
+                "运营商认证需要人工处理，请检查账号绑定、密码、验证码或风控状态",
+            ));
+        }
+        return Err(AuthError::operation("门户操作未被确认").because(Reason::BusinessRejected));
     }
     if r.status != 200 {
         return Err(AuthError::operation("门户操作请求未被确认").because(Reason::HttpRejected));

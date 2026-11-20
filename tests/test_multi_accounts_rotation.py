@@ -8,7 +8,8 @@ from tests.test_multi_accounts_switching import Clock, status
 from ysu_net.manager import accounts
 from ysu_net.manager.account_switching import AccountController, AccountRotation, AccountSwitchResult
 from ysu_net.manager.backend import Result
-from ysu_net.manager.config import Config, load_config, save_config, update_config
+from ysu_net.manager.config import (Config, load_config, pause_unattended, save_config,
+                                    unattended_paused, update_config)
 
 
 class RotationTests(OfflineTestCase):
@@ -130,7 +131,7 @@ class RotationTests(OfflineTestCase):
     def test_http_business_and_malformed_account_failure_do_not_rotate(self):
         self.enable()
         online = json.loads(status("fixture-a").output)["online"]
-        responses = [Result(4), Result(2), Result(0, "invalid"),
+        responses = [Result(2), Result(0, "invalid"),
                      Result(0, json.dumps({"online": online, "account": self.raw})),
                      Result(0, json.dumps({"online": online, "account": self.raw, "account_http_status": 500})),
                      Result(0, json.dumps({"online": online, "account": self.raw, "account_http_status": "200"}))]
@@ -161,6 +162,44 @@ class RotationTests(OfflineTestCase):
             self.rotation.step()
             self.assertIsNone(self.rotation.zero_time)
             self.assertEqual(self.rotation.quota["state"], "unknown")
+
+    def test_quota_query_interaction_blocks_subsequent_rotation_even_after_restart(self):
+        self.enable()
+        self.runner.side_effect = [status("fixture-a"), Result(4)]
+        message = self.rotation.step()
+        self.assertIn("暂停", message)
+        self.assertTrue(unattended_paused(self.path))
+        self.assertEqual([call.args[1] for call in self.runner.call_args_list], ["status", "info"])
+        accounts.save_account(self.path, id=self.b["id"], username="fixture-b", password="changed")
+        update_config(self.path, username="fixture-c", password="new-current")
+        self.rotation.disable()
+        self.rotation.enable()
+        self.clock.now += 1800
+        self.rotation.step()
+        AccountRotation(self.path, runner=self.runner, clock=self.clock).step()
+        self.assertEqual(self.runner.call_count, 2)
+        self.switcher.assert_not_called()
+
+    def test_target_challenge_does_not_try_next_candidate_after_cooldown(self):
+        self.enable()
+        self.switcher.return_value = AccountSwitchResult(4, "interaction")
+        self.two()
+        self.assertTrue(unattended_paused(self.path))
+        self.assertEqual(self.switcher.call_args.args[1], self.b["id"])
+        self.clock.now += 1800
+        self.assertEqual(self.rotation.step(), "")
+        self.switcher.assert_called_once()
+        self.assertEqual(self.runner.call_count, 6)
+
+    def test_pause_published_during_preflight_prevents_next_request(self):
+        self.enable()
+        def run(config, action, **kwargs):
+            pause_unattended(self.path)
+            return self.run_backend_fake(config, action, **kwargs)
+        self.runner.side_effect = run
+        self.rotation.step()
+        self.assertEqual([call.args[1] for call in self.runner.call_args_list], ["status"])
+        self.switcher.assert_not_called()
 
     def test_changed_config_during_query_never_counts_zero(self):
         self.enable()
@@ -204,7 +243,7 @@ class RotationTests(OfflineTestCase):
 
     def test_first_enabled_candidate_in_list_only_and_failure_cooldown(self):
         self.enable()
-        self.switcher.return_value = AccountSwitchResult(4, "interaction")
+        self.switcher.return_value = AccountSwitchResult(3, "failure")
         self.two()
         self.assertEqual(self.switcher.call_args.args[1], self.b["id"])
         self.assertEqual(self.switcher.call_count, 1)
@@ -236,7 +275,7 @@ class RotationTests(OfflineTestCase):
     def test_changed_candidate_credentials_allow_retry_before_cooldown(self):
         accounts.delete_account(self.path, self.c["id"])
         self.enable()
-        self.switcher.return_value = AccountSwitchResult(4, "failure")
+        self.switcher.return_value = AccountSwitchResult(3, "failure")
         self.two()
         accounts.save_account(self.path, id=self.b["id"], username="fixture-b", password="new")
         self.clock.now += 60
@@ -270,7 +309,7 @@ class RotationTests(OfflineTestCase):
 
     def test_manual_reset_clears_cooldown_and_observations(self):
         self.enable()
-        self.switcher.return_value = AccountSwitchResult(4, "failure")
+        self.switcher.return_value = AccountSwitchResult(3, "failure")
         self.two()
         self.assertTrue(self.rotation.cooldowns)
         self.rotation.reset(manual=True)

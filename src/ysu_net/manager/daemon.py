@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime
 import json
 import logging
 from pathlib import Path
@@ -11,7 +12,18 @@ from types import SimpleNamespace
 from .accounts import load_accounts
 from .account_switching import AccountController
 from .backend import run_backend
-from .config import load_config, load_nosense
+from .config import (
+    clear_protection,
+    credential_identity_hash,
+    load_config,
+    load_nosense,
+    load_protection,
+    load_schedule,
+    night_pause_until,
+    pause_unattended,
+    save_protection,
+    unattended_paused,
+)
 from .control import ControlServer
 from .locking import exclusive_config
 
@@ -24,11 +36,7 @@ class NoSenseRenewer:
         self.path = Path(path)
         self.runner = runner
         self.clock = clock
-        self.next_check = 0.0
-        self.blocked_credentials = None
-        self.last_config = None
         self.next_check_by_user = {}
-        self.blocked_by_user = {}
         self.last_config_by_user = {}
 
     def _targets(self, config, nosense):
@@ -77,8 +85,6 @@ class NoSenseRenewer:
     def _step_one(self, acct_cfg, target_mac, service):
         uname = acct_cfg.username
         credentials = (uname, acct_cfg.password, acct_cfg.base, acct_cfg.cas_host)
-        if self.blocked_by_user.get(uname) == credentials:
-            return f"无感自动续约已暂停（{uname}）：账号认证需人工处理"
         state_key = (credentials, target_mac, service or "")
         now = self.clock()
         if self.last_config_by_user.get(uname) == state_key and now < self.next_check_by_user.get(uname, 0.0):
@@ -93,7 +99,6 @@ class NoSenseRenewer:
         result = self.runner(acct_cfg, "self", raw=True, args=args)
         self.last_config_by_user[uname] = state_key
         if result.code == 0:
-            self.blocked_by_user.pop(uname, None)
             self.next_check_by_user[uname] = self.clock() + self.CHECK_INTERVAL
             try:
                 payload = json.loads(result.output)
@@ -104,8 +109,7 @@ class NoSenseRenewer:
                 return f"无感认证已自动续约（到期 {expires}）" if expires else "无感认证已自动续约"
             return f"无感认证有效（到期 {expires}）" if expires else "无感认证有效"
         if result.code == 4:
-            self.blocked_by_user[uname] = credentials
-            self.next_check_by_user[uname] = self.clock() + self.CHECK_INTERVAL
+            pause_unattended(self.path)
             return "无感自动续约暂停：" + result.message
         self.next_check_by_user[uname] = self.clock() + self.RETRY_INTERVAL
         return "无感续约待重试：" + result.message
@@ -117,21 +121,15 @@ class NoSenseRenewer:
             return ""
         targets = self._targets(config, nosense)
         active_users = {cfg.username for cfg, _, _ in targets}
-        for d in (self.next_check_by_user, self.last_config_by_user, self.blocked_by_user):
+        for d in (self.next_check_by_user, self.last_config_by_user):
             for k in list(d):
                 if k not in active_users:
                     d.pop(k, None)
-        if not targets:
-            self.next_check = 0.0
-            self.last_config = None
-            return ""
         messages = []
         for acct_cfg, target_mac, service in targets:
+            if unattended_paused(self.path):
+                break
             msg = self._step_one(acct_cfg, target_mac, service)
-            if acct_cfg.username == config.username:
-                self.next_check = self.next_check_by_user.get(config.username, 0.0)
-                self.last_config = self.last_config_by_user.get(config.username)
-                self.blocked_credentials = self.blocked_by_user.get(config.username)
             if msg:
                 messages.append(msg)
         return "；".join(messages)
@@ -140,40 +138,112 @@ class NoSenseRenewer:
 class Reconnector:
     MAX_LOGIN_FAILURES = 3
 
-    def __init__(self, runner=run_backend, jitter=random.uniform):
+    def __init__(self, runner=run_backend, jitter=random.uniform, *, path, now_fn=None):
         self.runner = runner
         self.jitter = jitter
+        self.path = Path(path)
+        self.now_fn = now_fn or (lambda: datetime.now().astimezone())
         self.failures = 0
         self.login_failures = 0
         self.login_credentials = None
         self.blocked_credentials = None
+        self._was_paused = False
+        self._hydrated = False
+
+    def _sync_from_disk(self, config, credentials, persisted, *, night_pause_enabled, now_epoch, clock_skew):
+        if self._hydrated:
+            return
+        self._hydrated = True
+        if persisted["identity"] == credential_identity_hash(config):
+            updated_at = persisted.get("updated_at", 0)
+            if (night_pause_enabled and not clock_skew and updated_at > 0
+                    and now_epoch >= updated_at + 3600):
+                clear_protection(self.path)
+                return
+            self.login_credentials = credentials
+            self.login_failures = persisted["login_failures"]
+            if persisted["blocked"]:
+                self.blocked_credentials = credentials
+
+    def _persist(self, config, *, blocked):
+        return save_protection(self.path, identity=credential_identity_hash(config),
+                               login_failures=self.login_failures, blocked=blocked)
+
+    def _pause(self, config, result):
+        pause_unattended(self.path)
+        return config.max_retry_interval, result.message + "；无人值守已暂停"
+
+    def _active_night_pause(self):
+        sched = load_schedule(self.path)
+        now = self.now_fn()
+        return now, night_pause_until(now, sched), bool(sched.get("night_pause"))
 
     def step(self, config):
+        credentials = (config.username, config.password, config.service, config.backend)
+        paused_message = "认证保护：无人值守已暂停；处理后请执行 ysu login"
+        persisted = load_protection(self.path)
+        if persisted["code4"]:
+            return config.max_retry_interval, paused_message
+        now, pause_until, night_enabled = self._active_night_pause()
+        if pause_until is not None:
+            self._was_paused = True
+            wait = min(config.max_retry_interval, max(1.0, (pause_until - now).total_seconds()))
+            return wait, f"夜间停网保护中（{pause_until:%H:%M} 恢复自动重连）"
+
+        now_epoch = int(now.timestamp())
+        clock_skew = persisted.get("updated_at", 0) > now_epoch + 300
+        self._sync_from_disk(config, credentials, persisted, night_pause_enabled=night_enabled,
+                             now_epoch=now_epoch, clock_skew=clock_skew)
+
+        if self._was_paused:
+            self._was_paused = False
+            self.failures = 0
+            self.login_failures = 0
+            if not clock_skew:
+                self.blocked_credentials = None
+                if not self._persist(config, blocked=False):
+                    return config.max_retry_interval, paused_message
+
         result = self.runner(config, "status")
+        if result.code == 4:
+            return self._pause(config, result)
         if result.code == 0:
             self.failures = 0
             self.login_failures = 0
             self.login_credentials = None
             self.blocked_credentials = None
+            clear_protection(self.path)
             return config.check_interval, "在线"
         if result.code == 1:
-            credentials = (config.username, config.password, config.service, config.backend)
             if self.blocked_credentials == credentials:
                 return config.max_retry_interval, "认证已暂停：修改配置或手动登录后恢复"
             if self.login_credentials != credentials:
                 self.login_credentials = credentials
                 self.login_failures = 0
+            prev_failures = self.login_failures
+            self.login_failures = prev_failures + 1
+            if not self._persist(config, blocked=self.login_failures >= self.MAX_LOGIN_FAILURES):
+                return config.max_retry_interval, paused_message
             result = self.runner(config, "login")
+            if result.code == 4:
+                return self._pause(config, result)
             if result.code == 0:
                 self.failures = 0
                 self.login_failures = 0
+                self.blocked_credentials = None
+                clear_protection(self.path)
                 return config.check_interval, "重连成功"
-            self.login_failures += 1
-            if result.code == 4 or self.login_failures >= self.MAX_LOGIN_FAILURES:
+            now_after, pause_after, _ = self._active_night_pause()
+            if pause_after is not None:
+                self._was_paused = True
+                self.login_failures = prev_failures
+                self._persist(config, blocked=False)
+                wait = min(config.max_retry_interval, max(1.0, (pause_after - now_after).total_seconds()))
+                return wait, f"夜间停网保护中（{pause_after:%H:%M} 恢复自动重连）"
+            if self.login_failures >= self.MAX_LOGIN_FAILURES:
                 self.blocked_credentials = credentials
-                message = result.message if result.code == 4 else (
-                    f"{result.message}；连续重连失败已达 {self.MAX_LOGIN_FAILURES} 次，自动重连已暂停，请检查账号或网络后手动登录"
-                )
+                self._persist(config, blocked=True)
+                message = f"{result.message}；连续重连失败已达 {self.MAX_LOGIN_FAILURES} 次，自动重连已暂停，请检查账号或网络后手动登录"
                 return config.max_retry_interval, message
         # Query failures never trigger login; both queries and transient login failures back off.
         self.failures = min(self.failures + 1, 20)
@@ -192,8 +262,8 @@ def run_daemon(config_file, *, once=False):
         for sig in (signal.SIGTERM, signal.SIGINT):
             previous[sig] = signal.signal(sig, lambda *_: stop.set())
         runner = lambda config, action, **kwargs: run_backend(config, action, stop_event=stop, **kwargs)
-        worker = Reconnector(runner=runner)
         accounts = AccountController(config_file, runner=runner, stop_event=stop)
+        worker = Reconnector(runner=runner, path=config_file)
         nosense = NoSenseRenewer(config_file, runner=runner)
         control = ControlServer(config_file, accounts.handle)
         last_message = None
@@ -209,14 +279,15 @@ def run_daemon(config_file, *, once=False):
                 try:
                     current = load_config(config_file)
                     delay, message = worker.step(current)
-                    rotation_message = accounts.rotation.step()
-                    if rotation_message:
-                        message += "；" + rotation_message
-                    nosense_message = nosense.step(current)
-                    if nosense_message:
-                        message += "；" + nosense_message
+                    if not worker._was_paused and not unattended_paused(config_file):
+                        rotation_message = accounts.rotation.step()
+                        if rotation_message:
+                            message += "；" + rotation_message
+                        nosense_message = nosense.step(current)
+                        if nosense_message:
+                            message += "；" + nosense_message
                 except (ValueError, OSError):
-                    delay, message = 30, "配置不可用，等待修复（未发起登录）"
+                    delay, message = 30, "配置或保护状态不可用，暂停无人值守并等待修复"
                 if message != last_message:
                     logging.info("%s；下次检查 %.0f 秒后", message, delay)
                     last_message = message

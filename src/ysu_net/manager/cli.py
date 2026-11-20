@@ -14,8 +14,9 @@ from .backend import run_backend
 from .accounts import (accounts_path, delete_account, environment_override, load_accounts,
                        public_accounts, save_account, set_rotation)
 from .account_switching import switch_account
-from .config import (Config, NOSENSE_SERVICES, SERVICES, config_path, load_config,
-                     load_nosense, public_config, save_nosense, update_config)
+from .config import (Config, DEFAULT_NIGHT_WEEKDAYS, NOSENSE_SERVICES, SERVICES, clear_protection,
+                     config_path, load_config, load_nosense, load_schedule, public_config,
+                     pause_unattended, save_nosense, save_schedule, unattended_paused, update_config)
 from .control import request_control
 from .daemon import run_daemon
 from .locking import exclusive_config
@@ -81,6 +82,14 @@ def parser():
     p.add_argument("name", nargs="?", choices=("api", "browser"))
     p = sub.add_parser("boot", help="管理开机自启")
     p.add_argument("action", choices=("on", "off", "status"), default="status", nargs="?")
+    p = sub.add_parser("night", help="配置宿舍夜间停网静默保护与晨间自动恢复")
+    p.add_argument("action", choices=("on", "off", "status"), default="status", nargs="?")
+    p.add_argument("--start", default=None, help="暂停开始时间 HH:MM（默认 23:30）")
+    p.add_argument("--end", default=None, help="次日恢复时间 HH:MM（默认 06:00）")
+    days_group = p.add_mutually_exclusive_group()
+    days_group.add_argument("--dorm", action="store_true", help="周日至周四夜间生效（默认）")
+    days_group.add_argument("--everyday", action="store_true", help="每天夜间生效")
+    p.add_argument("--raw", action="store_true", help="输出 JSON")
     p = sub.add_parser("logs", aliases=["log"], help="查看守护进程日志")
     p.add_argument("--follow", "-f", action="store_true")
     p.add_argument("--lines", "-n", type=int, default=50)
@@ -199,11 +208,9 @@ def doctor(args, path):
         report(bundled or system is not None,
                "Chromium 文件" if bundled else f"使用系统浏览器：{system[0]}" if system
                else "浏览器（安装 Edge / Chrome，或运行 uv run playwright install chromium）")
-    from ..auth import captcha
     ui.row("当前服务", f"{config.service} · {ui.BACKENDS[config.backend]}")
     ui.row("证书校验", "开启" if config.verify_tls else "关闭")
-    if config.backend == "api":
-        ui.row("验证码识别", "已就绪" if captcha.available() else "按需人工处理")
+    ui.row("验证码", "请在校园网门户人工处理")
     if unit_path(args.scope).exists() and shutil.which("systemctl"):
         state = systemctl(args.scope, "is-active", UNIT, check=False, capture=True).stdout.strip()
         ui.row("后台服务", ui.SERVICE_STATES.get(state, "不可用"))
@@ -232,6 +239,10 @@ def doctor(args, path):
         from ..auth.common import QueryError, online_service
         result = run_backend(config, "status", raw=True)
         report(result.code in (0, 1), "校园网：" + ("在线" if result.code == 0 else "离线（门户可达）" if result.code == 1 else result.message))
+        if result.code == 4:
+            pause_unattended(path)
+            ui.hint("自动操作已暂停，请在校园网门户人工处理。")
+            return 4
         if result.code == 0:
             try:
                 actual = online_service(json.loads(result.output).get("online"))
@@ -262,6 +273,7 @@ def menu(args, path):
         "5": ["config", "account"], "6": ["service"], "7": ["doctor"], "8": ["logs"],
         "9": ["stop"], "10": ["boot", "on"], "11": ["boot", "off"], "12": ["config", "show"],
         "13": ["info"], "14": ["doctor", "--network"], "16": ["accounts"], "17": ["self"],
+        "18": ["night", "on"], "19": ["night", "off"],
     }
     while True:
         ui.heading("YSU · 燕山大学校园网")
@@ -277,7 +289,7 @@ def menu(args, path):
         ui.section("连接管理")
         ui.choices([" 1  查看状态", " 2  登录一次", " 3  开启自动重连", " 4  停止重连并下线", " 9  仅停止重连", "13  账户与剩余流量", "17  我的设备与自助服务"])
         ui.section("配置与维护")
-        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", "14  联网诊断 doctor", " 8  查看日志", "12  查看配置", "10  开启自启", "11  关闭自启", "16  多账号与自动换号", "15  选项说明（用途与影响）"])
+        ui.choices([" 5  配置账号", " 6  配置下次登录服务", " 7  本地诊断 doctor", "14  联网诊断 doctor", " 8  查看日志", "12  查看配置", "10  开启自启", "11  关闭自启", "18  开启夜间保护", "19  关闭夜间保护", "16  多账号与自动换号", "15  选项说明（用途与影响）"])
         print()
         ui.choices([" 0  退出"])
         print()
@@ -363,16 +375,35 @@ def dispatch(args):
         return account_command(args, path)
     if command == "doctor":
         return doctor(args, path)
+    if command == "night":
+        weekdays = list(range(7)) if args.everyday else list(DEFAULT_NIGHT_WEEKDAYS) if args.dorm else None
+        if args.action == "status" and args.start is None and args.end is None and weekdays is None:
+            sched = load_schedule(path)
+        else:
+            night_pause = True if args.action == "on" else False if args.action == "off" else None
+            sched = save_schedule(path, night_pause=night_pause, start=args.start, end=args.end, weekdays=weekdays)
+        if args.raw:
+            print(json.dumps(sched, ensure_ascii=False, indent=2))
+        else:
+            day_label = "每天" if sched["weekdays"] == list(range(7)) else "周日至周四" if sched["weekdays"] == list(DEFAULT_NIGHT_WEEKDAYS) else ",".join(str(d + 1) for d in sched["weekdays"])
+            if args.action in ("on", "off"):
+                ui.message("夜间停网静默保护已开启。" if sched["night_pause"] else "夜间停网静默保护已关闭。", "success")
+            else:
+                ui.heading("夜间停网静默保护")
+            ui.row("状态", "已开启" if sched["night_pause"] else "已关闭")
+            ui.row("时段", f"{day_label} {sched['start']} – {sched['end']}")
+        return 0
     if command == "switch":
         with exclusive_config(path):
             config = load_config(path)
             ui.progress(f"正在切换到{args.name}，期间连接可能短暂中断…")
-            result = switch_service(config, args.name)
+            result = switch_service(config, args.name, path=path)
             if result.code == 0:
                 try:
                     update_config(path, service=args.name)
                 except (OSError, ValueError):
                     raise RuntimeError(f"已切换到{args.name}，但配置保存失败，请检查目录权限") from None
+                clear_protection(path)
         ui.message(result.message, "success" if result.code == 0 else "error")
         return result.code
     if command in ("service", "backend"):
@@ -399,6 +430,9 @@ def dispatch(args):
         ui.progress("开始检查校园网状态。" if args.once else "自动重连运行中，按 Ctrl+C 停止。")
         return run_daemon(path, once=args.once)
     if command in ("on", "start", "restart"):
+        if unattended_paused(path):
+            ui.message("自动操作已暂停；请在校园网门户人工处理，并在停止守护后运行 ysu login。", "warning")
+            return 4
         config = load_config(path)
         if not config.username or not config.password:
             raise ValueError("请先运行 ysu config account")
@@ -521,6 +555,10 @@ def dispatch(args):
                 raw=getattr(args, "raw", False),
                 args=args,
             )
+            if result.code == 4:
+                pause_unattended(path)
+            elif action == "login" and result.code == 0:
+                clear_protection(path, manual_login=True)
         if raw and result.output and result.code in (0, 1):
             print(result.output, end="" if result.output.endswith("\n") else "\n")
         elif raw and result.code:

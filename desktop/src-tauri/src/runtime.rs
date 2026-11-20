@@ -1,15 +1,15 @@
 //! In-process desktop state. Authentication is serialized independently of settings and snapshots.
 //! Decision: .agents/notes/proposals/desktop/2026-10-14-rust-desktop.md
 use crate::storage::{
-    valid_accent, valid_nosense_service, NoSenseConfig, Prefs, RunGuard, Store, CONFIG_ERROR,
-    EXTERNAL,
+    credential_identity_hash, valid_accent, valid_hhmm, valid_nosense_service, NoSenseConfig,
+    Prefs, RunGuard, ScheduleConfig, Store, CONFIG_ERROR, EXTERNAL,
 };
 #[path = "account_runtime.rs"]
 mod account_runtime;
 use account_runtime::{account_state, Rotation};
 #[path = "runtime_observer.rs"]
 mod runtime_observer;
-use chrono::{SecondsFormat, Utc};
+use chrono::{Datelike, Local, SecondsFormat, Timelike, Utc};
 use rand::Rng;
 use runtime_observer::{Observation, StatusIdentity};
 use serde_json::{json, Map, Value};
@@ -204,6 +204,19 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
                     _ => false,
                 })
         }
+        "schedule" => {
+            !object.is_empty()
+                && object.iter().all(|(k, v)| match k.as_str() {
+                    "night_pause" => v.is_boolean(),
+                    "start" | "end" => v.as_str().is_some_and(valid_hhmm),
+                    "weekdays" => v.as_array().is_some_and(|arr| {
+                        !arr.is_empty()
+                            && arr.len() <= 7
+                            && arr.iter().all(|d| d.as_u64().is_some_and(|n| n <= 6))
+                    }),
+                    _ => false,
+                })
+        }
         "save_config" => {
             !object.is_empty()
                 && object.iter().all(|(k, v)| {
@@ -245,9 +258,22 @@ pub fn valid_request(command: &str, args: &Value) -> bool {
 
 fn public_error(code: i32) -> &'static str {
     match code {
-        4 => "认证已暂停：请检查凭据或完成交互，修改配置或手动登录后恢复",
+        4 => "认证已暂停；请检查账号或在官方门户处理设备名额、验证码，再手动连接",
         3 => "操作未确认成功或在线账号不一致，请查询当前实际状态",
         _ => "查询未确认连接状态，请检查配置或稍后重试",
+    }
+}
+
+fn challenge_message(error: &AuthError) -> Option<&'static str> {
+    let diagnostic = error.diagnostic();
+    match (diagnostic.stage, diagnostic.reason) {
+        (_, DiagnosticReason::DeviceLimit) => {
+            Some("在线设备数已达上限，认证已暂停；请在官方门户下线闲置设备，再手动连接")
+        }
+        (DiagnosticStage::Captcha, DiagnosticReason::InteractionRequired) => {
+            Some("认证已暂停；请在官方门户人工完成验证码，再手动连接")
+        }
+        _ => None,
     }
 }
 
@@ -309,6 +335,7 @@ struct State {
     self_error: String,
     self_notice: String,
     nosense: Value,
+    schedule: Value,
     info_error: String,
     logs: VecDeque<LogEntry>,
     environment: Value,
@@ -389,6 +416,7 @@ impl State {
             "self_error": self.text(&self.self_error),
             "self_notice": self.text(&self.self_notice),
             "nosense": self.nosense,
+            "schedule": self.schedule,
             "environment": self.environment, "accounts": self.accounts,
         });
         // Public identities must round-trip even when they happen to equal a password.
@@ -495,6 +523,7 @@ impl Runtime {
         let config = store.load_config(true)?;
         let prefs = store.load_prefs();
         let nosense_cfg = store.load_nosense();
+        let schedule_cfg = store.load_schedule();
         let (accounts, passwords) = account_state(&store, &config);
         let rotation_enabled = accounts["auto_switch"].as_bool().unwrap_or(false);
         let recording = Arc::new(crate::debug_recording::Recording::new(&store.path));
@@ -516,6 +545,7 @@ impl Runtime {
                 "无感自动续约已关闭"
             },
         );
+        let schedule = schedule_value(&schedule_cfg);
         let mut state = State {
             sequence: 1,
             config,
@@ -531,6 +561,7 @@ impl Runtime {
             self_error: String::new(),
             self_notice: String::new(),
             nosense,
+            schedule,
             info_error: String::new(),
             accounts,
             rotation_intent: None,
@@ -840,6 +871,24 @@ impl Runtime {
                 self.wake();
                 Ok(self.snapshot())
             }
+            "schedule" => {
+                let _settings = self.setting_guard().await?;
+                let store = self.store.clone();
+                let updated = self
+                    .blocking(move || store.update_schedule(args.as_object().unwrap().clone()))
+                    .await?;
+                let msg = if updated.night_pause {
+                    format!("夜间停网保护已开启（{}–{}）", updated.start, updated.end)
+                } else {
+                    "夜间停网保护已关闭".to_string()
+                };
+                self.update(|state| {
+                    state.schedule = schedule_value(&updated);
+                    state.log("success", &msg);
+                });
+                self.wake();
+                Ok(self.snapshot())
+            }
             "save_config" => self.save_config(args.as_object().unwrap().clone()).await,
             "save_prefs" => {
                 let _settings = self.setting_guard().await?;
@@ -984,6 +1033,15 @@ fn nosense_value(config: &NoSenseConfig, message: &str) -> Value {
     })
 }
 
+fn schedule_value(config: &ScheduleConfig) -> Value {
+    json!({
+        "night_pause": config.night_pause,
+        "start": config.start,
+        "end": config.end,
+        "weekdays": config.weekdays,
+    })
+}
+
 fn environment(demo: bool) -> Value {
     json!({"version":env!("CARGO_PKG_VERSION"), "rust":option_env!("YSU_RUST_VERSION").unwrap_or("unknown"),
         "runtime":"rust", "platform":std::env::consts::OS, "browser_available":demo || ysu_auth::browser_path().is_some(),
@@ -998,6 +1056,10 @@ struct Reconnect {
     login_failures: u32,
     login_identity: Option<String>,
     blocked: Option<String>,
+    blocked_by_code4: bool,
+    challenge_message: Option<&'static str>,
+    clock_skew: bool,
+    hydrated: bool,
 }
 impl Reconnect {
     fn identity(config: &Config) -> String {
@@ -1009,16 +1071,98 @@ impl Reconnect {
         ))
         .expect("serializable credential identity")
     }
+    fn sync_from_store(
+        &mut self,
+        store: &Store,
+        config: &Config,
+        night_pause_enabled: bool,
+    ) -> bool {
+        let persisted = store.load_protection();
+        if persisted.corrupted {
+            return true;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        self.clock_skew = now > 0 && persisted.updated_at > now.saturating_add(300);
+        if !self.hydrated {
+            self.hydrated = true;
+            if persisted.identity == credential_identity_hash(config) {
+                if night_pause_enabled
+                    && !persisted.code4
+                    && !self.clock_skew
+                    && persisted.updated_at > 0
+                    && now >= persisted.updated_at.saturating_add(3_600)
+                {
+                    store.clear_protection();
+                } else {
+                    let current = Self::identity(config);
+                    self.login_identity = Some(current.clone());
+                    self.login_failures = persisted.login_failures;
+                    if persisted.blocked {
+                        self.blocked = Some(current);
+                        self.blocked_by_code4 = persisted.code4;
+                    }
+                }
+            }
+        }
+        false
+    }
+    fn persist(&self, store: &Store, config: &Config) {
+        let current = Self::identity(config);
+        let blocked = self.blocked.as_deref() == Some(current.as_str());
+        let _ = store.save_protection(
+            &credential_identity_hash(config),
+            self.login_failures,
+            blocked,
+            self.blocked_by_code4,
+        );
+    }
+    fn reserve_on_store(&mut self, store: &Store, config: &Config) -> u32 {
+        let current = Self::identity(config);
+        if self.login_identity.as_ref() != Some(&current) {
+            self.login_identity = Some(current.clone());
+            self.login_failures = 0;
+            self.blocked_by_code4 = false;
+        }
+        let prev = self.login_failures;
+        self.login_failures = prev.saturating_add(1);
+        if self.login_failures >= MAX_LOGIN_FAILURES {
+            self.blocked = Some(current);
+        }
+        let _ = store.save_protection(
+            &credential_identity_hash(config),
+            self.login_failures,
+            self.login_failures >= MAX_LOGIN_FAILURES,
+            false,
+        );
+        prev
+    }
+    fn finalize_reserved_failure(&mut self, config: &Config, code: i32) -> bool {
+        let current = Self::identity(config);
+        if code == 4 || self.login_failures >= MAX_LOGIN_FAILURES {
+            self.blocked = Some(current);
+            if code == 4 {
+                self.blocked_by_code4 = true;
+            }
+            true
+        } else {
+            false
+        }
+    }
     fn paused(&mut self, config: &Config) -> bool {
         let current = Self::identity(config);
         if self.blocked.as_ref().is_some_and(|v| *v != current) {
             self.blocked = None;
+            self.challenge_message = None;
+            self.blocked_by_code4 = false;
             self.failures = 0;
             self.login_failures = 0;
             self.login_identity = None;
         }
         if self.login_identity.as_ref().is_some_and(|v| *v != current) {
             self.login_failures = 0;
+            self.blocked_by_code4 = false;
             self.login_identity = None;
         }
         self.blocked.is_some()
@@ -1028,10 +1172,14 @@ impl Reconnect {
         if self.login_identity.as_ref() != Some(&current) {
             self.login_identity = Some(current.clone());
             self.login_failures = 0;
+            self.blocked_by_code4 = false;
         }
         self.login_failures = self.login_failures.saturating_add(1);
         if code == 4 || self.login_failures >= MAX_LOGIN_FAILURES {
             self.blocked = Some(current);
+            if code == 4 {
+                self.blocked_by_code4 = true;
+            }
             true
         } else {
             false
@@ -1041,6 +1189,14 @@ impl Reconnect {
         self.failures = 0;
         self.login_failures = 0;
         self.login_identity = None;
+    }
+    fn reset_morning_transient(&mut self, store: &Store) {
+        self.failures = 0;
+        self.login_failures = 0;
+        if !self.blocked_by_code4 && !self.clock_skew {
+            self.blocked = None;
+            store.clear_protection();
+        }
     }
     fn delay(&mut self, config: &Config, jitter: f64) -> f64 {
         self.failures = (self.failures + 1).min(20);
@@ -1064,6 +1220,9 @@ struct Worker {
     reconnect: Reconnect,
     rotation: Rotation,
     nosense_schedule: std::collections::HashMap<String, (String, Instant)>,
+    was_in_night_pause: bool,
+    #[cfg(test)]
+    night_clock: Option<Arc<dyn Fn() -> (u8, u32, u32, u32) + Send + Sync>>,
     action: &'static str,
     phase: DiagnosticStage,
 }
@@ -1087,9 +1246,27 @@ impl Worker {
             reconnect: Reconnect::default(),
             rotation: Rotation::default(),
             nosense_schedule: std::collections::HashMap::new(),
+            was_in_night_pause: false,
+            #[cfg(test)]
+            night_clock: None,
             action: "status",
             phase: DiagnosticStage::Unknown,
         }
+    }
+
+    fn night_pause_remaining(&self, schedule: &ScheduleConfig) -> Option<u64> {
+        #[cfg(test)]
+        if let Some(clock) = &self.night_clock {
+            let (w, h, m, s) = clock();
+            return schedule.remaining_at(w, h, m, s);
+        }
+        let now = Local::now();
+        schedule.remaining_at(
+            now.weekday().num_days_from_monday() as u8,
+            now.hour(),
+            now.minute(),
+            now.second(),
+        )
     }
 
     async fn acquire(&self) -> Result<RunGuard, String> {
@@ -1220,7 +1397,7 @@ impl Worker {
     fn error_message(&self, error: &AuthError) -> String {
         format!(
             "{} [{}]",
-            public_error(error.code),
+            challenge_message(error).unwrap_or_else(|| public_error(error.code)),
             diagnostic_detail(self.action, self.phase, error)
         )
     }
@@ -1231,6 +1408,52 @@ impl Worker {
             .task(self.action, self.phase, Some(error));
         let message = self.error_message(error);
         self.runtime.update(|state| state.log("error", &message));
+    }
+
+    fn pause_on_challenge(&mut self, config: &Config, error: &AuthError) -> Option<&'static str> {
+        let message = challenge_message(error)?;
+        self.error(error);
+        self.reconnect.blocked = Some(Reconnect::identity(config));
+        self.reconnect.login_identity = self.reconnect.blocked.clone();
+        self.reconnect.blocked_by_code4 = true;
+        self.reconnect.challenge_message = Some(message);
+        // Save before any verification or recovery I/O which could time out.
+        if self
+            .runtime
+            .store
+            .save_protection(
+                &credential_identity_hash(config),
+                self.reconnect.login_failures,
+                true,
+                true,
+            )
+            .is_err()
+        {
+            self.runtime.update(|state| {
+                state.log(
+                    "error",
+                    "认证已暂停，但重启保护保存失败；退出前请关闭自动重连",
+                )
+            });
+        }
+        self.schedule(config.check_interval as f64, message);
+        Some(message)
+    }
+
+    fn pause_self_challenge<T>(&mut self, config: &Config, result: &Result<T, AuthError>) -> bool {
+        let Some(message) = result
+            .as_ref()
+            .err()
+            .and_then(|error| self.pause_on_challenge(config, error))
+        else {
+            return false;
+        };
+        self.runtime.update(|state| {
+            state.self_service = Value::Null;
+            state.self_error = message.into();
+            state.self_notice.clear();
+        });
+        true
     }
 
     fn local_error(
@@ -1416,6 +1639,9 @@ impl Worker {
                 self.busy("正在读取自助服务");
                 let self_cfg = self.self_config(&config).await;
                 let result = self.runtime.backend.self_service(&self_cfg).await;
+                if self.pause_self_challenge(&config, &result) {
+                    return Ok(());
+                }
                 if let Err(error) = &result {
                     self.runtime
                         .recording
@@ -1459,6 +1685,9 @@ impl Worker {
                 self.busy("正在下线设备");
                 let self_cfg = self.self_config(&config).await;
                 let result = self.runtime.backend.self_kick(&self_cfg, &selector).await;
+                if self.pause_self_challenge(&config, &result) {
+                    return Ok(());
+                }
                 match result {
                     Ok(kick) => {
                         let notice = format!(
@@ -1470,6 +1699,9 @@ impl Worker {
                         // Re-read the full snapshot so the list and its 1-based
                         // indices always match what the next kick will resolve.
                         let refreshed = self.runtime.backend.self_service(&self_cfg).await;
+                        if self.pause_self_challenge(&config, &refreshed) {
+                            return Ok(());
+                        }
                         if let Err(error) = &refreshed {
                             self.runtime
                                 .recording
@@ -1556,6 +1788,9 @@ impl Worker {
                     _ => unreachable!(),
                 };
                 self.busy(busy_text);
+                if self.pause_self_challenge(&config, &result) {
+                    return Ok(());
+                }
                 match result {
                     Ok(outcome) => {
                         let notice = match outcome["action"].as_str().unwrap_or("") {
@@ -1591,6 +1826,9 @@ impl Worker {
                             ),
                         };
                         let refreshed = self.runtime.backend.self_service(&self_cfg).await;
+                        if self.pause_self_challenge(&config, &refreshed) {
+                            return Ok(());
+                        }
                         if let Err(error) = &refreshed {
                             self.runtime
                                 .recording
@@ -1718,10 +1956,6 @@ impl Worker {
                 });
             }
             Action::Login | Action::Logout | Action::Switch(_) => {
-                if matches!(action, Action::Login) {
-                    self.reconnect = Reconnect::default();
-                    self.nosense_schedule.clear();
-                }
                 let _temporary = if self.guard.is_none() {
                     match self.acquire().await {
                         Ok(guard) => {
@@ -1755,6 +1989,11 @@ impl Worker {
                         return Ok(());
                     }
                 };
+                if matches!(action, Action::Login) {
+                    self.reconnect = Reconnect::default();
+                    self.runtime.store.clear_protection();
+                    self.nosense_schedule.clear();
+                }
                 self.phase = match action {
                     Action::Logout => DiagnosticStage::OfflineSubmit,
                     Action::Switch(_) => DiagnosticStage::ServiceSelect,
@@ -1762,6 +2001,9 @@ impl Worker {
                 };
                 let result = self.runtime.backend.mutate(&config, &action).await;
                 if let Err(error) = &result {
+                    if self.pause_on_challenge(&config, error).is_some() {
+                        return Ok(());
+                    }
                     self.error(error);
                 }
                 if result.as_ref().is_err_and(|error| error.code == 4) {
@@ -1796,6 +2038,8 @@ impl Worker {
                         self.runtime
                             .save_config(json!({"service":target}).as_object().unwrap().clone())
                             .await?;
+                        self.reconnect = Reconnect::default();
+                        self.runtime.store.clear_protection();
                     }
                     self.runtime.update(|state| {
                         if matches!(action, Action::Logout) {
@@ -1824,7 +2068,9 @@ impl Worker {
                     }
                     if matches!(action, Action::Login) {
                         let code = result.as_ref().err().map_or(3, |v| v.code);
-                        if !self.reconnect.record_login_failure(&config, code) {
+                        let tripped = self.reconnect.record_login_failure(&config, code);
+                        self.reconnect.persist(&self.runtime.store, &config);
+                        if !tripped {
                             let delay = self
                                 .reconnect
                                 .delay(&config, rand::thread_rng().gen_range(0.0..=0.1));
@@ -1876,6 +2122,28 @@ impl Worker {
                 return;
             }
         };
+        let store = self.runtime.store.clone();
+        let sched = self
+            .runtime
+            .blocking(move || Ok(store.load_schedule()))
+            .await
+            .unwrap_or_default();
+        if let Some(remaining) = self.night_pause_remaining(&sched) {
+            self.was_in_night_pause = true;
+            let wait = (remaining as f64).clamp(1.0, config.max_retry_interval as f64);
+            let msg = format!("夜间停网保护中（{} 恢复自动重连）", sched.end);
+            self.schedule(wait, &msg);
+            return;
+        }
+        let corrupted =
+            self.reconnect
+                .sync_from_store(&self.runtime.store, &config, sched.night_pause);
+        if self.was_in_night_pause {
+            self.was_in_night_pause = false;
+            if !corrupted {
+                self.reconnect.reset_morning_transient(&self.runtime.store);
+            }
+        }
         self.phase = DiagnosticStage::OnlineState;
         self.busy("自动重连：正在检查连接");
         let observed = self.status(&config).await;
@@ -1891,6 +2159,13 @@ impl Worker {
             self.schedule(0.0, "配置已更新，重新确认连接状态");
             return;
         }
+        if corrupted {
+            self.schedule(
+                config.max_retry_interval as f64,
+                "认证保护状态异常，已暂停自动提交；请手动连接一次恢复",
+            );
+            return;
+        }
         let paused = self.reconnect.paused(&config);
         if !observed.as_ref().is_ok_and(|status| {
             status.online
@@ -1902,39 +2177,57 @@ impl Worker {
         let (delay, message) = match observed {
             Ok(status) if status.online => {
                 self.reconnect.clear_login_failures();
+                if !paused {
+                    self.runtime.store.clear_protection();
+                }
                 if !paused && self.guard.is_some() && self.rotate_if_needed(&config, &status).await
                 {
                     self.schedule(
                         config.check_interval as f64,
-                        "本轮账号检查结束，稍后重新查询",
+                        self.reconnect
+                            .challenge_message
+                            .unwrap_or("本轮账号检查结束，稍后重新查询"),
                     );
                     return;
                 }
                 if !paused && self.guard.is_some() {
                     self.renew_nosense_if_needed(&config).await;
+                    if self.reconnect.challenge_message.is_some() {
+                        return;
+                    }
                 }
                 (
                     config.check_interval as f64,
                     if paused {
-                        "在线；认证暂停保持，修改配置或手动登录后恢复"
+                        self.reconnect.challenge_message.unwrap_or(public_error(4))
                     } else {
                         "已确认在线"
                     },
                 )
             }
             Ok(_) if self.guard.is_none() => (config.check_interval as f64, EXTERNAL),
-            Ok(_) if paused => (config.check_interval as f64, public_error(4)),
+            Ok(_) if paused => (
+                config.check_interval as f64,
+                self.reconnect.challenge_message.unwrap_or(public_error(4)),
+            ),
             Ok(_) => {
                 if !self.runtime.desired.load(Ordering::Acquire) {
                     return;
                 }
+                let prev_failures = self
+                    .reconnect
+                    .reserve_on_store(&self.runtime.store, &config);
                 self.phase = DiagnosticStage::UserOnline;
                 let result = self.runtime.backend.mutate(&config, &Action::Login).await;
                 if let Err(error) = &result {
+                    if self.pause_on_challenge(&config, error).is_some() {
+                        return;
+                    }
                     self.error(error);
                 }
                 if result.as_ref().is_err_and(|error| error.code == 4) {
                     self.reconnect.blocked = Some(Reconnect::identity(&config));
+                    self.reconnect.blocked_by_code4 = true;
                 }
                 let latest = match self.runtime.config().await {
                     Ok(config) => config,
@@ -1954,10 +2247,34 @@ impl Worker {
                     })
                 {
                     self.reconnect.clear_login_failures();
+                    self.reconnect.blocked = None;
+                    self.reconnect.blocked_by_code4 = false;
+                    self.runtime.store.clear_protection();
                     (config.check_interval as f64, "重连已独立确认成功")
                 } else {
                     let code = result.as_ref().err().map_or(3, |v| v.code);
-                    if self.reconnect.record_login_failure(&config, code) {
+                    if code != 4 {
+                        if let Some(remaining) = self.night_pause_remaining(&sched) {
+                            self.was_in_night_pause = true;
+                            self.reconnect.login_failures = prev_failures;
+                            self.reconnect.blocked = None;
+                            self.reconnect.blocked_by_code4 = false;
+                            let _ = self.runtime.store.save_protection(
+                                &credential_identity_hash(&config),
+                                prev_failures,
+                                false,
+                                false,
+                            );
+                            let wait =
+                                (remaining as f64).clamp(1.0, config.max_retry_interval as f64);
+                            let msg = format!("夜间停网保护中（{} 恢复自动重连）", sched.end);
+                            self.schedule(wait, &msg);
+                            return;
+                        }
+                    }
+                    let tripped = self.reconnect.finalize_reserved_failure(&config, code);
+                    self.reconnect.persist(&self.runtime.store, &config);
+                    if tripped {
                         (
                             config.check_interval as f64,
                             if code == 4 {
@@ -2109,6 +2426,11 @@ impl Worker {
                     messages.push(msg);
                 }
                 Err(error) => {
+                    if let Some(message) = self.pause_on_challenge(config, &error) {
+                        self.runtime
+                            .update(|state| state.nosense = nosense_value(&nosense, message));
+                        return;
+                    }
                     any_failed = true;
                     let backoff = if error.code == 4 { 86_400 * 365 } else { 1_800 };
                     self.nosense_schedule.insert(

@@ -44,6 +44,7 @@ from ysu_net.auth.common import (
     InteractionRequired,
     OperationFailed,
     QueryError,
+    captcha_needed,
     check_action,
     managed_resources,
     online_state,
@@ -582,6 +583,7 @@ def open_portal_and_get_session(debug: bool, headed: bool):
     page.on("response", sniffer.on_response)
     safe_goto(page, URLS.route_root, debug=debug, timeout=NAV_TIMEOUT)
     page.wait_for_timeout(800)
+    _require_no_browser_challenge(page)
 
     sid = obtain_session_id(page, sniffer)
     if not sid:
@@ -644,7 +646,25 @@ def _first_locator_in_any_frame(page, selector: str):
     return page.locator(selector).first
 
 
+_CHALLENGE_FIELDS = ('#captchaDiv, input[name="captcha" i], input[id="captcha" i], '
+                     'input[name="otp" i], input[name="smscode" i], input[autocomplete="one-time-code"]')
+_CHALLENGE_TEXT = re.compile(r"(?:请输入|需要|请完成)(?:图形|图片|短信)?验证码|验证码(?:错误|不正确|已过期)|"
+                             r"invalid captcha|captcha (?:required|incorrect)", re.I)
+_CHALLENGE_MESSAGE = "统一认证需要验证码，请在校园网门户人工处理"
+
+
+def _require_no_browser_challenge(page) -> None:
+    for frame in page.frames:
+        if frame.locator(_CHALLENGE_FIELDS).evaluate_all("""els => els.some(e =>
+            (e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden') ||
+            (e.matches('input:enabled') && !!e.value))"""):
+            raise InteractionRequired(_CHALLENGE_MESSAGE)
+        if frame.get_by_text(_CHALLENGE_TEXT).filter(visible=True).count():
+            raise InteractionRequired(_CHALLENGE_MESSAGE)
+
+
 def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
+    _require_no_browser_challenge(page)
     # ✅ 日志验证过的 tab 文案：账号
     try:
         tab = page.get_by_text("账号", exact=False).first
@@ -668,8 +688,31 @@ def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
             except Exception:
                 pass
         raise InteractionRequired(
-            "CAS 页面提示“IP被冻结”，导致找不到登录输入框。请稍后再试，或换网络/联系管理员解除。"
+            "统一认证提示 IP 已冻结，请在门户人工处理或联系管理员。"
         )
+
+    _require_no_browser_challenge(page)
+    response = page.context.request.get(
+        f"{URLS.cas_host}/authserver/checkNeedCaptcha.htl",
+        params={"username": user, "_": now_ms()}, headers={"X-Requested-With": "XMLHttpRequest"}, max_redirects=0,
+        timeout=REQ_TIMEOUT,
+    )
+    if response.status == 429:
+        raise InteractionRequired("认证请求过于频繁，请稍后重试")
+    try:
+        needed = captcha_needed(response.json())
+    except ValueError as exc:
+        from .api import _cas_interaction_notice
+        notice = _cas_interaction_notice(response.status, response.text())
+        if notice:
+            raise InteractionRequired(notice) from exc
+        raise QueryError("验证码状态未知，未提交凭据") from exc
+    if needed is True:
+        raise InteractionRequired(_CHALLENGE_MESSAGE)
+    if response.status != 200:
+        raise QueryError(f"验证码状态查询失败（HTTP {response.status}），未提交凭据")
+    if needed is None:
+        raise QueryError("验证码状态未知，未提交凭据")
 
     username_sel = "input#username, input[name='username'], input[name='userName'], input[autocomplete='username']"
     password_sel = "input#password, input[name='password'], input[type='password'], input[autocomplete='current-password']"
@@ -682,7 +725,10 @@ def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
         _first_locator_in_any_frame(page, password_sel).fill(
             pwd, timeout=ACTION_TIMEOUT
         )
+        _require_no_browser_challenge(page)
         _first_locator_in_any_frame(page, submit_sel).click(timeout=ACTION_TIMEOUT)
+    except InteractionRequired:
+        raise
     except Exception as e:
         if debug and SAVE_DEBUG_FILES:
             try:
@@ -700,6 +746,7 @@ def ui_cas_login(page, user: str, pwd: str, debug: bool) -> None:
         page.wait_for_load_state("domcontentloaded", timeout=30_000)
     except Exception:
         pass
+    _require_no_browser_challenge(page)
 
 
 @managed_resources

@@ -4,7 +4,7 @@
 use crate::browser_process::Child;
 use crate::{
     cdp_pipe::Pipe,
-    protocol::{captcha_required, query},
+    protocol::{cas_rejected_by_captcha, is_challenge_field, query, require_no_captcha},
     transport::{Operation, Reply, Transport, REDIRECT_LIMIT, RESPONSE_LIMIT},
     AuthError, Config, DiagnosticReason as Reason, NavigationDiagnostic, NavigationKind,
 };
@@ -699,10 +699,22 @@ impl Browser {
         let cas_post = method == Method::POST
             && url.origin() == self.http.cas.origin()
             && url.path().ends_with("/authserver/login");
+        if cas_post
+            && body.as_deref().is_some_and(|data| {
+                url::form_urlencoded::parse(data)
+                    .any(|(k, v)| is_challenge_field(&k) && !v.is_empty())
+            })
+        {
+            return Err(AuthError::captcha());
+        }
         let mut r = self
             .http
             .once(method.clone(), url.clone(), headers, body, op)
             .await?;
+        if (cas_post || params["resourceType"] == "Document") && cas_rejected_by_captcha(&r.text())
+        {
+            return Err(AuthError::captcha());
+        }
         let context = BrowserNavigationContext {
             bootstrap: self.portal_bootstrap,
             session,
@@ -762,7 +774,11 @@ impl Browser {
             }
         }
         if cas_post && !matches!(r.status, 301 | 302 | 303) {
-            if matches!(r.status, 429 | 500..=599) {
+            if r.status == 429 {
+                return Err(AuthError::interaction("统一认证请求过于频繁，请稍后重试")
+                    .because(Reason::HttpRejected));
+            }
+            if (500..=599).contains(&r.status) {
                 return Err(AuthError::query("统一认证服务暂时不可用，请稍后重试"));
             }
             return Err(AuthError::interaction(
@@ -875,19 +891,14 @@ impl Browser {
             .as_str()
             .and_then(|s| Url::parse(s).ok())
             .ok_or_else(|| AuthError::query("浏览器页面地址异常"))?;
-        if captcha_required(
+        require_no_captcha(
             &self.http,
             &page,
             &config.username,
             state["captcha"] == true,
             op,
         )
-        .await?
-        {
-            return Err(AuthError::interaction(
-                "统一认证需要验证码，请人工处理后重试",
-            ));
-        }
+        .await?;
         let credentials = json!({"username":config.username,"password":config.password,"origin":self.http.cas.origin().ascii_serialization()});
         let expression = format!(
             r#"(()=>{{
@@ -914,13 +925,16 @@ impl Browser {
         let mut contexts: Vec<Option<(String, i64)>> = vec![None];
         contexts.extend(self.contexts.iter().cloned().map(Some));
         let mut submitted = false;
-        for context in contexts {
+        for context in &contexts {
             let frame_state = self.evaluate(r#"({blocked:/IP被冻结|访问被拒绝|安全验证|风险验证|访问频繁|noSupport/.test(document.title+' '+document.body.innerText.slice(0,4096)),captcha:!!Array.from(document.querySelectorAll('#captchaDiv, input[name=captcha], input[name=otp], input[name=smscode]')).find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden')})"#, context.clone(), op).await?;
-            if frame_state["blocked"] == true || frame_state["captcha"] == true {
-                return Err(AuthError::interaction(
-                    "统一认证需要验证码或触发风控，请人工处理后重试",
-                ));
+            if frame_state["captcha"] == true {
+                return Err(AuthError::captcha());
             }
+            if frame_state["blocked"] == true {
+                return Err(AuthError::interaction("统一认证触发风控，请人工处理后重试"));
+            }
+        }
+        for context in contexts {
             match self.evaluate(&expression, context, op).await {
                 Ok(v) if v == "submitted" => {
                     submitted = true;

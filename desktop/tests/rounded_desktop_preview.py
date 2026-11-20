@@ -202,7 +202,7 @@ def main():
         assert page.locator('.toggle-knob').first.evaluate('el => getComputedStyle(el).transitionDuration') == '0s'
         expect(page.locator('.quota-status')).to_have_count(0)
         reconnect.click()
-        page.get_by_role('switch', name='自动换号', exact=True).click()
+        page.get_by_role('switch', name='零流量自动换号', exact=True).click()
         expect(page.locator('.quota-status')).to_contain_text('80.00 GB')
         button('断开连接').click()
         page.get_by_role('dialog').get_by_role('button', name='断开连接', exact=True).click()
@@ -274,7 +274,7 @@ def main():
             layout('connection-' + str(width))
             page.screenshot(path=str(args.output / f'compact-{width}.png'), full_page=True)
             page.get_by_role('switch', name='自动重连', exact=True).click()
-            help_control = page.get_by_label('自动换号条件', exact=True)
+            help_control = page.get_by_label('零流量自动换号条件', exact=True)
             help_control.focus()
             page.keyboard.press('Enter')
             expect(page.locator('.rotation-help p')).to_be_visible()

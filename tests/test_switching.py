@@ -123,10 +123,11 @@ class SwitchingTests(OfflineTestCase):
     def setUp(self):
         super().setUp()
         self.config = config.Config(username="mock-user", password="password")
+        self.path = self.tmp / "config.json"
 
     def run_switch(self, results, target="中国移动"):
         self.runner = Mock(side_effect=results)
-        return switch_service(self.config, target, runner=self.runner)
+        return switch_service(self.config, target, path=self.path, runner=self.runner)
 
     def test_null_raw_service_allows_verified_switch(self):
         def null_raw(service):
@@ -175,15 +176,38 @@ class SwitchingTests(OfflineTestCase):
         self.assertEqual(self.run_switch([status("校园网", owner="other")]).code, 3)
         self.assertEqual(self.runner.call_count, 1)
 
-    def test_session_limit_restores_original_once(self):
-        result = self.run_switch([status("校园网"), Result(0), status(),
-            Result(4, reason="session_limit"), status(), Result(0), status("校园网")])
+    def test_challenge_stops_each_stage_including_rollback(self):
+        main = [status("校园网"), Result(0), status(), Result(0), status("中国移动")]
+        failed = [status("校园网"), Result(0), status(), Result(3)]
+        rollback = [status("中国移动"), Result(0), status(), Result(0), status("校园网")]
+        for prefix, stages in (([], main), (failed, rollback)):
+            for i in range(len(stages)):
+                with self.subTest(rollback=bool(prefix), stage=i):
+                    self.path = self.tmp / f"switch-{len(prefix)}-{i}.json"
+                    responses = prefix + stages[:i] + [Result(4, reason="session_limit")]
+                    result = self.run_switch(responses)
+                    self.assertEqual(result.code, 4)
+                    self.assertFalse(result.restored)
+                    self.assertIn("同时在线数量", result.message)
+                    self.assertEqual(self.runner.call_count, len(responses))
+                    self.assertTrue(config.unattended_paused(self.path))
+
+    def test_explicit_profile_string_persists_the_pause(self):
+        runner = Mock(side_effect=[status("校园网"), Result(4)])
+        result = switch_service(self.config, "中国移动", path=str(self.path), runner=runner)
         self.assertEqual(result.code, 4)
-        self.assertTrue(result.restored)
-        self.assertIn("同时在线数量", result.message)
-        self.assertIn("已恢复校园网", result.message)
-        logins = [c.args[0].service for c in self.runner.call_args_list if c.args[1] == "login"]
-        self.assertEqual(logins, ["中国移动", "校园网"])
+        self.assertEqual(runner.call_count, 2)
+        self.assertTrue(config.unattended_paused(self.path))
+
+    def test_manual_switch_while_paused_does_not_restore_or_clear_protection(self):
+        config.pause_unattended(self.path)
+        result = self.run_switch([status("校园网"), Result(0), status(), Result(3)])
+        self.assertEqual(result.code, 3)
+        self.assertFalse(result.restored)
+        self.assertEqual(self.runner.call_count, 4)
+        result = self.run_switch([status(), Result(0), status("中国移动")])
+        self.assertEqual(result.code, 0)
+        self.assertTrue(config.unattended_paused(self.path))
 
     def test_failed_logout_does_not_login_target(self):
         result = self.run_switch([status("校园网"), Result(3), status("校园网")])
@@ -202,13 +226,13 @@ class SwitchingTests(OfflineTestCase):
         self.assertTrue(result.restored)
 
     def test_recovery_unknown_is_not_blind_login(self):
-        result = self.run_switch([status("校园网"), Result(0), status(), Result(4), Result(2)])
+        result = self.run_switch([status("校园网"), Result(0), status(), Result(3), Result(2)])
         self.assertFalse(result.restored)
         self.assertIn("恢复未确认", result.message)
         self.assertEqual(self.runner.call_count, 5)
 
     def test_recovery_never_disconnects_other_account(self):
-        result = self.run_switch([status("校园网"), Result(0), status(), Result(4), status("中国移动", owner="other")])
+        result = self.run_switch([status("校园网"), Result(0), status(), Result(3), status("中国移动", owner="other")])
         self.assertFalse(result.restored)
         self.assertEqual(self.runner.call_count, 5)
 
@@ -230,7 +254,8 @@ class SwitchingTests(OfflineTestCase):
 
     def test_missing_credentials_does_not_touch_network(self):
         self.config.password = ""
-        self.assertEqual(self.run_switch([]).code, 4)
+        self.assertEqual(self.run_switch([]).code, 2)
+        self.assertFalse(config.unattended_paused(self.path))
         self.runner.assert_not_called()
 
     def test_invalid_service_does_not_touch_network(self):
@@ -256,7 +281,7 @@ class SwitchCliTests(OfflineTestCase):
 
     def test_failure_keeps_configuration(self):
         before = self.path.read_bytes()
-        self.switch.return_value = SwitchResult(4, "limit", "校园网", True)
+        self.switch.return_value = SwitchResult(4, "limit", "校园网")
         self.assertEqual(cli.main(["switch", "中国移动"]), 4)
         self.assertEqual(self.path.read_bytes(), before)
 
@@ -266,7 +291,8 @@ class SwitchCliTests(OfflineTestCase):
         self.switch.assert_not_called()
 
     def test_concurrent_config_updates_are_preserved(self):
-        def during_network(current, target):
+        def during_network(current, target, *, path):
+            self.assertEqual(path, self.path)
             self.assertEqual(cli.main(["config", "set", "check_interval", "60"]), 0)
             config.update_config(self.path, password="new-password")
             return SwitchResult(0, "success")

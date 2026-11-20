@@ -1,10 +1,11 @@
 """Explicit, verified service transitions with a bounded rollback attempt."""
 from dataclasses import dataclass, replace
 import json
+from pathlib import Path
 
-from ysu_net.auth.common import QueryError, online_service, online_state
+from ysu_net.auth.common import InteractionRequired, QueryError, online_service, online_state
 from .backend import run_backend
-from .config import SERVICES
+from .config import SERVICES, config_path, pause_unattended, unattended_paused
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,17 @@ class SwitchFailure(Exception):
     def __init__(self, code, message):
         super().__init__(message)
         self.code = code
+
+
+def check_interaction(path, result):
+    """A backend challenge is terminal, even if persisting the pause fails."""
+    if result.code == 4:
+        try:
+            pause_unattended(path)
+        except OSError as exc:
+            raise InteractionRequired(f"{result.message}；自动操作已停止，暂停状态未保存") from exc
+        raise InteractionRequired(f"{result.message}；自动操作已暂停")
+    return result
 
 
 def _snapshot(config, runner):
@@ -65,36 +77,49 @@ def _restore(config, previous, runner):
         return False
 
 
-def switch_service(config, target, *, runner=None):
-    runner = runner or run_backend
+def switch_service(config, target, *, path=None, runner=None):
+    path = config_path() if path is None else Path(path)
+    backend = runner or run_backend
+
+    def run(config, action, **kwargs):
+        return check_interaction(path, backend(config, action, **kwargs))
+
+    def recover(config, action, **kwargs):
+        if unattended_paused(path):
+            raise SwitchFailure(4, "自动操作已暂停，未恢复原连接")
+        return run(config, action, **kwargs)
+
     if target not in SERVICES:
         return SwitchResult(2, "目标服务无效")
     if not config.username or not config.password:
-        return SwitchResult(4, "切换前请配置账号密码")
+        return SwitchResult(2, "切换前请配置账号密码")
     previous = None
     changed = False
     try:
-        previous = _snapshot(config, runner)
+        previous = _snapshot(config, run)
         if previous == target:
             return SwitchResult(0, f"已确认当前连接为{target}，无需切换", previous)
         desired = replace(config, service=target)
         if previous is not None:
             changed = True
-            _action(config, "logout", runner)
-            if _snapshot(config, runner) is not None:
+            _action(config, "logout", run)
+            if _snapshot(config, run) is not None:
                 raise SwitchFailure(3, "下线后仍在线，停止切换")
-        _action(desired, "login", runner)
-        if _snapshot(desired, runner) != target:
+        _action(desired, "login", run)
+        if _snapshot(desired, run) != target:
             raise SwitchFailure(3, "登录后实际在线服务与目标不一致")
         return SwitchResult(0, f"已独立确认切换到{target}", previous)
-    except (SwitchFailure, OSError, ValueError) as exc:
-        restored = changed and _restore(config, previous, runner)
+    except InteractionRequired as stop:
+        return SwitchResult(4, str(stop), previous)
+    except BaseException as exc:
+        try:
+            restored = changed and _restore(config, previous, recover)
+        except InteractionRequired as stop:
+            return SwitchResult(4, str(stop), previous)
+        if not isinstance(exc, (SwitchFailure, OSError, ValueError)):
+            raise
         code = exc.code if isinstance(exc, SwitchFailure) else 2
         reason = str(exc) if isinstance(exc, SwitchFailure) else "本地操作失败"
         if changed:
             reason += f"；已恢复{previous}" if restored else "；原连接恢复未确认，请查询状态"
         return SwitchResult(code, reason, previous, restored)
-    except BaseException:
-        if changed:
-            _restore(config, previous, runner)
-        raise

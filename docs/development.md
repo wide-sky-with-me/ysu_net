@@ -17,15 +17,13 @@ uv sync --locked --extra browser
 ```
 
 - 默认依赖：`requests`、`urllib3`、`pycryptodome`（用于 Portal/CAS 加密与 HTTP 认证）。
-- 可选依赖：
-  - `browser`：`playwright`（用于浏览器模式认证）。
-  - `captcha`：`ddddocr`（用于 CLI 离线验证码识别）。
+- 可选依赖：`browser`（`playwright`，用于浏览器模式认证）。
 
 ### 2. Rust 桌面客户端（Tauri 2 + Svelte 5）
 
 桌面端源码位于 [`desktop/`](../desktop/)，包含：
 - 前端（[`desktop/src/`](../desktop/src/)）：Svelte 5 + TypeScript + Vite。
-- 认证库（[`desktop/crates/ysu-auth/`](../desktop/crates/ysu-auth/)）：纯 Rust 校园网认证、自助服务、无感认证、验证码识别与 CDP 浏览器控制。
+- 认证库（[`desktop/crates/ysu-auth/`](../desktop/crates/ysu-auth/)）：纯 Rust 校园网认证、自助服务、无感认证与 CDP 浏览器控制。
 - 原生宿主（[`desktop/src-tauri/`](../desktop/src-tauri/)）：Tauri 2 运行器、后台调度、系统托盘与签名在线更新。
 
 > **构建约定**：根据项目协作规则，Rust 编译与桌面安装包构建统一在 **GitHub Actions** 云端工作流中执行，不在本地运行 `cargo` 编译或前端生产打包。

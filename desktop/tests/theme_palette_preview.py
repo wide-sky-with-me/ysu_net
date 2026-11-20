@@ -136,7 +136,7 @@ def main():
                 layout()
 
                 button("连接").click()
-                switch = page.get_by_role("switch", name="自动换号", exact=True)
+                switch = page.get_by_role("switch", name="零流量自动换号", exact=True)
                 knob = colors(switch.locator(".toggle-knob"))
                 track = colors(switch)
                 ratios["off-switch-thumb"] = contrast(knob["background"], track["background"])
@@ -148,7 +148,7 @@ def main():
                 assert rgb(offline["foreground"]) == rgb(tokens["danger"])
                 expect(switch).to_be_disabled()
                 expect(switch).to_have_attribute("aria-checked", "false")
-                help_control = page.get_by_label("自动换号条件", exact=True)
+                help_control = page.get_by_label("零流量自动换号条件", exact=True)
                 help_control.focus()
                 focus = colors(help_control)
                 assert contrast(focus["outline"], tokens["surface"]) >= 3

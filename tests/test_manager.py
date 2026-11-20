@@ -86,7 +86,7 @@ class ReconnectTests(OfflineTestCase):
         super().setUp()
         self.config = config.Config(username="u", password="p")
         self.runner = Mock()
-        self.worker = daemon.Reconnector(self.runner, jitter=lambda *_: 0)
+        self.worker = daemon.Reconnector(self.runner, jitter=lambda *_: 0, path=self.tmp / "config.json")
 
     def test_online_never_logs_in(self):
         self.runner.return_value = Result(0)
@@ -114,20 +114,14 @@ class ReconnectTests(OfflineTestCase):
         self.runner.side_effect = [Result(2), Result(0), Result(2)]
         self.assertEqual([self.worker.step(self.config)[0] for _ in range(3)], [30, 15, 30])
 
-    def test_auth_rejection_pauses_until_credentials_change(self):
-        self.runner.side_effect = [Result(1), Result(4), Result(1), Result(1), Result(0)]
+    def test_auth_rejection_pauses_regardless_of_credentials_or_connectivity(self):
+        self.runner.side_effect = [Result(1), Result(4)]
         self.worker.step(self.config)
-        self.worker.step(self.config)
-        self.assertEqual(sum(c.args[1] == "login" for c in self.runner.call_args_list), 1)
-        changed = replace(self.config, password="new")
-        self.worker.step(changed)
-        self.assertEqual(self.runner.call_args_list[-1], call(changed, "login"))
-
-    def test_online_after_manual_login_clears_pause(self):
-        self.runner.side_effect = [Result(1), Result(4), Result(0), Result(1), Result(0)]
-        for _ in range(3):
-            self.worker.step(self.config)
-        self.assertEqual(sum(c.args[1] == "login" for c in self.runner.call_args_list), 2)
+        for cfg in (self.config, replace(self.config, username="other", password="new")):
+            delay, message = self.worker.step(cfg)
+            self.assertEqual(delay, cfg.max_retry_interval)
+            self.assertIn("暂停", message)
+        self.assertEqual(self.runner.call_args_list, [call(self.config, "status"), call(self.config, "login")])
 
     def test_three_consecutive_failed_logins_pause_until_credentials_change(self):
         self.runner.side_effect = [
@@ -265,6 +259,21 @@ class CliTests(OfflineTestCase):
         self.service = self.mock("ysu_net.manager.cli.service_action")
         self.runner = self.mock("ysu_net.manager.cli.run_backend", return_value=Result(0, "online\n"))
         self.mock("sys.stdin.isatty", return_value=False)
+
+    def test_manual_challenge_survives_restart_and_readonly_requests(self):
+        self.mock("ysu_net.manager.cli.systemctl", return_value=Mock(stdout="inactive\n"))
+        for action in (["login"], ["self", "list"], ["doctor", "--network"]):
+            with self.subTest(action=action):
+                self.runner.return_value = Result(4)
+                self.assertEqual(cli.main(action), 4)
+                self.assertTrue(config.unattended_paused(self.path))
+                self.assertEqual(cli.main(["restart"]), 4)
+                self.service.assert_not_called()
+                self.runner.return_value = Result(0)
+                self.assertEqual(cli.main(["self", "list"]), 0)
+                self.assertTrue(config.unattended_paused(self.path))
+                self.assertEqual(cli.main(["login"]), 0)
+                self.assertFalse(config.unattended_paused(self.path))
 
     def test_off_stops_reconnect_before_logout(self):
         calls = Mock()
@@ -415,9 +424,8 @@ class CliTests(OfflineTestCase):
 
     def test_doctor_is_offline_by_default(self):
         self.mock("ysu_net.manager.cli.systemctl", return_value=Mock(stdout="inactive\n"))
-        self.mock("ysu_net.auth.captcha.available", return_value=False)
         self.assertEqual(cli.main(["doctor"]), 0)
-        self.assertIn("验证码识别：按需人工处理", self.output.getvalue())
+        self.assertIn("验证码：请在校园网门户人工处理", self.output.getvalue())
         self.runner.assert_not_called()
 
     def test_no_arguments_noninteractive_shows_help(self):
@@ -528,7 +536,7 @@ class InstallTests(OfflineTestCase):
             install.main(["--uninstall"])
         self.assertTrue((self.bin / "ysu").exists())
 
-    def test_install_script_forwards_captcha_extra_to_uv_sync(self):
+    def test_install_script_rejects_captcha_before_uv_and_preserves_browser_extra(self):
         script = self.root / "install.sh"
         script.write_text((Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8"), encoding="utf-8")
         self.bin.mkdir()
@@ -539,9 +547,14 @@ class InstallTests(OfflineTestCase):
         interpreter.write_text('#!/bin/sh\nprintf "py:%s\\n" "$*"\n', encoding="utf-8")
         interpreter.chmod(0o755)
         env = {**os.environ, "PATH": f"{self.bin}:{os.environ.get('PATH', '')}"}
-        result = subprocess.run(["bash", str(script), "--captcha", "--no-service"], env=env, text=True, capture_output=True, check=True)
+        obsolete = subprocess.run(["bash", str(script), "--captcha", "--no-service"], env=env, text=True, capture_output=True)
+        self.assertEqual(obsolete.returncode, 2)
+        self.assertEqual(obsolete.stdout, "")
+        self.assertIn("人工验证", obsolete.stderr)
+        result = subprocess.run(["bash", str(script), "--browser", "--offline", "--no-service"], env=env, text=True, capture_output=True, check=True)
         self.assertEqual(result.stdout.splitlines(), [
-            "uv:sync --locked --extra captcha",
+            "uv:sync --locked --extra browser --offline",
+            "离线模式不下载 Chromium，请预先安装对应浏览器运行时。",
             "py:-m ysu_net.manager.install --no-service",
         ])
 
@@ -560,3 +573,207 @@ class UnitValidationTests(OfflineTestCase):
         unit.write_text(service.render_unit(root, self.tmp / "config.json", "system"))
         result = subprocess.run([analyzer, "verify", str(unit)], text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class WatchEnhancementsTests(OfflineTestCase):
+    def test_night_pause_dorm_window_covers_sun_thu_and_skips_fri_sat(self):
+        from datetime import datetime, timezone, timedelta
+        tz = timezone(timedelta(hours=8))
+        sched = {"version": 1, "night_pause": True, "start": "23:30", "end": "06:00", "weekdays": [0, 1, 2, 3, 6]}
+        # 2026-11-18 is Wednesday (2), 2026-11-19 is Thursday (3), 2026-11-20 is Friday (4),
+        # 2026-11-21 is Saturday (5), 2026-11-22 is Sunday (6), 2026-11-23 is Monday (0)
+        wed_late = datetime(2026, 11, 18, 23, 35, tzinfo=tz)
+        self.assertEqual(config.night_pause_until(wed_late, sched), datetime(2026, 11, 19, 6, 0, tzinfo=tz))
+        fri_early = datetime(2026, 11, 20, 2, 15, tzinfo=tz)  # Thu night -> Fri 06:00
+        self.assertEqual(config.night_pause_until(fri_early, sched), datetime(2026, 11, 20, 6, 0, tzinfo=tz))
+        fri_late = datetime(2026, 11, 20, 23, 50, tzinfo=tz)  # Fri night: no pause
+        self.assertIsNone(config.night_pause_until(fri_late, sched))
+        sat_early = datetime(2026, 11, 21, 2, 0, tzinfo=tz)   # Fri->Sat: no pause
+        self.assertIsNone(config.night_pause_until(sat_early, sched))
+        sun_late = datetime(2026, 11, 22, 23, 30, tzinfo=tz)  # Sun night -> Mon 06:00
+        self.assertEqual(config.night_pause_until(sun_late, sched), datetime(2026, 11, 23, 6, 0, tzinfo=tz))
+        mon_early = datetime(2026, 11, 23, 5, 59, tzinfo=tz)
+        self.assertEqual(config.night_pause_until(mon_early, sched), datetime(2026, 11, 23, 6, 0, tzinfo=tz))
+        mon_resume = datetime(2026, 11, 23, 6, 0, tzinfo=tz)
+        self.assertIsNone(config.night_pause_until(mon_resume, sched))
+
+    def test_persistent_protection_survives_restarts_and_reserves_before_login(self):
+        path = self.tmp / "config.json"
+        cfg = config.Config(username="20260001", password="secret-password")
+        config.save_config(path, cfg)
+
+        # Simulate two crashed login attempts across separate Reconnector instances, then one failed return.
+        for _ in range(2):
+            crashing_runner = Mock(side_effect=[Result(1), RuntimeError("simulated process crash")])
+            w = daemon.Reconnector(crashing_runner, jitter=lambda *_: 0, path=path)
+            with self.assertRaises(RuntimeError):
+                w.step(cfg)
+
+        prot_raw = config.protection_path(path).read_text(encoding="utf-8")
+        self.assertNotIn("secret-password", prot_raw)
+        self.assertNotIn("20260001", prot_raw)
+
+        third_runner = Mock(side_effect=[Result(1), Result(3)])
+        w3 = daemon.Reconnector(third_runner, jitter=lambda *_: 0, path=path)
+        _, msg3 = w3.step(cfg)
+        self.assertIn("自动重连已暂停", msg3)
+
+        # Fourth restart must stay paused without invoking login!
+        fourth_runner = Mock(return_value=Result(1))
+        w4 = daemon.Reconnector(fourth_runner, jitter=lambda *_: 0, path=path)
+        _, msg4 = w4.step(cfg)
+        self.assertIn("认证已暂停", msg4)
+        self.assertEqual([c.args[1] for c in fourth_runner.call_args_list], ["status"])
+
+        # Corrupted protection file fails closed without submitting credentials.
+        config.protection_path(path).write_text("{corrupted", encoding="utf-8")
+        fifth_runner = Mock(return_value=Result(1))
+        w5 = daemon.Reconnector(fifth_runner, jitter=lambda *_: 0, path=path)
+        _, msg5 = w5.step(cfg)
+        self.assertIn("保护", msg5)
+        fifth_runner.assert_not_called()
+
+    def test_night_pause_skips_auth_and_morning_recovery_resets_transient_pause_only(self):
+        from datetime import datetime, timezone, timedelta
+        tz = timezone(timedelta(hours=8))
+        path = self.tmp / "config.json"
+        cfg = config.Config(username="20260001", password="secret")
+        config.save_config(path, cfg)
+        config.save_schedule(path, night_pause=True, start="23:30", end="06:00")
+
+        current_now = [datetime(2026, 11, 18, 23, 20, tzinfo=tz)]
+        runner = Mock(side_effect=[
+            # 23:20: 3 transient failures trip transient pause
+            Result(1), Result(3),
+            Result(1), Result(3),
+            Result(1), Result(3),
+            # 06:00 morning recovery: status already online (e.g. via 7-day nosense) -> no login!
+            Result(0),
+            # 06:01 drops offline -> logs in cleanly because transient pause reset at 06:00!
+            Result(1), Result(0),
+        ])
+        w = daemon.Reconnector(runner, jitter=lambda *_: 0, path=path, now_fn=lambda: current_now[0])
+        for _ in range(3):
+            w.step(cfg)
+        self.assertTrue(w.blocked_credentials is not None)
+
+        # Enter 23:40 night pause: no runner calls at all!
+        current_now[0] = datetime(2026, 11, 18, 23, 40, tzinfo=tz)
+        calls_before = runner.call_count
+        delay, msg = w.step(cfg)
+        self.assertIn("夜间停网保护", msg)
+        self.assertEqual(runner.call_count, calls_before)
+
+        # 06:00 morning recovery: checks status first; already online -> no login
+        current_now[0] = datetime(2026, 11, 19, 6, 0, tzinfo=tz)
+        _, msg_morning = w.step(cfg)
+        self.assertEqual(msg_morning, "在线")
+        self.assertEqual(runner.call_args_list[-1], call(cfg, "status"))
+
+        # Next offline tick logs in normally
+        _, msg_reconn = w.step(cfg)
+        self.assertEqual(msg_reconn, "重连成功")
+
+    def test_device_limit_stops_enabled_rotation_and_survives_restart_and_account_change(self):
+        from ysu_net.manager import accounts
+        path = self.tmp / "config.json"
+        cfg = config.Config(username="u1", password="p1", service="中国联通")
+        config.save_config(path, cfg)
+        accounts.save_account(path, username="u1", password="p1", service="中国联通", enabled=True)
+        accounts.save_account(path, username="u2", password="p2", service="中国联通", enabled=True)
+        accounts.set_rotation(path, True, auto_reconnect=True)
+        config.save_nosense(path, auto_renew=True)
+        runner = self.mock("ysu_net.manager.daemon.run_backend",
+                           side_effect=[Result(1), Result(4, reason="session_limit")])
+        daemon.run_daemon(path, once=True)
+        self.assertEqual([c.args[1] for c in runner.call_args_list], ["status", "login"])
+        self.assertEqual(config.load_config(path, environ={}).username, "u1")
+        self.assertTrue(config.load_protection(path)["code4"])
+
+        config.update_config(path, username="u2", password="p2")
+        runner.reset_mock()
+        daemon.run_daemon(path, once=True)
+        runner.assert_not_called()
+
+    def test_renew_challenge_stops_remaining_accounts_and_next_daemon(self):
+        from ysu_net.manager import accounts
+        path = self.tmp / "config.json"
+        cfg = config.Config(username="user1", password="password1")
+        config.save_config(path, cfg)
+        accounts.save_account(path, username="user2", password="password2", service="校园网")
+        config.save_nosense(path, auto_renew=True)
+        config.save_nosense(path, auto_renew=True, account="user2", target_mac="02:00:00:00:00:02")
+        runner = self.mock("ysu_net.manager.daemon.run_backend", side_effect=[Result(0), Result(4)])
+        daemon.run_daemon(path, once=True)
+        self.assertEqual([(c.args[0].username, c.args[1]) for c in runner.call_args_list],
+                         [("user1", "status"), ("user1", "self")])
+        self.assertTrue(config.load_protection(path)["code4"])
+        daemon.run_daemon(path, once=True)
+        self.assertEqual(runner.call_count, 2)
+
+    def test_concurrent_challenge_is_preserved_at_offline_reservation_and_online_cleanup(self):
+        for status in (0, 1):
+            with self.subTest(status=status):
+                path = self.tmp / f"config-{status}.json"
+                cfg = config.Config(username="user", password="password")
+                config.save_config(path, cfg)
+
+                def status_while_self_service_is_challenged(current, action):
+                    self.assertEqual(action, "status")
+                    config.pause_unattended(path)
+                    return Result(status)
+
+                worker = daemon.Reconnector(status_while_self_service_is_challenged, path=path)
+                worker.step(cfg)
+                self.assertTrue(config.load_protection(path)["code4"])
+
+    def test_cli_night_command_updates_schedule(self):
+        from ysu_net.manager import cli
+        path = self.tmp / "config.json"
+        config.save_config(path, config.Config(username="u", password="p"))
+        self.assertEqual(cli.main(["--config", str(path), "night", "on", "--start", "23:30", "--end", "06:00"]), 0)
+        loaded = config.load_schedule(path)
+        self.assertTrue(loaded["night_pause"])
+        self.assertEqual(loaded["start"], "23:30")
+        self.assertEqual(loaded["end"], "06:00")
+        self.assertEqual(cli.main(["--config", str(path), "night", "off"]), 0)
+        self.assertFalse(config.load_schedule(path)["night_pause"])
+
+    def test_clock_rollback_blocks_morning_reset_and_third_attempt_success_clears_protection(self):
+        from datetime import datetime, timezone, timedelta
+        import json as _json
+        tz = timezone(timedelta(hours=8))
+        path = self.tmp / "config.json"
+        cfg = config.Config(username="20260001", password="secret")
+        config.save_config(path, cfg)
+        config.save_schedule(path, night_pause=True, start="23:30", end="06:00")
+
+        # Two transient failures followed by a 3rd successful login must clear protection cleanly.
+        daytime = datetime(2026, 11, 18, 14, 0, tzinfo=tz)
+        runner = Mock(side_effect=[Result(1), Result(3), Result(1), Result(3), Result(1), Result(0)])
+        w = daemon.Reconnector(runner, jitter=lambda *_: 0, path=path, now_fn=lambda: daytime)
+        w.step(cfg)
+        w.step(cfg)
+        _, msg = w.step(cfg)
+        self.assertEqual(msg, "重连成功")
+        self.assertIsNone(w.blocked_credentials)
+        self.assertFalse(config.protection_path(path).exists())
+
+        # Clock rollback (updated_at far in the future relative to simulated morning clock) must keep transient block.
+        future_epoch = int(datetime(2026, 11, 20, 12, 0, tzinfo=tz).timestamp())
+        config.protection_path(path).write_text(_json.dumps({
+            "version": 1,
+            "identity": config.credential_identity_hash(cfg),
+            "login_failures": 3,
+            "blocked": True,
+            "code4": False,
+            "updated_at": future_epoch,
+        }), encoding="utf-8")
+        current_now = [datetime(2026, 11, 18, 23, 45, tzinfo=tz)]
+        skew_runner = Mock(return_value=Result(1))
+        w_skew = daemon.Reconnector(skew_runner, jitter=lambda *_: 0, path=path, now_fn=lambda: current_now[0])
+        w_skew.step(cfg)
+        current_now[0] = datetime(2026, 11, 19, 6, 0, tzinfo=tz)
+        _, skew_msg = w_skew.step(cfg)
+        self.assertIn("认证已暂停", skew_msg)
+        self.assertEqual([c.args[1] for c in skew_runner.call_args_list], ["status"])

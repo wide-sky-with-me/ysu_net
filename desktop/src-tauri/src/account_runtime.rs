@@ -238,7 +238,7 @@ impl Worker {
         self.plan_current(plan).await.is_ok()
     }
 
-    async fn restore_account(&self, plan: &AccountPlan, original: &Status) -> bool {
+    async fn restore_account(&mut self, plan: &AccountPlan, original: &Status) -> bool {
         if !original.online || !self.source_current(plan).await {
             return false;
         }
@@ -252,13 +252,13 @@ impl Worker {
             if current.user != plan.target.username {
                 return false;
             }
-            if self
+            if let Err(error) = self
                 .runtime
                 .backend
                 .mutate(&plan.target, &Action::Logout)
                 .await
-                .is_err()
             {
+                let _ = self.pause_on_challenge(&plan.source, &error);
                 return false;
             }
             if !self
@@ -277,13 +277,8 @@ impl Worker {
             return false;
         };
         restore.service = service.clone();
-        if self
-            .runtime
-            .backend
-            .mutate(&restore, &Action::Login)
-            .await
-            .is_err()
-        {
+        if let Err(error) = self.runtime.backend.mutate(&restore, &Action::Login).await {
+            let _ = self.pause_on_challenge(&plan.source, &error);
             return false;
         }
         self.status(&restore).await.is_ok_and(|status| {
@@ -349,7 +344,8 @@ impl Worker {
             return Err("当前在线账号与活动配置不一致，未下线或切换".into());
         }
         self.plan_current(&plan).await?;
-        let result: Result<(), String> = async {
+        // A challenge ends the whole transition. Ordinary failures may still restore the source.
+        let result: Result<Option<&'static str>, String> = async {
             if !(original.online
                 && original.user == plan.target.username
                 && original.service.as_deref() == Some(&plan.target.service))
@@ -361,16 +357,25 @@ impl Worker {
                         if let Some(unbind_target) =
                             source_nosense_unbind_target(&nosense, &plan.source.username)
                         {
-                            let _ = self
+                            if let Err(error) = self
                                 .runtime
                                 .backend
                                 .self_nosense_disable(&leaving, &unbind_target)
-                                .await;
+                                .await
+                            {
+                                if let Some(message) = self.pause_on_challenge(&plan.source, &error)
+                                {
+                                    return Ok(Some(message));
+                                }
+                            }
                         }
                     }
                     self.phase = DiagnosticStage::OfflineSubmit;
                     let result = self.runtime.backend.mutate(&leaving, &Action::Logout).await;
                     if let Err(error) = &result {
+                        if let Some(message) = self.pause_on_challenge(&plan.source, error) {
+                            return Ok(Some(message));
+                        }
                         self.error(error);
                     }
                     self.phase = DiagnosticStage::Verification;
@@ -401,6 +406,9 @@ impl Worker {
                     .mutate(&plan.target, &Action::Login)
                     .await;
                 if let Err(error) = &result {
+                    if let Some(message) = self.pause_on_challenge(&plan.source, error) {
+                        return Ok(Some(message));
+                    }
                     self.error(error);
                 }
                 self.phase = DiagnosticStage::Verification;
@@ -424,16 +432,26 @@ impl Worker {
             self.runtime.config().await?;
             if plan.source.username != plan.target.username {
                 if let Some((mac_target, svc)) = target_nosense_bind(&nosense, &plan.target) {
-                    let _ = self
+                    if let Err(error) = self
                         .runtime
                         .backend
                         .self_nosense_enable(&plan.target, &mac_target, Some(&svc))
-                        .await;
+                        .await
+                    {
+                        if let Some(message) = self.pause_on_challenge(&plan.target, &error) {
+                            return Ok(Some(message));
+                        }
+                    }
                 }
             }
-            Ok(())
+            Ok(None)
         }
         .await;
+        if let Ok(Some(message)) = &result {
+            self.runtime
+                .update(|state| state.accounts["message"] = (*message).into());
+            return Err((*message).into());
+        }
         if let Err(error) = result {
             self.rotation.cool(&plan.target);
             self.phase = DiagnosticStage::Recovery;
@@ -447,6 +465,7 @@ impl Worker {
             return Err(error);
         }
         self.reconnect = Reconnect::default();
+        self.runtime.store.clear_protection();
         self.rotation.zero = None;
         self.runtime.update(|state| {
             state.info = Value::Null;
@@ -483,6 +502,10 @@ impl Worker {
         let result = self.runtime.backend.verified_info(config).await;
         let latest = self.runtime.config().await;
         let info = match result {
+            Err(error) if self.pause_on_challenge(config, &error).is_some() => {
+                self.rotation.clear_zero();
+                return true;
+            }
             Ok(info) if latest.is_ok_and(|latest| identity(&latest) == identity(config)) => info,
             _ => {
                 self.rotation.zero = None;
@@ -576,6 +599,9 @@ impl Worker {
             .switch_account_bound(&target.id, true, Some(config.clone()))
             .await
         {
+            if self.reconnect.challenge_message.is_some() {
+                return true;
+            }
             self.rotation.cool(&target.config(config));
             self.runtime.update(|state| {
                 state.accounts["message"] = "备用账号切换未确认，已进入冷却".into();

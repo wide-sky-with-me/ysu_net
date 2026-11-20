@@ -123,6 +123,7 @@
   input, select { min-height: 40px; padding: 8px 14px; min-width: 0; border: 1px solid var(--control-border); border-radius: var(--radius-sm); background: var(--field); color: var(--text); line-height: 1.5; transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-standard) var(--motion-ease); }
   select { appearance: none; padding-right: 34px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235f6570' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 14px; }
   :root[data-theme='dark'] select { color-scheme: dark; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23aeb4be' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
+  :root[data-theme='dark'] input[type='time'] { color-scheme: dark; }
   input:hover:not(:disabled):not([readonly]):not(:focus-visible), select:hover:not(:disabled):not(:focus-visible) { border-color: var(--control-border-hover); }
   input:focus-visible, select:focus-visible, .password-control:focus-within, .search-input:focus-within { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--focus-ring); }
   input::placeholder { color: var(--muted); opacity: 1; }
@@ -137,7 +138,7 @@
   svg { flex-shrink: 0; }
   fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
   .muted { color: var(--muted); font-size: 12px; }
-  .numeric, time, input[type='number'], .account-summary dd, .connection-details dd, .account-fields dd, .log-note { font-variant-numeric: tabular-nums; }
+  .numeric, time, input[type='number'], input[type='time'], .account-summary dd, .connection-details dd, .account-fields dd, .log-note { font-variant-numeric: tabular-nums; }
   .account-summary dd { display: flex; align-items: center; min-height: 42px; }
   ::selection { background: var(--accent-soft); color: var(--accent); }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -209,7 +210,7 @@
   .feedback-toast.error .feedback-symbol { background: var(--danger-soft); color: var(--danger); }
   .feedback-busy { grid-template-columns: 32px minmax(0, 1fr); }
   .feedback-busy .feedback-symbol { background: var(--accent-soft); color: var(--accent); }
-  .feedback-busy .feedback-symbol svg, .header-action[aria-busy='true'] svg, .update-check[aria-busy='true'] svg, .captcha-download[aria-busy='true'] svg { transform-origin: center; animation: feedback-spin 1s linear infinite; }
+  .feedback-busy .feedback-symbol svg, .header-action[aria-busy='true'] svg, .update-check[aria-busy='true'] svg { transform-origin: center; animation: feedback-spin 1s linear infinite; }
   @keyframes feedback-spin { to { transform: rotate(360deg); } }
   .connection-overview { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'context' 'automation' 'controls'; gap: 16px; }
   .connection-context { grid-area: context; display: flex; flex-direction: column; padding: 26px 28px; background: var(--surface); background-image: radial-gradient(120% 130% at 0% 0%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 58%); border: 1px solid var(--card-border); border-radius: 30px; box-shadow: var(--card-shadow); transition: border-color var(--motion-standard) var(--motion-ease), box-shadow var(--motion-standard) var(--motion-ease); }
@@ -363,6 +364,8 @@
   .address-fields .form-row { grid-template-columns: 74px minmax(0, 1fr); gap: 12px; border-bottom: 0; }
   .number-input { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
   .number-input input { width: 80px; text-align: right; }
+  .schedule-time-range { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
+  .schedule-time-range input { width: 112px; padding-left: 10px; padding-right: 8px; }
   .url-row input { font-size: 13px; }
   .browser-section { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; background: var(--field); border-radius: var(--radius-md); margin: 8px 0; padding: 14px 16px; }
   .browser-status { display: flex; flex: 1 1 280px; align-items: center; gap: 10px; min-width: 0; }
@@ -372,9 +375,6 @@
   .browser-status p { color: var(--muted); font-size: 12px; }
   .browser-section > button { margin-left: auto; font-size: 12px; flex-shrink: 0; }
   .setting-row p.certificate-warning { color: var(--warning); }
-  .captcha-setting > div { flex: 1; min-width: 0; }
-  .captcha-setting > button { flex-shrink: 0; }
-  .setting-row p.captcha-error { color: var(--danger); overflow-wrap: anywhere; }
   .theme-selector { display: flex; padding: 4px; gap: 3px; background: var(--field); border-radius: 999px; flex-shrink: 0; }
   .theme-selector button { border: 0; background: transparent; min-height: 30px; font-size: 12px; padding: 4px 13px; border-radius: 999px; color: var(--muted); }
   .theme-selector button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
@@ -648,6 +648,8 @@
     .form-row { grid-template-columns: 60px minmax(0, 1fr); gap: 12px; }
     .setting-row > select { width: 142px; }
     .setting-row { gap: 12px; }
+    .schedule-time-range { gap: 6px; }
+    .schedule-time-range input { width: 100px; padding-left: 8px; padding-right: 6px; font-size: 13px; }
     .environment-list > div { grid-template-columns: 80px minmax(0, 1fr); gap: 12px; }
     .account-summary dl { gap: 12px; }
     .account-summary dl > div { padding: 20px; }

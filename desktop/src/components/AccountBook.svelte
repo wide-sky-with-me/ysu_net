@@ -88,7 +88,7 @@
         <label class="form-row"><span>账号密码</span><input name="saved-account-password" type="password" autocomplete="new-password" placeholder={existing?.password_set ? '留空保留原密码' : '请输入账号密码'} bind:value={password} /></label>
         <label class="form-row"><span>运营商</span><select aria-label="运营商" bind:value={editor.service}>{#each SERVICES as service}<option value={service}>{service}</option>{/each}</select></label>
         <label class="form-row"><span>账号认证方式</span><select aria-label="账号认证方式" bind:value={editor.backend}><option value="api">API 认证</option><option value="browser">浏览器认证</option></select></label>
-        <div class="setting-row"><div><span>参与账号选择与轮换</span></div><Toggle checked={editor.enabled} disabled={blocked || saving} label="启用此账号" onchange={(value) => { if (editor) editor.enabled = value; }} /></div>
+        <div class="setting-row"><div><span>参与手动切换与零流量换号</span></div><Toggle checked={editor.enabled} disabled={blocked || saving} label="启用此账号" onchange={(value) => { if (editor) editor.enabled = value; }} /></div>
       </fieldset>
       {#if editor.id}<p id="fixed-username-note" class="section-note fixed-username-note">用户名创建后固定；更换用户请新增账号。</p>{/if}
       {#if error}<p id="account-editor-error" class="account-error" role="alert" tabindex="-1">{error}</p>{/if}

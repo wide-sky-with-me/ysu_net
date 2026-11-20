@@ -1,8 +1,8 @@
-# 命令与配置完整手册
+# 燕山大学校园网 Linux 命令行与配置完整手册（ysu）
 
 [返回首页](../README.md) · [文档导航](README.md) · [多账号与无感联动](accounts.md) · [更新与卸载](migration.md)
 
-本页介绍 Linux 命令行工具 `ysu` 的安装方式、命令用法、设备自助服务与 7 天无感认证管理，以及配置文件与环境变量说明。若使用图形界面，请参阅 [桌面客户端指南](wiki/Desktop-Client.md)。
+本页说明燕山大学校园网（`auth1.ysu.edu.cn` / `cer.ysu.edu.cn` / `iYanDa`）Linux 命令行工具 `ysu` 的安装方式、命令用法、设备自助服务（`/self`）与 7 天无感认证自动续约管理，以及配置文件与 `systemd` 后台服务说明。若使用 Windows / Linux / macOS 图形界面，请参阅 [桌面客户端指南](wiki/Desktop-Client.md)。
 
 ---
 
@@ -31,7 +31,6 @@ export PATH="$HOME/.local/bin:$PATH"
 | 默认（无参数） | 个人 Linux 桌面 / WSL | 安装用户级命令 `~/.local/bin/ysu` 与用户级服务 `systemctl --user` |
 | `--system` | 服务器 / 多用户主机 | 安装系统级命令 `/usr/local/bin/ysu`、配置 `/etc/ysu-net/config.json` 与系统级 `ysu-net.service`（开机即可联网） |
 | `--no-service` | 容器 / 无 systemd 环境 | 仅安装 `ysu` 命令，需要后台重连时手动运行 `ysu daemon` |
-| `--captcha` | 自动处理 CAS 验证码 | 额外安装 `ddddocr` 离线验证码识别依赖 |
 | `--browser` | 需要浏览器认证模式 | 额外安装 Playwright 并下载 Chromium 浏览器 |
 
 ---
@@ -50,18 +49,20 @@ ysu on                   # 立即登录并开启后台自动重连
 
 | 命令 | 作用 |
 | --- | --- |
-| `ysu` | 在交互式终端打开文本菜单；非交互环境输出状态摘要 |
-| `ysu on` | 立即登录校园网，并启动、启用后台自动重连服务 |
-| `ysu off` | 停止、禁用后台自动重连服务，并主动下线当前校园网连接 |
+| `ysu` | 在交互式终端打开文本菜单；非交互环境输出帮助说明 |
+| `ysu on` | 启动后台自动重连服务（离线时由守护自动发起登录） |
+| `ysu off` | 停止后台自动重连服务，并主动下线当前校园网连接 |
 | `ysu login` | 仅执行一次登录（不修改后台服务开关） |
-| `ysu logout` | 仅执行一次下线（若后台自动重连仍在运行，建议先 `ysu stop` 或直接用 `ysu off`） |
-| `ysu status [--json]` | 查询校园网实际在线状态（学号、运营商、IP）及后台守护状态 |
-| `ysu info [--raw] [--json]` | 查询当前账号套餐、计费周期、剩余流量与连接详情 |
-| `ysu service [运营商]` | 查看或切换运营商（`校园网`、`中国移动`、`中国联通`、`中国电信`）；若当前已在线会先下线再按新运营商重连 |
+| `ysu logout` | 停止后台重连并下线当前校园网连接 |
+| `ysu status [--raw]` | 查询校园网实际在线状态（学号、运营商、IP） |
+| `ysu info [--raw]` | 查询当前账号套餐、计费周期、剩余流量与连接详情 |
+| `ysu service [运营商]` | 查看或配置下次登录使用的运营商（`校园网`、`中国移动`、`中国联通`、`中国电信`） |
+| `ysu switch <运营商>` | 立即切换当前在线运营商并核验结果，失败时自动尝试恢复原连接（需先 `ysu stop`） |
 | `ysu start` / `ysu stop` / `ysu restart` | 启动 / 停止 / 重启后台自动重连服务（`stop` 不会断开已建立的校园网连接） |
-| `ysu enable` / `ysu disable` | 开启 / 关闭开机自启 |
+| `ysu boot [on\|off\|status]` | 开启、关闭或查看开机自启状态 |
+| `ysu night [on\|off\|status]` | 配置宿舍夜间停网静默保护与晨间自动恢复（支持 `--start HH:MM`、`--end HH:MM`、`--dorm` / `--everyday`、`--raw`） |
 | `ysu logs [-n 行数] [-f]` | 查看后台守护日志（`-f` 持续跟随输出） |
-| `ysu doctor [--network] [--json]` | 检查本地配置、锁文件与依赖；加 `--network` 可额外测试门户连通性 |
+| `ysu doctor [--network]` | 检查本地配置、权限与依赖；加 `--network` 可额外测试门户连通性与实际运营商 |
 
 ---
 
@@ -69,13 +70,13 @@ ysu on                   # 立即登录并开启后台自动重连
 
 `ysu self` 直连校园网自助服务系统（`https://auth1.ysu.edu.cn/self`），用于管理在线设备、7 天 MAC 无感认证、默认上网服务与到期前自动续约。
 
-所有 `ysu self` 子命令均支持 `--account <标识>` 参数，用于指定操作[账号池](accounts.md)中的某个已保存账号；不指定时默认操作当前活动主账号。
+所有 `ysu self` 子命令均支持 `--account <标识>` 参数，用于指定操作[账号池](accounts.md)中的某个已保存账号（填用户名或账号 `id`）；不指定时默认操作当前活动主账号。
 
 ### 1. 查看在线设备与无感状态
 
 ```bash
 ysu self                      # 查看当前账号的在线设备、套餐流量、无感认证记录与自动续约状态
-ysu self list --json          # 以 JSON 格式输出完整快照
+ysu self list --raw           # 以 JSON 格式输出完整快照
 ysu self list --account backup # 查看账号池中指定账号的自助服务状态
 ```
 
@@ -94,18 +95,19 @@ ysu self list --account backup # 查看账号池中指定账号的自助服务�
 # 为本机开启 7 天无感认证（优先匹配本机在线设备，若当前账号无在线设备则自动探测本机物理网卡 MAC）
 ysu self nosense current
 
-# 开启无感认证的同时指定默认上网服务，并一并开启到期前自动续约
-ysu self nosense current --service 中国联通 --auto-renew
+# 开启无感认证的同时指定默认上网服务，并开启到期前自动续约
+ysu self nosense current --service 中国联通
+ysu self renew on --service 中国联通
 
 # 为指定序号或指定 MAC 的设备开启无感认证
-ysu self nosense 1 --name "我的笔记本"
-ysu self nosense AA-BB-CC-DD-EE-FF --name "路由器" --service 中国移动
+ysu self nosense 1
+ysu self nosense AA-BB-CC-DD-EE-FF --service 中国移动
 
 # 取消本机、指定序号、指定 MAC 或全部无感认证记录
 ysu self unbind current
 ysu self unbind 1
 ysu self unbind AA-BB-CC-DD-EE-FF
-ysu self unbind all -y
+ysu self unbind all
 ```
 
 ### 3. 修改无感默认上网服务
@@ -126,14 +128,14 @@ ysu self service AA-BB-CC-DD-EE-FF --service 校园网
 ysu self renew on --service 中国联通
 
 # 为账号池中的指定账号与指定设备 MAC 开启独立自动续约
-ysu self renew on --account backup --mac AA-BB-CC-DD-EE-FF --name "宿舍路由器" --service 中国移动
+ysu self renew on --account backup --mac AA-BB-CC-DD-EE-FF --service 中国移动
 
-# 查看自动续约配置与上次续约结果
+# 查看自动续约配置
 ysu self renew status
 
-# 立即触发一次续约检查（加 --force 可忽略 24 小时窗口立即重绑刷新 7 天有效期）
-ysu self renew now
-ysu self renew now --force
+# 立即触发一次续约检查（加 --yes 可忽略 24 小时窗口立即重绑刷新 7 天有效期）
+ysu self renew
+ysu self renew --yes
 
 # 关闭自动续约
 ysu self renew off
@@ -145,8 +147,8 @@ ysu self renew off
 
 ```bash
 ysu self kick 1               # 下线列表中的第 1 台设备（交互确认）
-ysu self kick current -y      # 跳过确认，直接下线本机
-ysu self kick all -y          # 下线该账号下的全部在线设备
+ysu self kick current --yes   # 跳过确认，直接下线本机
+ysu self kick all --yes       # 下线该账号下的全部在线设备
 ```
 
 ---
@@ -156,11 +158,14 @@ ysu self kick all -y          # 下线该账号下的全部在线设备
 ### 交互与命令配置
 
 ```bash
-ysu config show               # 查看当前生效配置（密码自动隐藏）
+ysu config show               # 查看当前生效配置（密码自动隐藏；加 --raw 输出 JSON）
 ysu config account            # 修改主账号学号与密码
-ysu config service 中国移动    # 修改默认运营商
-ysu config backend api        # 切换认证方式：api（默认）或 browser
-ysu config timer --check-interval 15 --retry-interval 30 --max-retry-interval 900 --operation-timeout 180
+ysu service 中国移动          # 修改下次登录使用的默认运营商
+ysu backend api               # 切换认证方式：api（默认）或 browser
+ysu config set check_interval 15
+ysu config set retry_interval 30
+ysu config set max_retry_interval 900
+ysu config set operation_timeout 180
 ysu config path               # 查看配置文件所在路径
 ```
 
@@ -168,8 +173,8 @@ ysu config path               # 查看配置文件所在路径
 
 | 安装模式 | 主配置文件 | 辅助配置文件与会话缓存 |
 | --- | --- | --- |
-| 用户级（默认） | `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json` | 同目录下存放 `config.accounts.json`（多账号池）、`config.nosense.json`（无感自动续约规则）<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
-| 系统级（`--system`） | `/etc/ysu-net/config.json` | 同目录下存放 `config.accounts.json`、`config.nosense.json`<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
+| 用户级（默认） | `${XDG_CONFIG_HOME:-~/.config}/ysu-net/config.json` | 同目录下存放 `config.accounts.json`（多账号池）、`config.nosense.json`（无感自动续约规则）、`config.schedule.json`（夜间停网保护时段）、`config.protection.json`（跨重启认证失败计数，不含明文凭据）<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
+| 系统级（`--system`） | `/etc/ysu-net/config.json` | 同目录下存放 `config.accounts.json`、`config.nosense.json`、`config.schedule.json`、`config.protection.json`<br>会话缓存位于 `${XDG_CACHE_HOME:-~/.cache}/ysu-net/self-session.json` |
 
 所有含凭据或会话的配置文件均以 `0600` 权限创建，仅文件所有者可读写。
 
@@ -193,7 +198,6 @@ ysu config path               # 查看配置文件所在路径
 
 - `YSU_USER` / `YSU_PASS` / `YSU_SERVICE`：临时指定账号、密码与运营商（开启环境变量覆盖期间，多账号热切换与自动换号会暂停，以免修改磁盘账号簿）。
 - `YSU_CONFIG`：指定自定义 `config.json` 路径。
-- `YSU_CAPTCHA_MODEL` / `YSU_CAPTCHA_DIR`：指定桌面端离线验证码识别模型路径或缓存目录。
 
 ---
 
@@ -212,4 +216,4 @@ uv run python -m ysu_net.auth.api logout
 uv run --extra browser python -m ysu_net.auth.browser login -u 学号 -p '密码' -s 校园网
 ```
 
-退出码约定：`0` 表示成功（或 `status` 确认在线），`1` 表示确认离线，`2` 表示网络或请求异常，`3` 表示操作后状态未确认，`4` 表示需要人工处理（如密码错误、CAS 风控拦截页，或未配置可用识别时的验证码挑战）。
+退出码约定：`0` 表示成功（或 `status` 确认在线），`1` 表示确认离线，`2` 表示网络或请求异常，`3` 表示操作后状态未确认，`4` 表示需要人工处理。遇到 CAS 验证码或在线设备数达上限，暂停重连，不切换备用账号。请先到学校门户完成验证或手动下线自己的闲置设备，再手动连接。

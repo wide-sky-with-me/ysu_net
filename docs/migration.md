@@ -43,7 +43,7 @@ ysu stop
 git pull --ff-only
 UV_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple" \
 UV_PYTHON_INSTALL_MIRROR="https://ghfast.top/https://github.com/indygreg/python-build-standalone/releases/download" \
-bash install.sh                # 若启用了验证码识别或浏览器模式，请对应加上 --captcha / --browser
+bash install.sh                # 使用浏览器模式时加上 --browser
 ysu doctor
 ysu on
 ```

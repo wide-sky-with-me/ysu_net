@@ -1,4 +1,3 @@
-import io
 import json
 import runpy
 from pathlib import Path
@@ -7,7 +6,16 @@ from unittest.mock import Mock, patch
 
 import requests
 from ysu_net.auth import api
-from ysu_net.auth.common import InteractionRequired, OperationFailed, QueryError, online_service, online_state
+from ysu_net.auth.common import (
+    DeviceLimitError,
+    InteractionRequired,
+    OperationFailed,
+    QueryError,
+    check_action,
+    online_service,
+    online_state,
+    sanitize_text,
+)
 from tests.helpers import OFFLINE, ONLINE, OfflineTestCase
 
 
@@ -174,19 +182,6 @@ class ProtocolTests(OfflineTestCase):
         with self.assertRaises(OperationFailed):
             api.cmd_logout(False, 0, "", "")
 
-    def test_captcha_in_daemon_requires_interaction(self):
-        sess = self.session()
-        sess.get.return_value = SimpleNamespace(content=b"login", url="https://cer.ysu.edu.cn/login")
-        self.mock("ysu_net.auth.api._get_cas_login_url_via_clientredirect", return_value="https://cer.ysu.edu.cn/login")
-        self.mock("ysu_net.auth.api._extract_pwd_salt", return_value="0123456789abcdef")
-        self.mock("ysu_net.auth.api._check_need_captcha", return_value=True)
-        self.mock("sys.stdin", new=io.StringIO())
-        image = self.mock("ysu_net.auth.api._probe_captcha_image")
-        with self.assertRaises(InteractionRequired):
-            api.cas_login(sess, "user", "password", False)
-        image.assert_not_called()
-        sess.post.assert_not_called()
-
     def test_password_spaces_are_preserved(self):
         self.mock("os.environ", new={"YSU_PASS": " pass "})
         self.assertEqual(api.build_parser().parse_args(["login"]).password, " pass ")
@@ -259,17 +254,6 @@ class ProtocolTests(OfflineTestCase):
             api.cas_login(sess, "mock-user", "wrong-password", False)
         self.assertEqual(sess.post.call_count, 1)
 
-    def test_cas_captcha_error_detection_ignores_static_form_and_password_errors(self):
-        self.assertFalse(api._cas_rejected_by_captcha(
-            '<form><input name="captcha" placeholder="验证码"></form><span id="msg">您提供的用户名或者密码有误</span>'
-        ))
-        self.assertFalse(api._cas_rejected_by_captcha(
-            '<span id="msg">用户名或密码错误，下次需要验证码</span>'
-        ))
-        self.assertTrue(api._cas_rejected_by_captcha(
-            '<span id="msg">无效的验证码</span>'
-        ))
-
     def test_cas_sso_tgc_redirect_skips_password_post(self):
         sess = self.session()
         login_url = "https://cer.ysu.edu.cn/authserver/login?service=mock"
@@ -285,6 +269,37 @@ class ProtocolTests(OfflineTestCase):
         sess.post.return_value.status_code = 503
         with self.assertRaises(QueryError):
             api.cas_login(sess, "mock-user", "password", False)
+
+    def test_portal_entry_challenge_is_a_structured_status_exit(self):
+        sess = self.session()
+        sess.get.side_effect = [SimpleNamespace(
+            status_code=200, headers={}, history=[], url=api.URLS.entry_index,
+            text='<div id="captchaDiv"></div>',
+        )]
+        self.mock("sys.argv", new=["ysu_net.auth.api.py", "status"])
+        with self.assertRaises(SystemExit) as exc:
+            runpy.run_path(str(api.__file__), run_name="__main__")
+        self.assertEqual(exc.exception.code, 4)
+        self.assertEqual(sess.get.call_count, 1)
+        sess.post.assert_not_called()
+
+    def test_sso_seed_challenge_stops_before_clientredirect(self):
+        sess = self.context()
+        sess.get.side_effect = [self.response(OFFLINE), SimpleNamespace(
+            status_code=200, url=api.URLS.base + "/cas-sso/login", text='<input name="captcha">',
+        )]
+        sess.post.side_effect = [self.response({"data": {"currentNodePath": "authenticate"}})]
+        with self.assertRaises(InteractionRequired):
+            api.cmd_login("校园网", "fixture-user", "fixture-password", False, 5)
+        self.assertEqual([call.args[0] for call in sess.post.call_args_list], [api.URLS.api_get_node])
+        self.assertEqual(sess.get.call_count, 2)
+
+    def test_clientredirect_challenge_stops_before_login(self):
+        sess = self.session()
+        sess.get.side_effect = [SimpleNamespace(status_code=429, text="", headers={})]
+        with self.assertRaises(InteractionRequired):
+            api.cas_login(sess, "fixture-user", "fixture-password", False)
+        sess.post.assert_not_called()
 
     def test_script_maps_operation_failure_to_exit_three(self):
         self.mock("ysu_net.auth.common.online_state", side_effect=OperationFailed("mock operation failure"))
@@ -378,12 +393,9 @@ class ProtocolTests(OfflineTestCase):
         with self.assertRaises(InteractionRequired):
             api.cas_login(sess, "mock-user", "plain-password", False)
 
-    def test_cas_nested_error_msg_and_captcha_retry_filters(self):
+    def test_cas_nested_error_msg(self):
         nested = '<span id="msg"><span>无效的验证码</span></span>'
         self.assertEqual(api._extract_cas_error_msg(nested), "无效的验证码")
-        self.assertTrue(api._cas_rejected_by_captcha(nested))
-        self.assertFalse(api._cas_rejected_by_captcha('<span id="msg">访问频繁，请稍后重试验证码</span>'))
-        self.assertFalse(api._cas_rejected_by_captcha('<h1>安全验证</h1><span id="msg">无效的验证码</span>'))
 
 
 class BrowserTests(OfflineTestCase):
@@ -505,3 +517,45 @@ class BrowserTests(OfflineTestCase):
         self.mock("ysu_net.auth.browser.api_post_json", return_value=(200, {}))
         self.browser.cmd_logout(False, 5, False)
         self.assertIn("已下线", self.output.getvalue())
+
+
+class HardeningProtocolTests(OfflineTestCase):
+    def test_portal_session_bypasses_environment_proxies(self):
+        with patch.dict("os.environ", {"HTTPS_PROXY": "http://127.0.0.1:7890", "HTTP_PROXY": "http://127.0.0.1:7890"}):
+            sess = api._new_portal_session()
+            try:
+                self.assertFalse(sess.trust_env)
+            finally:
+                sess.close()
+
+    def test_check_action_recognizes_bras_mac_collision_and_fullwidth_fields(self):
+        for payload in (
+            {"code": 400, "errorMsg": "brac error: create session failed(mac collision)!"},
+            {"result": "fail", "reason": "ＩＰ被冻结，请稍后再试"},
+            {"result": "fail", "data": {"description": "认证过于频繁，请稍后再试"}},
+            {"result": "fail", "errorCode": "TooManyLoginAttempts"},
+            {"result": "fail", "message": "终端MAC地址已被列入黑名单"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(InteractionRequired):
+                check_action(200, payload, "serviceLogin")
+
+    def test_check_action_http_429_is_interaction_required(self):
+        with self.assertRaises(InteractionRequired):
+            check_action(429, {"message": "too many requests"}, "serviceLogin")
+
+    def test_check_action_distinguishes_device_limit_subclass(self):
+        for payload in (
+            {"result": "fail", "message": "认证设备数量已达到上限"},
+            {"result": "fail", "errorMsg": "登录设备达到最大数量"},
+            {"result": "fail", "authMessage": "同时在线用户数量上限"},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(DeviceLimitError) as ctx:
+                check_action(200, payload, "serviceLogin")
+            self.assertEqual(ctx.exception.exit_code, 4)
+
+    def test_sanitize_text_strips_ansi_and_control_sequences(self):
+        dirty = "错误\x1b[31m提示\x1b[0m\x1b]0;evil-title\x07\r\n下一行\x00\x9b2J"
+        clean = sanitize_text(dirty)
+        self.assertEqual(clean, "错误提示 下一行")
+        html = '<span id="msg">密码错误\x1b[31m请重试\x1b[0m\x07</span>'
+        self.assertEqual(api._extract_cas_error_msg(html), "密码错误请重试")

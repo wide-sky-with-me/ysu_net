@@ -200,6 +200,49 @@ async fn account_switch_preserves_typed_portal_failure_after_successful_recovery
 }
 
 #[tokio::test]
+async fn target_challenge_never_relogs_source_or_commits_backup() {
+    for (stage, reason, expected) in [
+        (
+            DiagnosticStage::ServiceSelect,
+            DiagnosticReason::DeviceLimit,
+            "下线",
+        ),
+        (
+            DiagnosticStage::Captcha,
+            DiagnosticReason::InteractionRequired,
+            "验证码",
+        ),
+    ] {
+        let (runtime, mut worker, id) = fixture();
+        online(&runtime);
+        let backend = demo(&runtime);
+        {
+            let mut state = backend.lock().unwrap();
+            state.login_failures.insert("fixture-b".into(), 4);
+            state.login_diagnostics.insert(
+                "fixture-b".into(),
+                AuthDiagnostic {
+                    operation: DiagnosticOperation::Login,
+                    stage,
+                    reason,
+                    navigation: None,
+                },
+            );
+        }
+        let error = worker.execute(Action::SwitchAccount(id)).await.unwrap_err();
+        assert!(error.contains(expected) && error.contains("手动连接"));
+        let config = runtime.store.load_config(false).unwrap();
+        let saved = runtime.store.load_protection();
+        assert_eq!(config.username, "20260001");
+        assert_eq!(saved.identity, credential_identity_hash(&config));
+        assert!(saved.blocked && saved.code4);
+        let state = backend.lock().unwrap();
+        assert!(!state.online);
+        assert_eq!((state.logins, state.logouts), (1, 1));
+    }
+}
+
+#[tokio::test]
 async fn failed_target_restores_original_actual_service_and_keeps_config() {
     let (runtime, mut worker, id) = fixture();
     online(&runtime);

@@ -8,12 +8,13 @@ from pathlib import Path
 import time
 from types import SimpleNamespace
 
-from ysu_net.auth.common import QueryError, online_service, online_state
+from ysu_net.auth.common import InteractionRequired, QueryError, online_service, online_state
 from .accounts import (CREDENTIAL_FIELDS, candidate_signature, commit_switch,
                        environment_override, load_accounts, prepare_switch,
                        source_signature, unchanged_switch)
 from .backend import run_backend
-from .config import load_config, load_nosense
+from .config import clear_protection, load_config, load_nosense, unattended_paused
+from .switching import check_interaction
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,9 @@ class _Failure(Exception):
 
 
 class _Budget:
-    def __init__(self, config, runner, clock, stop_event=None, timeout=None):
+    def __init__(self, path, config, runner, clock, stop_event=None, timeout=None, *, unattended=False):
+        self.path = path
+        self.unattended = unattended
         self.runner = runner
         self.clock = clock
         self.stop_event = stop_event
@@ -40,6 +43,8 @@ class _Budget:
                                      config.operation_timeout if timeout is None else max(0, timeout))
 
     def check(self):
+        if self.unattended and unattended_paused(self.path):
+            raise _Failure(4, "自动操作已暂停，等待人工处理")
         if self.stop_event is not None and self.stop_event.is_set():
             raise _Failure(130, "操作已取消，连接状态未确认")
         remaining = self.deadline - self.clock()
@@ -50,7 +55,7 @@ class _Budget:
     def run(self, config, action, **kwargs):
         remaining = self.check()
         bounded = replace(config, operation_timeout=remaining)
-        result = self.runner(bounded, action, **kwargs)
+        result = check_interaction(self.path, self.runner(bounded, action, **kwargs))
         self.check()
         if result.code == 130:
             raise _Failure(130, "操作已取消，连接状态未确认")
@@ -110,6 +115,7 @@ def _unchanged(path, source, target, budget):
 
 def _restore(path, source, target, previous, budget):
     """One attempt, never act on unknown/external identities or newer intent."""
+    budget.unattended = True  # A rollback is never an independent manual request.
     original = replace(source, service=previous)
     try:
         _unchanged(path, source, target, budget)
@@ -152,7 +158,7 @@ def _target_nosense_bind(nosense, desired):
 
 
 def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=None,
-                   timeout=None, environ=None, expected_source=None):
+                   timeout=None, environ=None, expected_source=None, unattended=False):
     """Caller owns the lifecycle lock; network work never holds the write lock."""
     if environment_override(environ):
         return AccountSwitchResult(2, "环境变量覆盖存在，账号切换已停用")
@@ -162,7 +168,7 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
             config, action, stop_event=stop_event, **kwargs)
     try:
         initial = load_config(path, environ={})
-        budget = _Budget(initial, runner, clock, stop_event, timeout)
+        budget = _Budget(path, initial, runner, clock, stop_event, timeout, unattended=unattended)
         source, target = prepare_switch(path, id, timeout=budget.check(), stop_event=stop_event,
                                         expected_source=expected_source)
         budget.check()
@@ -174,20 +180,22 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
         nosense = load_nosense(path)
     except (OSError, ValueError):
         nosense = {"auto_renew": False, "target_mac": "", "service": "", "accounts": {}}
-    previous, changed = None, False
+    previous, changed, committed = None, False, False
     desired = replace(source, **{key: target[key] for key in CREDENTIAL_FIELDS})
     try:
         previous = _expected(source, budget)
         _unchanged(path, source, target, budget)
         if source.username == desired.username and previous == desired.service:
             commit_switch(path, source, target, timeout=budget.check(), stop_event=stop_event)
+            committed = True
+            clear_protection(path)
             budget.check()
             return AccountSwitchResult(0, "已独立确认当前账号及服务，无需切换", previous,
                                        committed=True)
         if previous is not None:
             if source.username != desired.username:
                 unbind_target = _source_nosense_unbind_target(nosense, source.username)
-                if unbind_target:
+                if unbind_target and not unattended_paused(path):
                     budget.run(source, "self", raw=True, args=SimpleNamespace(
                         action="unbind", target=unbind_target, service=None, yes=True, fresh=False))
             changed = True
@@ -200,27 +208,37 @@ def switch_account(path, id, *, runner=None, clock=time.monotonic, stop_event=No
             raise _Failure(3, "目标账号或服务核验不一致")
         _unchanged(path, source, target, budget)
         commit_switch(path, source, target, timeout=budget.check(), stop_event=stop_event)
+        committed = True
+        clear_protection(path)
         budget.check()
         if source.username != desired.username:
             bind_spec = _target_nosense_bind(nosense, desired)
-            if bind_spec:
+            if bind_spec and not unattended_paused(path):
                 mac_target, svc = bind_spec
-                runner(desired, "self", raw=True, args=SimpleNamespace(
+                budget.run(desired, "self", raw=True, args=SimpleNamespace(
                     action="nosense", target=mac_target, service=svc, yes=True, fresh=False))
         return AccountSwitchResult(0, "已独立核验目标账号和服务并保存活动配置", previous,
                                    committed=True)
-    except (_Failure, OSError, ValueError) as exc:
-        restored = changed and _restore(path, source, target, previous, budget)
-        code = exc.code if isinstance(exc, _Failure) else 2
-        message = str(exc) if isinstance(exc, _Failure) else "本地配置提交失败，切换未确认"
-        if changed:
+    except InteractionRequired as stop:
+        message = f"活动账号已保存；{stop}" if committed else str(stop)
+        return AccountSwitchResult(4, message, previous, committed=committed)
+    except (_Failure, OSError, ValueError, KeyboardInterrupt) as exc:
+        if isinstance(exc, KeyboardInterrupt):
+            code, message = 130, "操作已取消，切换未确认"
+        elif isinstance(exc, _Failure):
+            code, message = exc.code, str(exc)
+        else:
+            code, message = 2, "本地操作失败"
+        if committed:
+            return AccountSwitchResult(code, f"活动账号已保存；{message}", previous, committed=True)
+        restored = False
+        if changed and code != 4:
+            try:
+                restored = _restore(path, source, target, previous, budget)
+            except InteractionRequired as stop:
+                return AccountSwitchResult(4, str(stop), previous)
             message += "；已独立确认恢复原连接" if restored else "；原连接恢复未确认"
         return AccountSwitchResult(code, message, previous, restored)
-    except KeyboardInterrupt:
-        # Cancellation consumes the same budget; it never yields a success ack.
-        if changed and (stop_event is None or not stop_event.is_set()):
-            _restore(path, source, target, previous, budget)
-        return AccountSwitchResult(130, "操作已取消，切换未确认", previous)
 
 
 def _cooldown_key(entry):
@@ -299,7 +317,7 @@ class AccountRotation:
         try:
             config = load_config(self.path, environ={})
             book = load_accounts(self.path, config=config)
-            if not book["auto_switch"] or environment_override():
+            if not book["auto_switch"] or environment_override() or unattended_paused(self.path):
                 self.reset()
                 return ""
             if now < self.next_check:
@@ -309,7 +327,7 @@ class AccountRotation:
                      if entry["enabled"] and entry["username"] and entry["password"]]
             if len(valid) < 2:
                 return self._unknown("有效启用账号不足，等待配置修复")
-            budget = _Budget(config, self.runner, self.clock, self.stop_event)
+            budget = _Budget(self.path, config, self.runner, self.clock, self.stop_event, unattended=True)
             before = _expected(config, budget)
             if before != config.service:
                 return self._unknown("当前账号或服务尚未绑定，暂停流量轮换")
@@ -370,7 +388,11 @@ class AccountRotation:
             self.zero_key = self.zero_time = None
             outcome = self.switcher(self.path, target["id"], runner=self.runner,
                                     clock=self.clock, stop_event=self.stop_event, timeout=remaining,
-                                    expected_source=config)
+                                    expected_source=config, unattended=True)
+            if outcome.code == 4:
+                if not unattended_paused(self.path):
+                    check_interaction(self.path, outcome)
+                return self._unknown(outcome.message)
             if outcome.code != 0:
                 self.cooldowns[_cooldown_key(target)] = self.clock() + self.COOLDOWN
             else:
@@ -379,6 +401,8 @@ class AccountRotation:
                 self.quota_key = None
             self.next_check = self.clock() + self.MIN_INTERVAL
             return outcome.message
+        except InteractionRequired as stop:
+            return self._unknown(str(stop))
         except (_Failure, OSError, ValueError, StopIteration):
             return self._unknown("流量检查未确认，等待后续检查")
 

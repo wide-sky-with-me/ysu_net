@@ -2,12 +2,13 @@
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tempfile::{NamedTempFile, TempDir};
 use ysu_auth::Config;
@@ -104,6 +105,123 @@ pub fn valid_nosense_service(value: &str) -> bool {
         value.trim(),
         "" | "套餐默认服务" | "校园网" | "中国移动" | "中国联通" | "中国电信"
     )
+}
+
+pub fn valid_hhmm(value: &str) -> bool {
+    let bytes = value.trim().as_bytes();
+    bytes.len() == 5
+        && bytes[2] == b':'
+        && bytes[0].is_ascii_digit()
+        && bytes[1].is_ascii_digit()
+        && bytes[3].is_ascii_digit()
+        && bytes[4].is_ascii_digit()
+        && ((bytes[0] - b'0') * 10 + (bytes[1] - b'0')) < 24
+        && ((bytes[3] - b'0') * 10 + (bytes[4] - b'0')) < 60
+}
+
+fn parse_hhmm_seconds(value: &str) -> Option<u32> {
+    if !valid_hhmm(value) {
+        return None;
+    }
+    let bytes = value.trim().as_bytes();
+    let h = u32::from((bytes[0] - b'0') * 10 + (bytes[1] - b'0'));
+    let m = u32::from((bytes[3] - b'0') * 10 + (bytes[4] - b'0'));
+    Some(h * 3600 + m * 60)
+}
+
+fn default_night_start() -> String {
+    "23:30".into()
+}
+
+fn default_night_end() -> String {
+    "06:00".into()
+}
+
+pub fn default_night_weekdays() -> Vec<u8> {
+    vec![0, 1, 2, 3, 6]
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduleConfig {
+    pub version: i32,
+    pub night_pause: bool,
+    #[serde(default = "default_night_start")]
+    pub start: String,
+    #[serde(default = "default_night_end")]
+    pub end: String,
+    #[serde(default = "default_night_weekdays")]
+    pub weekdays: Vec<u8>,
+}
+
+impl Default for ScheduleConfig {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            night_pause: false,
+            start: default_night_start(),
+            end: default_night_end(),
+            weekdays: default_night_weekdays(),
+        }
+    }
+}
+
+impl ScheduleConfig {
+    /// Remaining seconds until resume when night pause is active at `(weekday_mon0, h, m, s)`.
+    pub fn remaining_at(
+        &self,
+        weekday_mon0: u8,
+        hour: u32,
+        minute: u32,
+        second: u32,
+    ) -> Option<u64> {
+        if !self.night_pause {
+            return None;
+        }
+        let start = parse_hhmm_seconds(&self.start)?;
+        let end = parse_hhmm_seconds(&self.end)?;
+        if start == end || self.weekdays.is_empty() {
+            return None;
+        }
+        let secs = hour * 3600 + minute * 60 + second;
+        if start > end {
+            if secs >= start {
+                self.weekdays
+                    .contains(&weekday_mon0)
+                    .then(|| u64::from((86_400 - secs) + end))
+            } else if secs < end {
+                let prev = (weekday_mon0 + 6) % 7;
+                self.weekdays.contains(&prev).then(|| u64::from(end - secs))
+            } else {
+                None
+            }
+        } else if self.weekdays.contains(&weekday_mon0) && secs >= start && secs < end {
+            Some(u64::from(end - secs))
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtectionState {
+    pub version: i32,
+    pub identity: String,
+    pub login_failures: u32,
+    pub blocked: bool,
+    #[serde(default)]
+    pub code4: bool,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(skip)]
+    pub corrupted: bool,
+}
+
+pub fn credential_identity_hash(config: &Config) -> String {
+    let raw = format!(
+        "{}\0{}\0{}\0{}",
+        config.username, config.password, config.service, config.backend
+    );
+    format!("{:x}", Sha256::digest(raw.as_bytes()))
 }
 
 impl Default for Prefs {
@@ -592,6 +710,223 @@ impl Store {
         write_json(&self.nosense_path(), &next)?;
         Ok(next)
     }
+
+    fn schedule_path(&self) -> PathBuf {
+        self.path.with_extension("schedule.json")
+    }
+
+    pub fn load_schedule(&self) -> ScheduleConfig {
+        let mut sched = ScheduleConfig::default();
+        if let Ok(Some(Value::Object(data))) = read_json(&self.schedule_path()) {
+            if let Some(value) = data.get("night_pause").and_then(Value::as_bool) {
+                sched.night_pause = value;
+            }
+            let raw_start = data
+                .get("start")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| valid_hhmm(v));
+            let raw_end = data
+                .get("end")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| valid_hhmm(v));
+            if let (Some(s), Some(e)) = (raw_start, raw_end) {
+                if s != e {
+                    sched.start = s.into();
+                    sched.end = e.into();
+                }
+            }
+            if let Some(days) = data.get("weekdays").and_then(Value::as_array) {
+                if !days.is_empty() && days.len() <= 7 {
+                    let parsed: Option<Vec<u8>> = days
+                        .iter()
+                        .map(|v| v.as_u64().filter(|d| *d <= 6).map(|d| d as u8))
+                        .collect();
+                    if let Some(mut list) = parsed {
+                        list.sort_unstable();
+                        list.dedup();
+                        sched.weekdays = list;
+                    }
+                }
+            }
+        }
+        sched
+    }
+
+    pub fn update_schedule(&self, changes: Map<String, Value>) -> Result<ScheduleConfig, String> {
+        if changes.is_empty()
+            || !changes
+                .keys()
+                .all(|k| ["night_pause", "start", "end", "weekdays"].contains(&k.as_str()))
+        {
+            return Err("停网时段参数无效".into());
+        }
+        let mut next = self.load_schedule();
+        if let Some(value) = changes.get("night_pause") {
+            next.night_pause = value.as_bool().ok_or("night_pause 须为布尔值")?;
+        }
+        if let Some(value) = changes.get("start") {
+            let s = value.as_str().ok_or("起止时间格式无效")?.trim();
+            if !valid_hhmm(s) {
+                return Err("起止时间格式无效".into());
+            }
+            next.start = s.into();
+        }
+        if let Some(value) = changes.get("end") {
+            let e = value.as_str().ok_or("起止时间格式无效")?.trim();
+            if !valid_hhmm(e) {
+                return Err("起止时间格式无效".into());
+            }
+            next.end = e.into();
+        }
+        if next.start == next.end {
+            return Err("暂停开始与恢复时间不能相同".into());
+        }
+        if let Some(value) = changes.get("weekdays") {
+            let arr = value.as_array().ok_or("星期范围参数无效")?;
+            if arr.is_empty() || arr.len() > 7 {
+                return Err("星期范围参数无效".into());
+            }
+            let mut list = Vec::with_capacity(arr.len());
+            for item in arr {
+                let d = item
+                    .as_u64()
+                    .filter(|d| *d <= 6)
+                    .ok_or("星期范围参数无效")?;
+                list.push(d as u8);
+            }
+            list.sort_unstable();
+            list.dedup();
+            next.weekdays = list;
+        }
+        let lock_path = self.path.with_file_name(format!(
+            "{}.write.lock",
+            self.path.file_name().ok_or(CONFIG_ERROR)?.to_string_lossy()
+        ));
+        let _lock = lock_file(&lock_path, true)?;
+        write_json(&self.schedule_path(), &next)?;
+        Ok(next)
+    }
+
+    fn protection_path(&self) -> PathBuf {
+        self.path.with_extension("protection.json")
+    }
+
+    pub fn load_protection(&self) -> ProtectionState {
+        let path = self.protection_path();
+        if path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            return ProtectionState {
+                version: 1,
+                login_failures: 3,
+                blocked: true,
+                code4: true,
+                corrupted: true,
+                ..ProtectionState::default()
+            };
+        }
+        let parsed = match read_json(&path) {
+            Ok(None) => {
+                return ProtectionState {
+                    version: 1,
+                    ..ProtectionState::default()
+                };
+            }
+            Ok(Some(Value::Object(obj))) => obj,
+            _ => {
+                return ProtectionState {
+                    version: 1,
+                    login_failures: 3,
+                    blocked: true,
+                    code4: true,
+                    corrupted: true,
+                    ..ProtectionState::default()
+                };
+            }
+        };
+        let keys_ok = parsed.keys().all(|k| {
+            [
+                "version",
+                "identity",
+                "login_failures",
+                "blocked",
+                "code4",
+                "updated_at",
+            ]
+            .contains(&k.as_str())
+        });
+        let version_ok = parsed.get("version").and_then(Value::as_i64) == Some(1);
+        let identity = parsed.get("identity").and_then(Value::as_str).filter(|s| {
+            s.is_empty()
+                || (s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        });
+        let failures = parsed
+            .get("login_failures")
+            .and_then(Value::as_u64)
+            .filter(|n| *n <= 20);
+        let blocked = parsed.get("blocked").and_then(Value::as_bool);
+        let code4_ok = parsed.get("code4").is_none_or(|v| v.as_bool().is_some());
+        if !keys_ok
+            || !version_ok
+            || identity.is_none()
+            || failures.is_none()
+            || blocked.is_none()
+            || !code4_ok
+        {
+            return ProtectionState {
+                version: 1,
+                login_failures: 3,
+                blocked: true,
+                code4: true,
+                corrupted: true,
+                ..ProtectionState::default()
+            };
+        }
+        ProtectionState {
+            version: 1,
+            identity: identity.unwrap().to_owned(),
+            login_failures: failures.unwrap() as u32,
+            blocked: blocked.unwrap(),
+            code4: parsed
+                .get("code4")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            updated_at: parsed
+                .get("updated_at")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            corrupted: false,
+        }
+    }
+
+    pub fn save_protection(
+        &self,
+        identity: &str,
+        login_failures: u32,
+        blocked: bool,
+        code4: bool,
+    ) -> Result<(), String> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let state = ProtectionState {
+            version: 1,
+            identity: identity.to_owned(),
+            login_failures: login_failures.min(20),
+            blocked,
+            code4,
+            updated_at: now,
+            corrupted: false,
+        };
+        write_json(&self.protection_path(), &state)
+    }
+
+    pub fn clear_protection(&self) {
+        let _ = fs::remove_file(self.protection_path());
+    }
 }
 
 #[cfg(test)]
@@ -1023,5 +1358,52 @@ mod tests {
         assert!(!reloaded.auto_check_update);
         assert!(reloaded.auto_install_update);
         assert_eq!(reloaded.ignored_update_version, "0.3.5");
+    }
+
+    #[test]
+    fn schedule_and_protection_roundtrip_and_fail_closed() {
+        let store = Store::open(None, true).unwrap();
+        let mut sched = store.load_schedule();
+        assert!(!sched.night_pause);
+        sched.night_pause = true;
+        // Wed (2) 23:35 -> 6*3600 + 25*60 = 23100s
+        assert_eq!(sched.remaining_at(2, 23, 35, 0), Some(23_100));
+        // Fri (4) 02:15 (origin Thu=3) -> 3*3600 + 45*60 = 13500s
+        assert_eq!(sched.remaining_at(4, 2, 15, 0), Some(13_500));
+        // Fri (4) 23:50 -> None; Sat (5) 02:00 -> None
+        assert_eq!(sched.remaining_at(4, 23, 50, 0), None);
+        assert_eq!(sched.remaining_at(5, 2, 0, 0), None);
+        // Sun (6) 23:30 -> 6.5h = 23400s; Mon (0) 05:59 -> 60s; Mon (0) 06:00 -> None
+        assert_eq!(sched.remaining_at(6, 23, 30, 0), Some(23_400));
+        assert_eq!(sched.remaining_at(0, 5, 59, 0), Some(60));
+        assert_eq!(sched.remaining_at(0, 6, 0, 0), None);
+
+        assert!(store
+            .update_schedule(changes(json!({"start": "23:30", "end": "23:30"})))
+            .is_err());
+        let saved = store
+            .update_schedule(changes(
+                json!({"night_pause": true, "start": "23:00", "end": "06:30"}),
+            ))
+            .unwrap();
+        assert!(saved.night_pause);
+        assert_eq!(saved.start, "23:00");
+        assert_eq!(saved.end, "06:30");
+
+        let cfg = store.load_config(false).unwrap();
+        let hash = credential_identity_hash(&cfg);
+        store.save_protection(&hash, 2, false, false).unwrap();
+        let raw = fs::read_to_string(store.protection_path()).unwrap();
+        assert!(!raw.contains(&cfg.username));
+        assert!(!raw.contains(&cfg.password));
+        let loaded = store.load_protection();
+        assert_eq!(loaded.login_failures, 2);
+        assert!(!loaded.blocked);
+        assert!(!loaded.corrupted);
+
+        fs::write(store.protection_path(), "{corrupted").unwrap();
+        assert!(store.load_protection().corrupted);
+        store.clear_protection();
+        assert!(!store.load_protection().corrupted);
     }
 }

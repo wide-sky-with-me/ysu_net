@@ -9,7 +9,8 @@ from ysu_net.auth.common import QueryError
 from ysu_net.manager import accounts
 from ysu_net.manager.account_switching import AccountSwitchResult, _bound_online, switch_account
 from ysu_net.manager.backend import Result
-from ysu_net.manager.config import Config, load_config, save_config, update_config
+from ysu_net.manager.config import (Config, load_config, pause_unattended, save_config,
+                                    save_nosense, unattended_paused, update_config)
 
 
 def status(owner=None, service="校园网"):
@@ -72,9 +73,9 @@ class AccountSwitchTests(OfflineTestCase):
             result.output = json.dumps(payload)
             return result
 
-        outcome = self.run_switch([null_raw("fixture-a"), Result(0), status(), Result(4),
+        outcome = self.run_switch([null_raw("fixture-a"), Result(0), status(), Result(3),
                                    status(), Result(0), null_raw("fixture-a")])
-        self.assertEqual(outcome.code, 4)
+        self.assertEqual(outcome.code, 3)
         self.assertTrue(outcome.restored)
         self.assertFalse(outcome.committed)
         self.assertEqual(load_config(self.path, environ={}).username, "fixture-a")
@@ -137,27 +138,33 @@ class AccountSwitchTests(OfflineTestCase):
         self.assertTrue(outcome.restored)
         self.assertNotIn("login", self.actions())
 
-    def test_session_limit_one_recovery_with_independent_confirmation(self):
+    def test_session_limit_does_not_restore_another_account(self):
         outcome = self.run_switch([status("fixture-a", "中国联通"), Result(0), status(),
-                                   Result(4, reason="session_limit"), status(), Result(0),
-                                   status("fixture-a", "中国联通")])
+                                   Result(4, reason="session_limit")])
         self.assertEqual(outcome.code, 4)
-        self.assertTrue(outcome.restored)
+        self.assertFalse(outcome.restored)
         self.assertIn("同时在线数量", outcome.message)
-        self.assertEqual([call.args[0].username for call in self.runner.call_args_list
-                          if call.args[1] == "login"], ["fixture-b", "fixture-a"])
-        self.assertEqual(self.runner.call_args_list[-2].args[0].service, "中国联通")
+        self.assertEqual(self.actions(), ["status", "logout", "status", "login"])
+        self.assertTrue(unattended_paused(self.path))
 
-    def test_failed_recovery_is_not_repeated(self):
-        outcome = self.run_switch([status("fixture-a"), Result(0), status(), Result(4),
+    def test_preflight_interaction_is_not_reclassified_as_query_failure(self):
+        outcome = self.run_switch([Result(4)])
+        self.assertEqual(outcome.code, 4)
+        self.assertEqual(self.actions(), ["status"])
+        self.assertFalse(outcome.committed)
+
+    def test_interaction_during_rollback_overrides_original_failure(self):
+        outcome = self.run_switch([status("fixture-a"), Result(0), status(), Result(3),
                                    status(), Result(4)])
+        self.assertEqual(outcome.code, 4)
+        self.assertTrue(unattended_paused(self.path))
         self.assertFalse(outcome.restored)
         self.assertEqual(self.actions().count("login"), 2)
         self.assertEqual(len(self.actions()), 6)
 
     def test_recovery_stops_on_unknown_or_external_account(self):
         for observed in (Result(2), status("external")):
-            outcome = self.run_switch([status("fixture-a"), Result(0), status(), Result(4), observed])
+            outcome = self.run_switch([status("fixture-a"), Result(0), status(), Result(3), observed])
             self.assertFalse(outcome.restored)
             self.assertEqual(self.actions(), ["status", "logout", "status", "login", "status"])
 
@@ -234,7 +241,7 @@ class AccountSwitchTests(OfflineTestCase):
         self.assertEqual((stored.check_interval, stored.retry_interval), (60, 45))
 
     def test_shared_budget_shrinks_and_timeout_never_commits_or_overruns_recovery(self):
-        responses = [status("fixture-a"), Result(0), status(), Result(4)]
+        responses = [status("fixture-a"), Result(0), status(), Result(3)]
         observed = []
         def runner(config, action, **kwargs):
             observed.append(config.operation_timeout)
@@ -246,6 +253,54 @@ class AccountSwitchTests(OfflineTestCase):
         self.assertEqual(outcome.code, 2)
         self.assertFalse(outcome.restored)
         self.assertEqual(load_config(self.path, environ={}).username, "fixture-a")
+
+    def test_interaction_wins_over_cancellation_and_expired_budget(self):
+        stop = threading.Event()
+        def challenge(config, action, **kwargs):
+            stop.set()
+            self.clock.now += 90
+            return Result(4)
+        outcome = self.run_switch(challenge, stop_event=stop)
+        self.assertEqual(outcome.code, 4)
+        self.assertEqual(self.actions(), ["status"])
+        self.assertTrue(unattended_paused(self.path))
+
+    def test_interaction_during_self_unbind_does_not_logout(self):
+        save_nosense(self.path, auto_renew=True)
+        outcome = self.run_switch([status("fixture-a"), Result(4)])
+        self.assertEqual(outcome.code, 4)
+        self.assertEqual(self.actions(), ["status", "self"])
+        self.assertEqual(self.runner.call_args.kwargs["args"].action, "unbind")
+        self.assertFalse(outcome.committed)
+        self.assertTrue(unattended_paused(self.path))
+
+    def test_interaction_during_post_commit_binding_keeps_verified_target(self):
+        save_nosense(self.path, auto_renew=True)
+        outcome = self.run_switch([status("fixture-a"), Result(0), Result(0), status(),
+                                   Result(0), status("fixture-b", "中国移动"), Result(4)])
+        self.assertEqual(outcome.code, 4)
+        self.assertTrue(outcome.committed)
+        self.assertFalse(outcome.restored)
+        self.assertEqual(self.actions(), ["status", "self", "logout", "status", "login", "status", "self"])
+        self.assertEqual(self.runner.call_args.kwargs["args"].action, "nosense")
+        self.assertEqual(load_config(self.path, environ={}).username, "fixture-b")
+        self.assertTrue(unattended_paused(self.path))
+
+    def test_manual_switch_while_paused_skips_self_and_restore_and_keeps_pause(self):
+        save_nosense(self.path, auto_renew=True)
+        pause_unattended(self.path)
+        outcome = self.run_switch([status("fixture-a"), Result(0), status(), Result(3)])
+        self.assertEqual(outcome.code, 3)
+        self.assertEqual(self.actions(), ["status", "logout", "status", "login"])
+        self.assertFalse(outcome.restored)
+        self.assertTrue(unattended_paused(self.path))
+        outcome = self.run_switch([status("fixture-a"), Result(0), status(), Result(0),
+                                   status("fixture-b", "中国移动")])
+        self.assertEqual(outcome.code, 0)
+        self.assertEqual(self.actions(), ["status", "logout", "status", "login", "status"])
+        self.assertTrue(outcome.committed)
+        self.assertEqual(load_config(self.path, environ={}).username, "fixture-b")
+        self.assertTrue(unattended_paused(self.path))
 
     def test_cancellation_never_returns_success(self):
         stop = threading.Event()

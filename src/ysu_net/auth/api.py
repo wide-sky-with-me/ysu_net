@@ -31,16 +31,16 @@ from ysu_net.auth.account import (
     format_account_info as format_info,
     summarize_account_payload,
 )
-from ysu_net.auth import captcha as captcha_solver
-from ysu_net.auth.captcha import solve as solve_captcha
 from ysu_net.auth.common import (
     InteractionRequired,
     OperationFailed,
     QueryError,
+    captcha_needed,
     check_action,
     managed_resources,
     online_state,
     require_online_service,
+    sanitize_text,
     track_resource,
     flow_node,
 )
@@ -99,10 +99,6 @@ class Urls:
     @property
     def cas_check_need_captcha(self) -> str:
         return f"{self.cas_host}/authserver/checkNeedCaptcha.htl"
-
-    @property
-    def cas_get_captcha(self) -> str:
-        return f"{self.cas_host}/authserver/getCaptcha.htl"
 
     def with_overrides(self, base: str | None, cas_host: str | None) -> "Urls":
         b = (base or self.base).rstrip("/")
@@ -293,32 +289,33 @@ def _extract_login_form(html: str) -> str:
     return max(forms, key=score)
 
 
+def _challenge_input(attrs: dict[str, str]) -> bool:
+    return (attrs.get("name", "").casefold() in {"captcha", "otp", "smscode"}
+            or "one-time-code" in attrs.get("autocomplete", "").casefold().split())
+
+
 def _parse_form_fields(form_html: str) -> dict[str, str]:
-    """
-    解析 form 内所有 input 的 name/value（不限制 type=hidden）
-    """
-    out: dict[str, str] = {}
-    form_html = form_html or ""
+    """Copy CAS form values, never including a prefilled verification answer."""
+    from html.parser import HTMLParser
 
-    for m in re.finditer(r"<input\b[^>]*>", form_html, flags=re.I):
-        tag = m.group(0)
-        name_m = re.search(r'\bname=["\']([^"\']+)["\']', tag, flags=re.I)
-        if not name_m:
-            continue
-        name = name_m.group(1)
+    fields: dict[str, str] = {}
 
-        val_m = re.search(r'\bvalue=["\']([^"\']*)["\']', tag, flags=re.I)
-        if val_m:
-            out[name] = val_m.group(1)
-        else:
-            # 无 value 的 checkbox/radio：只有 checked 才会提交；这里不强行加
-            t_m = re.search(r'\btype=["\']([^"\']+)["\']', tag, flags=re.I)
-            t = t_m.group(1).lower() if t_m else ""
-            if t in ("checkbox", "radio"):
-                continue
-            out[name] = ""
+    class FieldsParser(HTMLParser):
+        def handle_starttag(self, tag, attributes):
+            if tag != "input":
+                return
+            attrs = {k: v or "" for k, v in attributes}
+            name = attrs.get("name")
+            if not name or _challenge_input(attrs):
+                return
+            if "value" not in attrs and attrs.get("type", "").lower() in ("checkbox", "radio"):
+                return
+            fields[name] = attrs.get("value", "")
 
-    return out
+    parser = FieldsParser()
+    parser.feed(form_html or "")
+    parser.close()
+    return fields
 
 
 _HTML_VOID_TAGS = frozenset(
@@ -431,16 +428,36 @@ def _page_says_captcha_visible(html: str) -> bool:
     from html.parser import HTMLParser
 
     class CaptchaParser(HTMLParser):
-        visible = False
+        def __init__(self):
+            super().__init__()
+            self.hidden: list[tuple[str, bool]] = []
+            self.visible = False
+            self.text: list[str] = []
 
         def handle_starttag(self, tag, attributes):
-            attrs = dict(attributes)
-            if attrs.get("id") != "captchaDiv":
-                return
-            classes = (attrs.get("class") or "").lower().split()
-            hidden = any("hide" in value or "hidden" in value for value in classes)
-            hidden = hidden or "display:none" in (attrs.get("style") or "").lower().replace(" ", "")
-            self.visible = self.visible or not (hidden or "hidden" in attrs)
+            attrs = {k: v or "" for k, v in attributes}
+            classes = attrs.get("class", "").lower().split()
+            style = "".join(attrs.get("style", "").lower().split())
+            hidden = (
+                (self.hidden and self.hidden[-1][1]) or tag in _RISK_IGNORED_TAGS
+                or "hidden" in attrs or attrs.get("type", "").lower() == "hidden"
+                or "display:none" in style or "visibility:hidden" in style
+                or any("hide" in cls or "hidden" in cls for cls in classes)
+            )
+            if tag not in _HTML_VOID_TAGS:
+                self.hidden.append((tag, bool(hidden)))
+            if not hidden and (attrs.get("id") == "captchaDiv" or (tag == "input" and _challenge_input(attrs))):
+                self.visible = True
+
+        def handle_endtag(self, tag):
+            for i in range(len(self.hidden) - 1, -1, -1):
+                if self.hidden[i][0] == tag:
+                    del self.hidden[i:]
+                    break
+
+        def handle_data(self, data):
+            if not self.hidden or not self.hidden[-1][1]:
+                self.text.append(data)
 
     # CAS reuses captchaDiv in other login methods. Keep the selected password
     # form and standalone challenges; attribute order must not affect visibility.
@@ -450,13 +467,16 @@ def _page_says_captcha_visible(html: str) -> bool:
     outside = re.sub(r"<form\b.*?</form>", "", html, flags=re.I | re.S)
     parser = CaptchaParser()
     parser.feed(form if form == html else form + outside)
-    return parser.visible
+    parser.close()
+    text = "".join(parser.text).casefold()
+    return parser.visible or any(term in text for term in (
+        "请输入验证码", "需要验证码", "无效的验证码", "验证码错误", "验证码不正确", "invalid captcha",
+    ))
 
 
 def _check_need_captcha(
     sess: requests.Session, username: str, debug: bool, referer: str | None = None
-) -> bool | None:
-    url = f"{URLS.cas_check_need_captcha}?username={username}&_={now_ms()}"
+) -> bool:
     headers = {
         "Accept": "application/json, text/plain, */*",
         "X-Requested-With": "XMLHttpRequest",
@@ -464,58 +484,18 @@ def _check_need_captcha(
     if referer:
         headers["Referer"] = referer
 
-    r = sess.get(url, timeout=REQ_TIMEOUT, allow_redirects=True, headers=headers)
-
+    r = sess.get(URLS.cas_check_need_captcha, params={"username": username, "_": now_ms()},
+                 timeout=REQ_TIMEOUT, allow_redirects=False, headers=headers)
+    _stop_on_cas_interaction(r)
     try:
         data = r.json()
-    except Exception:
-        dprint(
-            debug, f"[CAS] checkNeedCaptcha non-json: {r.status_code} {r.text[:200]}"
-        )
-        return None
-
-    def to_bool(x) -> bool | None:
-        if isinstance(x, bool):
-            return x
-        if isinstance(x, str):
-            s = x.strip().lower()
-            if s in ("true", "1", "yes"):
-                return True
-            if s in ("false", "0", "no"):
-                return False
-        return None
-
-    # 直接是 bool / "true"/"false"
-    b = to_bool(data)
-    if b is not None:
-        return b
-
-    if isinstance(data, dict):
-        for k in ("isNeed", "needCaptcha", "isNeedCaptcha", "data", "result"):
-            if k in data:
-                b = to_bool(data.get(k))
-                if b is not None:
-                    return b
-
-    return None
-
-
-def _probe_captcha_image(sess: requests.Session, debug: bool) -> tuple[bytes, str]:
-    ts = now_ms()
-    url = f"{URLS.cas_get_captcha}?ts={ts}"
-    r = sess.get(url, timeout=REQ_TIMEOUT, allow_redirects=True)
-    ctype = (r.headers.get("Content-Type") or "").lower()
-    dprint(
-        debug,
-        f"[CAS] captcha {url} -> {r.status_code} {ctype} bytes={len(r.content or b'')}",
-    )
-    if (
-        r.status_code == 200
-        and ctype.startswith("image/")
-        and len(r.content or b"") > 800
-    ):
-        return r.content, url
-    raise RuntimeError("验证码图片获取失败（getCaptcha.htl 未返回有效图片）")
+    except ValueError as exc:
+        raise QueryError(f"统一认证验证码预检响应异常（HTTP {r.status_code}），未提交凭据") from exc
+    required = captcha_needed(data)
+    dprint(debug, f"[CAS] checkNeedCaptcha HTTP={r.status_code} required={required}")
+    if required is not True and (r.status_code != 200 or required is None):
+        raise QueryError(f"统一认证验证码预检结果未确认（HTTP {r.status_code}），未提交凭据")
+    return required
 
 
 def _extract_cas_error_msg(html: str) -> str | None:
@@ -584,30 +564,27 @@ def _extract_cas_error_msg(html: str) -> str | None:
     parser._flush(0)
     if not parser.found:
         return None
-    return min(parser.found, key=lambda x: (x[0], x[1]))[2]
+    cleaned = sanitize_text(min(parser.found, key=lambda x: (x[0], x[1]))[2])
+    return cleaned or None
 
 
-def _cas_rejected_by_captcha(html: str) -> bool:
+_CAS_CAPTCHA_NOTICE = "统一认证需要验证码，请前往官方门户手动完成验证。"
+
+
+def _cas_interaction_notice(status: int, html: str) -> str | None:
+    if status == 429:
+        return "统一认证请求过于频繁（HTTP 429），已暂停自动提交"
+    if _page_says_captcha_visible(html):
+        return _CAS_CAPTCHA_NOTICE
     if _is_cas_risk_page(html):
-        return False
-    msg = _extract_cas_error_msg(html) or ""
-    if "验证码" not in msg:
-        return False
-    return not any(
-        term in msg
-        for term in (
-            "密码",
-            "用户名",
-            "账号",
-            "冻结",
-            "锁定",
-            "频繁",
-            "不存在",
-            "停用",
-            "风控",
-            "上限",
-        )
-    )
+        return "统一认证触发风控，请前往官方门户人工处理。"
+    return None
+
+
+def _stop_on_cas_interaction(response: requests.Response) -> None:
+    notice = _cas_interaction_notice(getattr(response, "status_code", 200), _response_text(response))
+    if notice:
+        raise InteractionRequired(notice)
 
 
 def _get_cas_login_url_via_clientredirect(
@@ -632,6 +609,7 @@ def _get_cas_login_url_via_clientredirect(
     cas_login_prefix = URLS.cas_host.rstrip("/") + "/authserver/login"
 
     for hop in range(12):
+        _stop_on_cas_interaction(r)
         if r.is_redirect or r.is_permanent_redirect:
             loc = r.headers.get("Location") or r.headers.get("location")
             if not loc:
@@ -703,7 +681,7 @@ def cas_login(
 ) -> None:
     """
     完整 CAS 登录流程：
-      clientredirect -> GET login page -> (optional captcha) -> POST -> 跟随重定向回 auth1
+      clientredirect -> 登录页及预检 -> 单次密码提交 -> 门户回跳；遇到人工验证即停止。
     """
     from ysu_net.auth import selfservice
 
@@ -717,6 +695,8 @@ def cas_login(
         headers=_build_browser_headers(referer=login_url),
     )
     r_url = getattr(r, "url", "") or login_url
+    html = _response_text(r)
+    notice = _cas_interaction_notice(getattr(r, "status_code", 200), html)
     parsed_r = urlparse(r_url)
     base_netloc = urlparse(URLS.base).netloc
     if (
@@ -724,121 +704,64 @@ def cas_login(
         and parsed_r.netloc == base_netloc
         and not parsed_r.path.endswith("/authserver/login")
     ):
-        if _is_cas_risk_page(_response_text(r)):
+        if notice:
             selfservice.clear_session(URLS.base, username)
             if hasattr(sess.cookies, "clear"):
                 for c in [c for c in sess.cookies if getattr(c, "name", None) == "CASTGC"]:
                     sess.cookies.clear(domain=c.domain, path=c.path, name=c.name)
-            raise InteractionRequired("统一认证未完成门户回跳（疑似触发风控），请人工处理后重试")
+            raise InteractionRequired(notice)
         dprint(debug, f"[CAS] SSO reused via CASTGC -> {r_url}")
         if any(getattr(c, "name", None) == "CASTGC" for c in getattr(sess, "cookies", ())):
             selfservice.save_session(sess, URLS.base, username)
         return
 
-    html = _response_text(r)
+    if notice:
+        raise InteractionRequired(notice)
     _save_debug_text(debug, "cas_login.html", html)
+    form_html = _extract_login_form(html)
+    pwd_salt = _extract_pwd_salt(form_html) or _extract_pwd_salt(html)
+    if not pwd_salt:
+        raise InteractionRequired("CAS 登录页缺少有效的密码加密参数，请前往官方门户人工处理。")
 
-    def _prepare_post(page_html: str, page_url: str) -> tuple[dict[str, str], str]:
-        if _is_cas_risk_page(page_html):
-            raise InteractionRequired("统一认证触发风控，请人工处理后重试")
-        form_html = _extract_login_form(page_html)
-        parsed_fields = _parse_form_fields(form_html)
-        pwd_salt = _extract_pwd_salt(form_html) or _extract_pwd_salt(page_html)
-        if not pwd_salt:
-            raise InteractionRequired(
-                "CAS 登录页未找到有效的 pwdEncryptSalt（可能页面结构变化或触发风控）"
-            )
-        parsed_fields["username"] = username
-        parsed_fields["password"] = cas_encrypt_password(password, pwd_salt)
-        parsed_fields.setdefault("_eventId", "submit")
-        parsed_fields.setdefault("cllt", "userNameLogin")
-        parsed_fields.setdefault("dllt", "generalLogin")
-        parsed_fields.setdefault("lt", parsed_fields.get("lt", ""))
-        action_url = _extract_form_action(form_html, page_url)
-        target_url = action_url
-        if ("service=" not in target_url) and ("service=" in page_url):
-            sep = "&" if "?" in target_url else "?"
-            target_url = target_url + sep + page_url.split("?", 1)[1]
-        return parsed_fields, target_url
+    if _check_need_captcha(sess, username, debug=debug, referer=r_url):
+        raise InteractionRequired(_CAS_CAPTCHA_NOTICE)
 
-    fields, post_url = _prepare_post(html, r_url)
+    fields = _parse_form_fields(form_html)
+    fields["username"] = username
+    fields["password"] = cas_encrypt_password(password, pwd_salt)
+    fields.setdefault("_eventId", "submit")
+    fields.setdefault("cllt", "userNameLogin")
+    fields.setdefault("dllt", "generalLogin")
+    fields.setdefault("lt", "")
+    post_url = _extract_form_action(form_html, r_url)
+    if "service=" not in post_url and "service=" in r_url:
+        sep = "&" if "?" in post_url else "?"
+        post_url += sep + r_url.split("?", 1)[1]
 
-    # captcha 判定：优先信接口，其次用 DOM 结构兜底
-    need_cap_api = _check_need_captcha(sess, username, debug=debug, referer=r_url)
-    need_cap_dom = _page_says_captcha_visible(html)
-    need_cap = need_cap_dom or need_cap_api is True
-    dprint(
-        debug, f"[CAS] needCaptcha(api/dom)={need_cap_api}/{need_cap_dom} -> {need_cap}"
-    )
-
-    max_attempts = 2 if need_cap else 1
-    r2 = None
-    loc = None
-    for attempt in range(max_attempts):
-        if need_cap:
-            if not sys.stdin.isatty() and not captcha_solver.available():
-                raise InteractionRequired("需要验证码，请在终端手动登录后再启动自动重连")
-            img, img_url = _probe_captcha_image(sess, debug=debug)
-            cap_path = os.path.abspath("captcha.png")
-            with open(cap_path, "wb") as f:
-                f.write(img)
-            dprint(debug, f"[CAPTCHA] from: {img_url}")
-            solved = solve_captcha(img)
-            if solved is None:
-                raise InteractionRequired(
-                    f"需要验证码且没有可用的自动识别结果（图片已保存：{cap_path}）；"
-                    "可设置 YSU_CAPTCHA_SOLVER 或 YSU_CAPTCHA_REMOTE_URL，"
-                    "也可在终端手动登录后再启动自动重连"
-                )
-            dprint(debug, f"[CAPTCHA] backend={solved.backend} len={len(solved.text)}")
-            fields["captcha"] = solved.text
-        else:
-            if "captcha" in fields and not fields["captcha"]:
-                fields.pop("captcha", None)
-
-        xsrf = _cookie_xsrf(sess)
-        headers = _build_browser_headers(referer=r_url)
-        headers.update(
-            {"Origin": URLS.cas_host, "Content-Type": "application/x-www-form-urlencoded"}
-        )
-        if xsrf:
-            headers["X-XSRF-TOKEN"] = unquote(xsrf)
-
-        if debug:
-            print(f"[CAS] POST {post_url}")
-
-        r2 = sess.post(
-            post_url,
-            data=fields,
-            timeout=REQ_TIMEOUT,
-            allow_redirects=False,
-            headers=headers,
-        )
-
-        loc = r2.headers.get("Location") or r2.headers.get("location")
-        if debug:
-            print(f"[CAS] POST status={r2.status_code} loc={loc}")
-
-        if r2.status_code in (301, 302, 303, 307, 308) and loc:
-            break
-
-        if r2.status_code == 429 or r2.status_code >= 500:
-            raise QueryError(f"CAS 服务暂时不可用（HTTP {r2.status_code}），稍后重试")
-
-        body = (r2.content or b"").decode("utf-8", errors="replace")
+    headers = _build_browser_headers(referer=r_url)
+    headers.update({"Origin": URLS.cas_host, "Content-Type": "application/x-www-form-urlencoded"})
+    xsrf = _cookie_xsrf(sess)
+    if xsrf:
+        headers["X-XSRF-TOKEN"] = unquote(xsrf)
+    dprint(debug, f"[CAS] POST {post_url}")
+    r2 = sess.post(post_url, data=fields, timeout=REQ_TIMEOUT, allow_redirects=False, headers=headers)
+    loc = r2.headers.get("Location") or r2.headers.get("location")
+    dprint(debug, f"[CAS] POST status={r2.status_code} loc={loc}")
+    body = _response_text(r2)
+    notice = _cas_interaction_notice(r2.status_code, body)
+    if notice:
+        selfservice.clear_session(URLS.base, username)
+        raise InteractionRequired(notice)
+    if r2.status_code >= 500:
+        raise QueryError(f"CAS 服务暂时不可用（HTTP {r2.status_code}），稍后重试")
+    if r2.status_code not in (301, 302, 303, 307, 308) or not loc:
         _save_debug_text(debug, "cas_after_post.html", body)
-        if need_cap and attempt + 1 < max_attempts and _cas_rejected_by_captcha(body):
-            r_url = getattr(r2, "url", None) or r_url
-            fields, post_url = _prepare_post(body, r_url)
-            continue
-
         selfservice.clear_session(URLS.base, username)
         msg = _extract_cas_error_msg(body)
         raise InteractionRequired(
             f"CAS 登录失败：POST 未重定向。HTTP={r2.status_code} "
             + (f"提示：{msg}" if msg else "请检查账号、密码或风控状态")
         )
-
     # 手动跟随重定向回 auth1
     nxt = urljoin(r2.url, loc)
     rr = r2
@@ -849,6 +772,10 @@ def cas_login(
             allow_redirects=False,
             headers={"Referer": r2.url, "Accept": "*/*"},
         )
+        notice = _cas_interaction_notice(rr.status_code, _response_text(rr))
+        if notice:
+            selfservice.clear_session(URLS.base, username)
+            raise InteractionRequired(notice)
         loc2 = rr.headers.get("Location") or rr.headers.get("location")
         if debug:
             print(f"[CAS] hop[{i}] {rr.status_code} url={nxt} loc={loc2}")
@@ -856,10 +783,6 @@ def cas_login(
             nxt = _rewrite_legacy_portal_main(rr.url, urljoin(rr.url, loc2))
             continue
         break
-
-    if _is_cas_risk_page(_response_text(rr)):
-        selfservice.clear_session(URLS.base, username)
-        raise InteractionRequired("统一认证未完成门户回跳（疑似触发风控），请人工处理后重试")
 
     if any(getattr(c, "name", None) == "CASTGC" for c in getattr(sess, "cookies", ())):
         selfservice.save_session(sess, URLS.base, username)
@@ -919,6 +842,7 @@ def _new_portal_session() -> requests.Session:
     from ysu_net.auth.dns_fallback import install_fallback
 
     sess = requests.Session()
+    sess.trust_env = False
     install_fallback(sess)
     track_resource(sess.close)
     sess.verify = VERIFY_TLS
@@ -942,6 +866,7 @@ def _portal_get(sess: requests.Session, url: str, debug: bool) -> tuple[Any, lis
     chain: list[str] = []
     for _ in range(16):
         r = sess.get(cur, timeout=REQ_TIMEOUT, allow_redirects=False)
+        _stop_on_cas_interaction(r)
         r_url = getattr(r, "url", None) or cur
         for h in getattr(r, "history", ()) or ():
             hu = getattr(h, "url", None)
@@ -1220,6 +1145,7 @@ def cmd_login(service: str, user: str, pwd: str, debug: bool, max_wait: int) -> 
         seed += f"&preview=false&appType=normal&language=zh-CN&timer={now_ms()}"
         dprint(debug, f"[SSO] GET {seed}")
         rr = sess.get(seed, timeout=REQ_TIMEOUT, allow_redirects=True)
+        _stop_on_cas_interaction(rr)
         dprint(debug, f"[SSO] seed final_url={rr.url} status={rr.status_code}")
 
         dprint(debug, "[STEP] CAS login (requests)")

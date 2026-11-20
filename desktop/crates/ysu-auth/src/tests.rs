@@ -197,9 +197,11 @@ struct State {
     cas_required: bool,
     authenticated: bool,
     captcha: bool,
+    preflight: Option<Value>,
     dom_captcha: bool,
     risk: bool,
     cas_reject: u16,
+    cas_reject_body: String,
     callback_body: Option<String>,
     state_http: u16,
     state_override: Option<Value>,
@@ -207,6 +209,7 @@ struct State {
     state_failure_at: Option<usize>,
     offline_ack_only: bool,
     rejected_service: Option<String>,
+    select_http: u16,
     select_override: Option<Value>,
     bootstrap_index_empty: bool,
     observed_action_envelopes: bool,
@@ -238,9 +241,11 @@ impl Default for State {
             cas_required: false,
             authenticated: false,
             captcha: false,
+            preflight: None,
             dom_captcha: false,
             risk: false,
             cas_reject: 0,
+            cas_reject_body: "<span id=msg>private-response</span>".into(),
             callback_body: None,
             state_http: 200,
             state_override: None,
@@ -248,6 +253,7 @@ impl Default for State {
             state_failure_at: None,
             offline_ack_only: false,
             rejected_service: None,
+            select_http: 200,
             select_override: None,
             bootstrap_index_empty: false,
             observed_action_envelopes: false,
@@ -450,7 +456,7 @@ fn respond(s: &mut State, r: Request) -> Response {
             )
             .collect::<String>()
         )),
-        "/authserver/checkNeedCaptcha.htl" => Response::json(json!({"isNeed":s.captcha})),
+        "/authserver/checkNeedCaptcha.htl" => Response::json(s.preflight.clone().unwrap_or_else(|| json!({"isNeed":s.captcha}))),
         "/authserver/login" if r.method == "GET" => {
             if s.issue_tgc
                 && s.tgc_valid
@@ -479,7 +485,7 @@ fn respond(s: &mut State, r: Request) -> Response {
             if s.cas_reject != 0 {
                 return Response::body(
                     s.cas_reject,
-                    b"<span id=msg>private-response</span>".to_vec(),
+                    s.cas_reject_body.as_bytes().to_vec(),
                     "text/html",
                 );
             }
@@ -534,6 +540,13 @@ fn respond(s: &mut State, r: Request) -> Response {
                 .cookie("JSESSIONID=portal-cookie; Path=/; HttpOnly")
         }
         "/eportal/network/serviceLogin" => {
+            if s.select_http != 200 {
+                return Response::body(
+                    s.select_http,
+                    b"Too Many Requests".to_vec(),
+                    "text/plain;charset=utf-8",
+                );
+            }
             if let Some(payload) = &s.select_override {
                 return Response::json(payload.clone());
             }
@@ -550,7 +563,7 @@ fn respond(s: &mut State, r: Request) -> Response {
                     );
                 }
                 return Response::json(
-                    json!({"code":200,"data":{"online":false,"message":"portal认证失败：账号已达到同时在线用户数量上限 private-account"}}),
+                    json!({"code":200,"data":{"online":false,"message":"portal认证失败 private-account"}}),
                 );
             }
             s.selected = target.into();
@@ -814,11 +827,24 @@ async fn cas_captcha_and_risk_never_submit() {
             .filter(|r| r.method == "POST" && r.path.starts_with("/authserver/login"))
             .count();
         assert_eq!(posts, 0);
+        assert_eq!(f.count("/authserver/getCaptcha.htl"), 0);
+        assert_eq!(
+            f.count("/authserver/checkNeedCaptcha.htl"),
+            usize::from(kind == 0)
+        );
+        assert!(f.selections().is_empty());
+        if kind != 2 {
+            assert_eq!(e.diagnostic().stage, DiagnosticStage::Captcha);
+        }
     }
 }
 #[tokio::test]
 async fn cas_rejection_is_redacted_and_retryable_http_is_query_error() {
-    for (http, code) in [(200, INTERACTION_ERROR), (503, QUERY_ERROR)] {
+    for (http, code) in [
+        (200, INTERACTION_ERROR),
+        (429, INTERACTION_ERROR),
+        (503, QUERY_ERROR),
+    ] {
         let f = Fixture::new();
         f.mutate(|s| {
             s.cas_required = true;
@@ -987,7 +1013,7 @@ async fn failed_switch_restores_actual_previous_service_once() {
         s.rejected_service = Some("中国移动".into());
     });
     let error = f.client().switch_service("中国移动").await.unwrap_err();
-    assert_eq!(error.code, INTERACTION_ERROR);
+    assert_eq!(error.code, OPERATION_ERROR);
     assert!(error.message.contains("已独立确认恢复"));
     assert!(!error.message.contains("private-account"));
     assert_eq!(f.selections(), vec!["中国移动", "中国联通"]);
@@ -1077,7 +1103,7 @@ async fn null_raw_service_failed_switch_verifies_original_service_recovery() {
         state.rejected_service = Some("中国移动".into());
     });
     let error = f.client().switch_service("中国移动").await.unwrap_err();
-    assert_eq!(error.code, INTERACTION_ERROR);
+    assert_eq!(error.code, OPERATION_ERROR);
     assert!(error.message.contains("已独立确认恢复原服务"));
     assert_eq!(
         f.client().status().await.unwrap().service.as_deref(),
@@ -1390,11 +1416,159 @@ async fn chromium_cdp_captcha_and_no_fallback_fixture() {
         s.cas_required = true;
         s.captcha = true;
     });
-    assert_eq!(
-        f.client().login().await.unwrap_err().code,
-        INTERACTION_ERROR
-    );
-    assert_eq!(f.selections().len(), 0);
+    let error = f.client().login().await.unwrap_err();
+    assert_eq!(error.code, INTERACTION_ERROR);
+    assert_eq!(error.diagnostic().stage, DiagnosticStage::Captcha);
+    assert_eq!(f.count("/authserver/login"), 1); // GET only
+    assert_eq!(f.count("/authserver/getCaptcha.htl"), 0);
+    assert!(f.selections().is_empty());
+}
+
+#[test]
+fn check_action_classifies_bras_mac_collision_fullwidth_and_device_limits() {
+    let reply = |status: u16| crate::transport::Reply {
+        url: url::Url::parse("https://auth1.ysu.edu.cn/eportal/network/serviceLogin").unwrap(),
+        status,
+        headers: reqwest::header::HeaderMap::new(),
+        body: Vec::new(),
+        chain: Vec::new(),
+    };
+    for payload in [
+        json!({"code": 400, "errorMsg": "brac error: create session failed(mac collision)!"}),
+        json!({"result": "fail", "reason": "ＩＰ被冻结，请稍后再试"}),
+        json!({"result": "fail", "data": {"description": "认证过于频繁，请稍后再试"}}),
+        json!({"result": "fail", "errorCode": "TooManyLoginAttempts"}),
+        json!({"result": "fail", "message": "终端MAC地址已被列入黑名单"}),
+    ] {
+        let err = crate::protocol::check_action(&reply(200), &payload).unwrap_err();
+        assert_eq!(err.code, INTERACTION_ERROR);
+    }
+    let rate_err =
+        crate::protocol::check_action(&reply(429), &json!({"message": "busy"})).unwrap_err();
+    assert_eq!(rate_err.code, INTERACTION_ERROR);
+    assert_eq!(rate_err.diagnostic().reason, DiagnosticReason::HttpRejected);
+
+    for payload in [
+        json!({"result": "fail", "message": "认证设备数量已达到上限"}),
+        json!({"result": "fail", "errorMsg": "登录设备达到最大数量"}),
+        json!({"result": "fail", "authMessage": "同时在线用户数量上限"}),
+    ] {
+        let err = crate::protocol::check_action(&reply(200), &payload).unwrap_err();
+        assert_eq!(err.code, INTERACTION_ERROR);
+        assert_eq!(err.diagnostic().reason, DiagnosticReason::DeviceLimit);
+    }
+}
+
+#[tokio::test]
+async fn login_classifies_portal_http_429_and_device_limit_through_public_client() {
+    let f = Fixture::new();
+    f.mutate(|s| s.select_http = 429);
+    let rate_err = f.client().login().await.unwrap_err();
+    assert_eq!(rate_err.code, INTERACTION_ERROR);
+    assert_eq!(rate_err.diagnostic().reason, DiagnosticReason::HttpRejected);
+
+    let f2 = Fixture::new();
+    f2.mutate(|s| {
+        s.select_override = Some(json!({"result": "fail", "errorMsg": "DeviceLimit"}));
+    });
+    let limit_err = f2.client().login().await.unwrap_err();
+    assert_eq!(limit_err.code, INTERACTION_ERROR);
+    assert_eq!(limit_err.diagnostic().reason, DiagnosticReason::DeviceLimit);
+    assert_eq!(f2.count("/eportal/network/userOnline"), 0);
+}
+
+#[tokio::test]
+async fn switch_stops_at_manual_challenge_without_restoring_previous_service() {
+    for captcha in [false, true] {
+        let f = Fixture::new();
+        f.mutate(|s| {
+            s.online = Some("校园网".into());
+            s.cas_required = captcha;
+            s.captcha = captcha;
+            s.select_override = Some(json!({"result":"fail", "errorCode":"DeviceLimit"}));
+        });
+        let error = f.client().switch_service("中国移动").await.unwrap_err();
+        assert_eq!(error.code, INTERACTION_ERROR);
+        let last_path = if captcha {
+            assert_eq!(error.diagnostic().stage, DiagnosticStage::Captcha);
+            "/authserver/checkNeedCaptcha.htl"
+        } else {
+            assert_eq!(error.diagnostic().reason, DiagnosticReason::DeviceLimit);
+            "/eportal/network/serviceLogin"
+        };
+        let state = f.state.lock().unwrap();
+        assert!(state.requests.last().unwrap().path.starts_with(last_path));
+        assert_eq!(
+            state
+                .requests
+                .iter()
+                .filter(|r| r.path.starts_with(last_path))
+                .count(),
+            1
+        );
+    }
+}
+
+#[tokio::test]
+async fn cas_preflight_conflict_and_unknown_stop_before_credentials() {
+    for (response, code) in [
+        (
+            json!({"isNeed":false,"data":{"needCaptcha":1}}),
+            INTERACTION_ERROR,
+        ),
+        (json!({}), QUERY_ERROR),
+    ] {
+        let f = Fixture::new();
+        f.mutate(|s| {
+            s.cas_required = true;
+            s.preflight = Some(response);
+        });
+        let error = f.client().login().await.unwrap_err();
+        assert_eq!(error.code, code);
+        assert_eq!(error.diagnostic().stage, DiagnosticStage::Captcha);
+        assert_eq!(f.count("/authserver/login"), 1);
+        assert_eq!(f.count("/authserver/getCaptcha.htl"), 0);
+        assert!(f.selections().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn cas_challenge_after_submit_or_callback_is_terminal() {
+    for callback in [false, true] {
+        let f = Fixture::new();
+        f.mutate(|s| {
+            s.cas_required = true;
+            if callback {
+                s.callback_body = Some("<input name=otp>".into());
+            } else {
+                s.cas_reject = 200;
+                s.cas_reject_body = "<span id=msg>验证码错误</span>".into();
+            }
+        });
+        let err = f.client().login().await.unwrap_err();
+        assert_eq!(err.code, INTERACTION_ERROR);
+        assert_eq!(err.diagnostic().stage, DiagnosticStage::Captcha);
+        assert_eq!(f.count("/authserver/login"), 2);
+        assert_eq!(f.count("/authserver/getCaptcha.htl"), 0);
+        assert_eq!(f.count("/cas-ticket-return"), usize::from(callback));
+        assert!(f.selections().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn portal_captcha_flag_or_notice_blocks_activation() {
+    for payload in [
+        json!({"result":"success","data":{"needCaptcha":1}}),
+        json!({"data":{"online":false,"authMessage":"CaptchaRequired"}}),
+    ] {
+        let f = Fixture::new();
+        f.mutate(|s| s.select_override = Some(payload));
+        let err = f.client().login().await.unwrap_err();
+        assert_eq!(err.code, INTERACTION_ERROR);
+        assert_eq!(err.diagnostic().stage, DiagnosticStage::Captcha);
+        assert_eq!(f.count("/eportal/network/serviceLogin"), 1);
+        assert_eq!(f.count("/eportal/network/userOnline"), 0);
+    }
 }
 
 #[path = "diagnostic_tests.rs"]

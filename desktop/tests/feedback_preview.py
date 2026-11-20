@@ -90,7 +90,7 @@ NATIVE += r"""
     // Only the minimal About fixture bootstrap is permitted. Unknown IPC fails
     // closed in that fixture; project links/updater/quit never reach the host.
     if (command === 'plugin:event|listen' || command === 'plugin:event|unlisten' ||
-        command === 'get_desktop_settings' || command === 'captcha_status' ||
+        command === 'get_desktop_settings' ||
         (command === 'core_request' && ['snapshot', 'observe'].includes(args?.command)))
       return original(command, args);
     window.__aboutUnexpected.push(command);
@@ -444,7 +444,7 @@ class Regression:
         page = self.context(browser, native=False)
         self.load(page, demo=True)
         picker = page.get_by_role('combobox', name='选择连接账号', exact=True)
-        rotation = page.get_by_role('switch', name='自动换号', exact=True)
+        rotation = page.get_by_role('switch', name='零流量自动换号', exact=True)
         reconnect = page.get_by_role('switch', name='自动重连', exact=True)
         rotation.click()
         picker.select_option('b' * 32)

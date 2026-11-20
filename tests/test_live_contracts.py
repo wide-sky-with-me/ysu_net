@@ -36,6 +36,15 @@ class LiveContractTests(OfflineTestCase):
             api.cas_login(session, "fixture-user", "fixture-password", False)
         session.post.assert_not_called()
 
+    def test_explicit_action_challenge_outweighs_incomplete_envelope_or_http_error(self):
+        for status, payload in ((200, {"data": {"authMessage": "请输入验证码"}}),
+                                (403, {"data": {"needCaptcha": True}}),
+                                (403, {"errorCode": "CAPTCHA_REQUIRED"}),
+                                (403, {"authMessage": "认证设备数已达上限"})):
+            with self.subTest(status=status, payload=payload), self.assertRaises(InteractionRequired):
+                check_action(status, payload, "serviceLogin")
+        check_action(200, {"result": "success", "message": "无需验证码"}, "serviceLogin")
+
     def test_service_action_envelopes_and_no_activation_after_rejection(self):
         for case in cases("portal-action-results.json"):
             with self.subTest(case=case["id"]):

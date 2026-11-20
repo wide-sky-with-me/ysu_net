@@ -59,6 +59,7 @@ pub enum DiagnosticReason {
     StateUnrecognized,
     BusinessRejected,
     IdentityMismatch,
+    DeviceLimit,
     InteractionRequired,
     BrowserProtocol,
 }

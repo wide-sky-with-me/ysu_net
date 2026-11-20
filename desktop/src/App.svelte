@@ -13,7 +13,7 @@
   import AboutPage from './components/AboutPage.svelte';
   import FeedbackDock from './components/FeedbackDock.svelte';
   import DebugRecording from './components/DebugRecording.svelte';
-  import { confirmAutostart, confirmedPreferences, preferenceNotice, settingBusyMessage, settingError } from './lib/settings';
+  import { confirmAutostart, confirmedPreferences, confirmedSchedule, preferenceNotice, settingBusyMessage, settingError } from './lib/settings';
   import type { Setting } from './lib/settings';
   import { ambientMotion, pageMotion, stateMotion } from './lib/motion';
   import { DEFAULT_ACCENT } from './lib/accents';
@@ -21,9 +21,8 @@
   import { beginStateObservation } from './lib/observation';
   import { accountInfoState, accountSwitchNotice, canAnimateQuota, connectionService, connectionTitle, reconnectNotice, splitDiagnosticError } from './lib/presentation';
   import { accountItems, advanceLogFloor, errorMessage, formatDiagnostics, formatLogTime, normalizeMac, NOSENSE_SERVICES, rotationControl, SERVICES, synchronizeSnapshots, validateConfig } from './lib/protocol';
-  import type { CaptchaStatus, ConfigChanges, CoreCommands, DesktopSettings, NoSenseService, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
+  import type { ConfigChanges, CoreCommands, DesktopSettings, NoSenseService, PublicAccount, PublicConfig, SaveAccount, Service, Snapshot, Theme } from './lib/protocol';
   import type { SelfDevice, SelfService } from './lib/protocol';
-  import { CAPTCHA_STATUS_FAILED, captchaProblem, captchaSummary } from './lib/captcha';
   import { dismissStartupPrompt, subscribeStartupPrompt } from './lib/updater';
   import type { StartupUpdatePrompt } from './lib/updater';
 
@@ -63,9 +62,6 @@
   let parameters = $state<PublicConfig>({ username: '', service: '校园网', backend: 'api', base: 'https://auth1.ysu.edu.cn', cas_host: 'https://cer.ysu.edu.cn', verify_tls: true, check_interval: 15, retry_interval: 30, max_retry_interval: 900, operation_timeout: 180, password_set: false });
   let diagnostic = $state('');
   let diagnosticUpdated = $state('');
-  let captcha = $state<CaptchaStatus | null>(null);
-  let captchaBusy = $state(false);
-  let captchaError = $state<string | null>(null);
   let accountBookError = $state<{ id: string; message: string } | null>(null);
   let logFilter = $state('all');
   let logSearch = $state('');
@@ -291,7 +287,6 @@
 
   function chooseSettings(section: typeof settingsSection) {
     if (section !== 'account') clearPassword();
-    if (section === 'authentication') loadCaptcha();
     settingsSection = section;
     resetScroll();
   }
@@ -508,6 +503,40 @@
     }, preferenceNotice({ auto_install_update: enabled }));
   }
 
+  const DORM_WEEKDAYS = [0, 1, 2, 3, 6];
+  const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
+
+  function scheduleMode(weekdays: number[] | undefined): 'dorm' | 'everyday' | 'custom' {
+    if (!weekdays || (weekdays.length === DORM_WEEKDAYS.length && weekdays.every((v, i) => v === DORM_WEEKDAYS[i]))) return 'dorm';
+    if (weekdays.length === ALL_WEEKDAYS.length && weekdays.every((v, i) => v === ALL_WEEKDAYS[i])) return 'everyday';
+    return 'custom';
+  }
+
+  function scheduleDaysLabel(weekdays: number[] | undefined): string {
+    const mode = scheduleMode(weekdays);
+    if (mode === 'dorm') return '周日至周四';
+    if (mode === 'everyday') return '每天';
+    const names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    return (weekdays || []).map((d) => names[d] || '').filter(Boolean).join('、');
+  }
+
+  function updateSchedule(changes: CoreCommands['schedule'], successNotice: string) {
+    const current = snapshot?.schedule ?? { night_pause: false, start: '23:30', end: '06:00', weekdays: DORM_WEEKDAYS };
+    const nextStart = changes.start ?? current.start;
+    const nextEnd = changes.end ?? current.end;
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(nextStart) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(nextEnd)) {
+      notice = { message: '请输入有效的时间（HH:MM）。', error: true };
+      return;
+    }
+    if (nextStart === nextEnd) {
+      notice = { message: '暂停开始与恢复时间不能相同。', error: true };
+      return;
+    }
+    void executeSetting('night_pause', async () => {
+      receive(confirmedSchedule(await transport.request('schedule', changes), changes));
+    }, successNotice);
+  }
+
   function dismissUpdatePrompt(version: string) {
     dismissedUpdateVersion = version;
     updatePrompt = null;
@@ -522,22 +551,6 @@
     void executeSetting('ignore_update', async () => {
       receive(confirmedPreferences(await transport.request('save_prefs', changes), changes));
     }, preferenceNotice(changes));
-  }
-
-  function loadCaptcha() {
-    if (transport.mode === 'web') return;
-    void transport.captchaStatus().then((value) => { if (mounted) { captcha = value; captchaError = null; } })
-      .catch((error) => { if (mounted) captchaError = captchaProblem(error, CAPTCHA_STATUS_FAILED); });
-  }
-
-  function downloadCaptcha() {
-    if (captchaBusy || transport.mode === 'web' || (transport.mode === 'desktop' && native?.demo)) return;
-    captchaBusy = true;
-    captchaError = null;
-    void transport.captchaDownload()
-      .then((value) => { if (!mounted) return; captcha = value; notice = { message: captchaSummary(value), error: false }; })
-      .catch((error) => { if (mounted) captchaError = captchaProblem(error); })
-      .finally(() => { if (mounted) captchaBusy = false; });
   }
 
   function refreshBrowser() {
@@ -639,13 +652,13 @@
           <div class="automation-copy"><h2>自动重连</h2>{#if reconnectMessage}<p>{reconnectMessage}{#if snapshot?.auto.delay !== undefined && snapshot.auto.delay > 0}<span> 本轮等待 {snapshot.auto.delay} 秒。</span>{/if}</p>{/if}</div>
           <Toggle checked={snapshot?.auto.state === 'on'} disabled={localLocked || external || (busy && snapshot?.auto.state !== 'on')} label="自动重连" onchange={(value) => { void action('set_auto', value); }} />
         </section>
-        <section class="auto-section rotation-section" aria-label="账号自动轮换">
+        <section class="auto-section rotation-section" aria-label="零流量自动换号">
           <span class="automation-icon" class:active={Boolean(snapshot?.accounts.auto_switch)} aria-hidden="true"><Icon name="rotation" size={18} /></span>
           <div class="automation-copy">
-            <div class="automation-heading"><h2>自动换号</h2>{#if !external && rotation.reason}<details class="rotation-help"><summary aria-label="自动换号条件" title={rotation.reason}><Icon name="info" size={15} /></summary><p>{rotation.reason}</p></details>{/if}</div>
+            <div class="automation-heading"><h2>零流量自动换号</h2>{#if !external && rotation.reason}<details class="rotation-help"><summary aria-label="零流量自动换号条件" title={rotation.reason}><Icon name="info" size={15} /></summary><p>{rotation.reason}</p></details>{/if}</div>
             {#if snapshot?.accounts.auto_switch}<p class="quota-status" role="status" aria-label="流量状态" data-state={snapshot.accounts.quota.state}>{#if snapshot.accounts.quota.state === 'available' && snapshot.accounts.quota.message}<AnimatedMetric value={snapshot.accounts.quota.message} />{:else}{quotaTitle}{#if snapshot.accounts.quota.message}：{snapshot.accounts.quota.message}{/if}{#if snapshot.accounts.quota.state === 'zero_reported'}；门户显示可能舍入，待核心复核。{/if}{/if}</p>{/if}
           </div>
-          <Toggle checked={snapshot?.accounts.auto_switch || false} disabled={localLocked || (!snapshot?.accounts.auto_switch && (pending || !rotation.canEnable))} label="自动换号" onchange={setRotation} />
+          <Toggle checked={snapshot?.accounts.auto_switch || false} disabled={localLocked || (!snapshot?.accounts.auto_switch && (pending || !rotation.canEnable))} label="零流量自动换号" onchange={setRotation} />
         </section>
         </div>
           <div class="connection-controls">
@@ -908,11 +921,40 @@
               </fieldset>
             </form>
             <section class="settings-section">
-              <div class="section-heading"><h2>验证码识别</h2></div>
-              <div class="setting-row captcha-setting">
-                <div><span>{captchaSummary(captcha)}</span>{#if transport.mode === 'desktop' && native?.demo}<p>离线模拟不下载验证码模型。</p>{:else if captcha?.ready}<p>仅保存在本机缓存，清理缓存或换机后需重新下载。</p>{:else}<p>模型不随安装包分发，下载后保存在本机缓存。</p>{/if}{#if captchaError}<p class="captcha-error" role="alert">{captchaError}</p>{/if}</div>
-                <button type="button" class="captcha-download" aria-busy={captchaBusy} disabled={captchaBusy || transport.mode === 'web' || (transport.mode === 'desktop' && !!native?.demo)} onclick={downloadCaptcha}><Icon name="refresh" size={16} />{captchaBusy ? '正在下载…' : captcha?.ready ? '重新下载' : '下载模型'}</button>
+              <div class="section-heading"><h2>停网保护</h2></div>
+              <div class="setting-row" aria-busy={pendingSetting === 'night_pause'}>
+                <div>
+                  <span>夜间停网暂停重连</span>
+                  <p>{scheduleDaysLabel(snapshot?.schedule?.weekdays)} {snapshot?.schedule?.start || '23:30'}–{snapshot?.schedule?.end || '06:00'} 暂停重连与续约，到点自动恢复。</p>
+                </div>
+                <Toggle checked={Boolean(snapshot?.schedule?.night_pause)} busy={pendingSetting === 'night_pause'} disabled={locked || external} label="夜间停网暂停重连" onchange={(enabled) => updateSchedule({ night_pause: enabled }, enabled ? '夜间停网保护已开启' : '夜间停网保护已关闭')} />
               </div>
+              {#if snapshot?.schedule?.night_pause}
+                <label class="setting-row">
+                  <div><span>生效周期</span></div>
+                  <select aria-label="生效周期" value={scheduleMode(snapshot.schedule.weekdays)} disabled={locked || external || pendingSetting === 'night_pause'} onchange={(event) => {
+                    const value = event.currentTarget.value;
+                    if (value === 'dorm') updateSchedule({ weekdays: DORM_WEEKDAYS }, '停网保护周期已更新');
+                    else if (value === 'everyday') updateSchedule({ weekdays: ALL_WEEKDAYS }, '停网保护周期已更新');
+                  }}>
+                    <option value="dorm">周日至周四</option>
+                    <option value="everyday">每天</option>
+                    {#if scheduleMode(snapshot.schedule.weekdays) === 'custom'}<option value="custom">{scheduleDaysLabel(snapshot.schedule.weekdays)}</option>{/if}
+                  </select>
+                </label>
+                <div class="setting-row">
+                  <div><span>暂停时段</span></div>
+                  <div class="schedule-time-range">
+                    <input type="time" aria-label="暂停开始时间" value={snapshot.schedule.start} disabled={locked || external || pendingSetting === 'night_pause'} onchange={(event) => updateSchedule({ start: event.currentTarget.value }, '停网保护时段已更新')} />
+                    <span>至</span>
+                    <input type="time" aria-label="恢复重连时间" value={snapshot.schedule.end} disabled={locked || external || pendingSetting === 'night_pause'} onchange={(event) => updateSchedule({ end: event.currentTarget.value }, '停网保护时段已更新')} />
+                  </div>
+                </div>
+              {/if}
+            </section>
+            <section class="settings-section">
+              <div class="section-heading"><h2>需要到门户处理的情况</h2></div>
+              <div class="setting-row"><div><span>设备数达上限或 CAS 要求验证码时，自动登录暂停。</span><p>请在校园网门户下线闲置设备或完成验证码，再回到「连接」页手动连接。</p></div></div>
             </section>
           {:else}
             <section class="settings-section diagnostics-section">
